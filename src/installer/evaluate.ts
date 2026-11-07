@@ -131,7 +131,7 @@ export function evaluate(input: Installation): Evaluation {
         detail: `Point de fonctionnement à ${f0(h.x * 100)} % du débit optimal (plage conseillée 70–120 %).`,
         consequences: low ? ['Recirculation interne, vibrations', 'Échauffement du liquide', 'Efforts radiaux sur l\'arbre'] : ['Risque de cavitation', 'Surcharge du moteur', 'Bruit et vibrations'],
         parts: low ? ['roulements', 'garniture', 'arbre', 'roue'] : ['roue', 'moteur', 'garniture', 'roulements'],
-        solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : ['Augmenter la résistance du réseau (vanne) ou choisir une pompe plus grande', 'Vérifier la puissance moteur'] });
+        solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : ['Choisir une pompe plus adaptée, ou freiner le débit (vanne, variateur)', 'Vérifier la puissance moteur'] });
     } else if (h.x >= 0.85 && h.x <= 1.1) goods.push(`Point de fonctionnement proche du rendement optimal (${f0(h.x * 100)} % du débit nominal)`);
 
     const share = h.hLoss / h.h;

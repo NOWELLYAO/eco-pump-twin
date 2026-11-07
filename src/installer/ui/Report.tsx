@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Spark
 import { MONTHS, START_LABEL, SUPPLY_LABEL } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
+import { pumpHead, systemHeadAt } from '../hydraulics';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
 import type { Category, Installation, Issue, Sev } from '../types';
@@ -268,25 +269,59 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const c = useChartColors();
   const h = ev.hydro;
   const op = h.ok ? [{ q: h.q, y: h.h }] : [];
-  const need = [{ q: i.duty.qReq, y: h.curve.find((p) => p.q >= i.duty.qReq)?.hs ?? h.hStatic + h.hPress }];
+  const qN = i.duty.qReq;
+  const demandAt = (q: number) => systemHeadAt(i, q);
+  const need = [{ q: qN, y: demandAt(qN) }];
   const axis = { stroke: c.axis, fontSize: 12, tickLine: false };
-  const top = Math.max(...h.curve.map((p) => p.hp ?? 0)) * 1.15;
+  const top = Math.max(...h.curve.map((p) => p.hp ?? 0), demandAt(qN)) * 1.15;
+  const h0 = pumpHead(i, 0);
+  const givesAtNeed = pumpHead(i, qN);
+  const asksAtNeed = demandAt(qN);
+  const gap = givesAtNeed - asksAtNeed;
+  const fricOp = h.hLoss;
+  const parts = [
+    { l: 'Hauteur à monter', v: Math.max(0, h.hStatic), cls: 'geo' },
+    { l: `Pression demandée (${fmt(i.duty.pRes, 1)} bar)`, v: Math.max(0, h.hPress), cls: 'press' },
+    { l: 'Frottements dans les tuyaux', v: Math.max(0, fricOp), cls: 'fric' },
+  ];
+  const tot = parts.reduce((a, b) => a + b.v, 0) || 1;
+  // Vitesse de variateur qui amènerait le point sur le besoin
+  const kq = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
+  const qe = qN / h.n;
+  const sVfd = Math.sqrt((asksAtNeed + kq * qe * qe) / (i.pump.hn * i.pump.shutoff));
   return (
     <figure className="instcurve">
-      <figcaption>Courbe de la pompe et courbe du réseau <span>(HMT en m, débit en m³/h)</span></figcaption>
-      <ResponsiveContainer width="100%" height={340}>
+      <figcaption>Ce que la pompe fournit face à ce que l'installation demande <span>(hauteur en m, débit en m³/h)</span></figcaption>
+      <ResponsiveContainer width="100%" height={330}>
         <ComposedChart data={h.curve} margin={{ top: 10, right: 16, bottom: 4, left: -6 }}>
           <CartesianGrid stroke={c.grid} vertical={false} />
           <XAxis dataKey="q" type="number" domain={[0, 'dataMax']} {...axis} tickFormatter={(v) => fmt(v, 0)} />
           <YAxis domain={[0, Math.ceil(top / 5) * 5]} allowDataOverflow {...axis} width={44} tickFormatter={(v) => fmt(v, 0)} />
           <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.grid}`, borderRadius: 10, color: c.ink, fontSize: 13 }} labelFormatter={(v) => `Débit ${fmt(Number(v), 1)} m³/h`} formatter={(v, n) => [`${fmt(Number(v), 1)} m`, n]} />
           <Legend iconType="plainline" wrapperStyle={{ fontSize: 12.5 }} />
-          <Line name="Pompe" dataKey="hp" stroke={c.s1} strokeWidth={2} dot={false} isAnimationActive={false} />
-          <Line name="Réseau (géo + pression + pertes)" dataKey="hs" stroke={c.s3} strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
-          <Scatter name="Besoin" data={need} dataKey="y" fill={c.surface} stroke={c.ink} strokeWidth={2} legendType="circle" isAnimationActive={false} />
-          <Scatter name="Point de fonctionnement" data={op} dataKey="y" fill={c.s2} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
+          <Line name="Ce que la pompe fournit" dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          <Line name="Ce que l'installation demande" dataKey="hs" stroke={c.s3} strokeWidth={2.5} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
+          <Scatter name="Votre besoin" data={need} dataKey="y" fill={c.ink} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
+          <Scatter name="Point de fonctionnement réel" data={op} dataKey="y" fill={c.s2} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
         </ComposedChart>
       </ResponsiveContainer>
+
+      <div className="howto">
+        <h5>Comment lire ce graphique</h5>
+        <p><span className="key k-pump" /> <b>Ce que la pompe fournit</b> : la hauteur que la pompe est capable de donner selon le débit. Plus elle débite, moins elle pousse fort : {fmt(h0, 0)} m vanne fermée, {fmt(i.pump.hn, 0)} m à {fmt(i.pump.qn, 1)} m³/h{h.n > 1 ? ` (par pompe ; ${h.n} pompes en service)` : ''}.</p>
+        <p><span className="key k-net" /> <b>Ce que l'installation demande</b> : la hauteur qu'il faut pour faire passer l'eau dans vos tuyaux jusqu'au point d'utilisation. Au point de fonctionnement, elle se compose de :</p>
+        <div className="stackbar">{parts.map((p) => <i key={p.cls} className={p.cls} style={{ width: `${(p.v / tot) * 100}%` }} title={`${p.l} : ${fmt(p.v, 1)} m`} />)}</div>
+        <ul className="stacklegend">{parts.map((p) => <li key={p.cls}><i className={p.cls} /> {p.l} : <b>{fmt(p.v, 1)} m</b></li>)}</ul>
+        <p className="small muted">Les deux premières ne changent pas avec le débit ; les frottements augmentent quand le débit augmente. C'est pour cela que la ligne violette monte.</p>
+        <p><span className="key k-op" /> <b>Le point de fonctionnement</b> est le croisement des deux lignes : c'est là que la pompe donne exactement ce que l'installation demande. {h.ok ? <>Ici : <b>{fmt(h.q, 1)} m³/h à {fmt(h.h, 1)} m</b>, soit {fmt(h.x * 100, 0)} % du débit idéal de la pompe.</> : <b>Les lignes ne se croisent pas : la pompe n'a pas assez de hauteur, aucun débit.</b>}</p>
+        <div className={`verdictline ${Math.abs(gap) / Math.max(1, asksAtNeed) < 0.08 ? 'ok' : gap > 0 ? 'over' : 'under'}`}>
+          {Math.abs(gap) / Math.max(1, asksAtNeed) < 0.08
+            ? <>À votre besoin ({fmt(qN, 1)} m³/h), la pompe donne {fmt(givesAtNeed, 1)} m et l'installation en demande {fmt(asksAtNeed, 1)} m : <b>la pompe est bien adaptée.</b></>
+            : gap > 0
+              ? <>À votre besoin ({fmt(qN, 1)} m³/h), la pompe donne <b>{fmt(givesAtNeed, 0)} m</b> alors que l'installation n'en demande que <b>{fmt(asksAtNeed, 0)} m</b> : <b>{fmt(gap, 0)} m de trop</b>. Ce surplus fait accélérer l'eau jusqu'au croisement{h.ok ? ` (${fmt(h.q, 1)} m³/h)` : ''}. Pour revenir au besoin : pompe plus petite{sVfd > 0.5 && sVfd < 1 ? `, variateur à ${fmt(sVfd * 100, 0)} % (${fmt(sVfd * 50, 0)} Hz)` : ''} ou vanne partiellement fermée (énergie perdue).</>
+              : <>À votre besoin ({fmt(qN, 1)} m³/h), la pompe ne donne que <b>{fmt(Math.max(0, givesAtNeed), 0)} m</b> alors que l'installation demande <b>{fmt(asksAtNeed, 0)} m</b> : <b>il manque {fmt(-gap, 0)} m</b>. Le débit reste donc plus faible{h.ok ? ` (${fmt(h.q, 1)} m³/h)` : ''}. Il faut une pompe plus puissante, ou réduire les frottements (tuyaux plus gros) ou la pression demandée.</>}
+        </div>
+      </div>
     </figure>
   );
 }

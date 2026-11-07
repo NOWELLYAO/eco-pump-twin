@@ -841,3 +841,23 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .tbl.sizes { margin-top: 10px; }
 .tbl.sizes td { padding: 5px 6px; }
 .tbl.sizes tr.sel td { background: var(--brand-soft); font-weight: 700; }
+
+.howto { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; font-size: .9rem; display: flex; flex-direction: column; gap: 8px; }
+.howto h5 { margin: 0; font-size: .74rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.howto p { margin: 0; line-height: 1.5; }
+.key { display: inline-block; width: 22px; height: 0; border-top: 3px solid; vertical-align: middle; margin-right: 2px; }
+.k-pump { border-color: #1689c6; } .k-net { border-color: #7a5bc4; border-top-style: dashed; }
+.k-op { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #d9761f; }
+.stackbar { display: flex; height: 14px; border-radius: 99px; overflow: hidden; border: 1px solid var(--line); }
+.stackbar i, .stacklegend i { display: block; }
+.stackbar .geo, .stacklegend .geo { background: #6b7a86; }
+.stackbar .press, .stacklegend .press { background: #1689c6; }
+.stackbar .fric, .stacklegend .fric { background: #d9761f; }
+.stackbar i + i { border-left: 2px solid var(--panel); }
+.stacklegend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .84rem; }
+.stacklegend li { display: flex; align-items: center; gap: 6px; }
+.stacklegend i { width: 10px; height: 10px; border-radius: 3px; }
+.verdictline { border-radius: 10px; padding: 10px 12px; line-height: 1.5; }
+.verdictline.ok { background: var(--good-bg); }
+.verdictline.over { background: var(--warn-bg); }
+.verdictline.under { background: var(--crit-bg); }
