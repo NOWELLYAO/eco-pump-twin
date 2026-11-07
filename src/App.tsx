@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, ClipboardCheck, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
+import { BookOpen, ClipboardCheck, Wand2, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
 import { ensureElec } from './installer/electrical';
@@ -12,6 +12,7 @@ import { buildReportPdf, shareOrDownload } from './ui/pdf';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { CommissionPage, CommissionResults } from './installer/ui/CommissionPage';
 import { PidView } from './installer/ui/PidView';
+import { Wizard } from './installer/ui/Wizard';
 import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
 
 type Page = 'design' | 'sim' | 'diag' | 'com' | 'mat';
@@ -35,6 +36,7 @@ function load(): Installation {
 function Guide() {
   return (
     <div className="guide">
+      <p><b>Conception guidée</b> : bouton « Nouvelle » → « Conception guidée » : l'application vous pose les questions une par une et dimensionne tout.</p>
       <p><b>Conception</b> : décrivez l'installation étape par étape (ou partez d'un exemple). La vue réelle, le schéma P&ID et la note se mettent à jour à chaque saisie.</p>
       <p><b>Simulation</b> : mettez la pompe en marche ou à l'arrêt, faites défiler le temps et jouez sur la vanne, la vitesse, le niveau d'eau, le colmatage ou l'usure. Les instruments, les courbes, les alertes et le journal des événements réagissent en direct.</p>
       <p><b>Diagnostic</b> : cliquez sur une alerte pour voir l'élément concerné clignoter sur le schéma, puis corrigez-la en un clic.</p>
@@ -55,6 +57,8 @@ export default function App() {
   const [guide, setGuide] = useState(false);
   const [reset, setReset] = useState(false);
   const [rep, setRep] = useState(false);
+  const [wiz, setWiz] = useState(false);
+  useEffect(() => { const o = () => { setReset(false); setWiz(true); }; window.addEventListener('open-wizard', o); return () => window.removeEventListener('open-wizard', o); }, []);
   const [busy, setBusy] = useState<string | null>(null);
   const standaloneIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && ((navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia('(display-mode: standalone)').matches);
   const exportPdf = async () => {
@@ -170,7 +174,11 @@ export default function App() {
         <div className="backdrop" onClick={() => setReset(false)}>
           <div className="modal wide" role="dialog" aria-modal aria-label="Nouvelle installation" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head"><h2>Nouvelle installation</h2><button className="icon-btn" onClick={() => setReset(false)} aria-label="Fermer"><X size={20} /></button></div>
-            <p className="muted">L'installation actuelle (« {inst.name} ») sera remplacée. Choisissez l'application : vous partirez d'une installation vide, sans accessoire, à concevoir étape par étape.</p>
+            <button className="wz-entry" onClick={() => { setReset(false); setWiz(true); }}>
+              <Wand2 size={26} aria-hidden />
+              <span><b>Conception guidée (conseillé)</b><small>10 questions simples : l'application calcule les tuyaux, choisit les accessoires, propose la pompe et le câble.</small></span>
+            </button>
+            <p className="muted small">Ou partez d'une installation vide à remplir vous-même. L'installation actuelle (« {inst.name} ») sera remplacée.</p>
             <label className="ifld"><span>Nom du projet</span><input value={resetName} placeholder="Ex. : Forage de Kibera" onChange={(e) => setResetName(e.target.value)} /></label>
             <div className="appgrid">
               {(Object.keys(APPS) as AppId[]).map((a) => (
@@ -186,11 +194,12 @@ export default function App() {
                 const n = empty(resetApp, resetEquip);
                 setInst({ ...n, name: resetName.trim() || `Nouvelle installation — ${APPS[resetApp].label}` });
                 setSelected(null); setActiveIssue(null); setReset(false); setPage('design');
-              }}><FilePlus2 size={16} aria-hidden /> Commencer de zéro</button>
+              }}><FilePlus2 size={16} aria-hidden /> Vide, en mode libre</button>
             </div>
           </div>
         </div>
       )}
+      {wiz && <Wizard onClose={() => setWiz(false)} onDone={(n) => { setInst(ensureElec(n)); setSelected(null); setActiveIssue(null); setWiz(false); setPage('design'); }} />}
       {guide && (
         <div className="backdrop" onClick={() => setGuide(false)}>
           <div className="modal" role="dialog" aria-modal aria-label="Guide" onClick={(e) => e.stopPropagation()}>

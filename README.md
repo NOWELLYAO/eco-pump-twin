@@ -75,3 +75,11 @@ Seuils de vibration : ISO 10816-3 (machines groupe 2) : alerte 4,5 mm/s, danger 
 - Comptes clients et accès multi-sites.
 - Alertes SMS / WhatsApp en cas de diagnostic critique.
 - Rapport PDF mensuel par pompe.
+
+## Conception guidée
+
+Bouton « Nouvelle » → « Conception guidée » (ou « Conception guidée, pas à pas » en haut de la page Conception). Dix étapes :
+projet → type de pompe et montage → liquide → besoin (débit, pression, heures) → hauteurs (croquis coté) → tuyaux
+(DN calculés : ≤ 1,2 m/s à l'aspiration, ≤ 1,5 m/s au refoulement) → accessoires (requis + conseillés cochés)
+→ pompe proposée (débit et hauteur totale calculés, réserve de pression si pressostat) → électricité (section de câble
+calculée, solaire) → résultat (note, alertes et corrections en un clic).
