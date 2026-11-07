@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
 import { START_LABEL, SUPPLY_LABEL } from '../electrical';
+import { mountSequence, posAdvice } from '../positions';
 import { CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
@@ -335,6 +336,36 @@ export function ElecCard({ i, ev }: { i: Installation; ev: Evaluation }) {
           </tbody></table>
         </>
       )}
+    </section>
+  );
+}
+
+export function MountOrder({ i, ev, onFix }: { i: Installation; ev: Evaluation; onFix: (x: Issue) => void }) {
+  const seq = mountSequence(i, ev.needs);
+  let zone = '';
+  return (
+    <section className="card">
+      <h3><ListChecks size={16} aria-hidden /> Ordre de montage et position des accessoires <small>de la source vers l'utilisation</small></h3>
+      <ol className="mount">
+        {seq.map((x, n) => {
+          const head = x.zone !== zone ? (zone = x.zone) : null;
+          const miss = ev.issues.find((y) => y.id === `miss_${x.id}`);
+          return (
+            <li key={x.id} className={x.on ? '' : 'missing'}>
+              {head && <h4 className="sub-h">{head}</h4>}
+              <div className="mount-row">
+                <span className="mount-n">{n + 1}</span>
+                <div>
+                  <b>{ACC[x.id]?.label}{ACC[x.id]?.inline && i.acc[x.id]?.dn ? ` · DN${i.acc[x.id].dn}` : ''}</b>
+                  {!x.on && <span className="badge lv-critical"> Manquant</span>}
+                  <p>{posAdvice(x.id, i, ev.hydro)}</p>
+                  {!x.on && miss && <button className="link" onClick={() => onFix(miss)}>Ajouter</button>}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </section>
   );
 }

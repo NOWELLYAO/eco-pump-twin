@@ -4,6 +4,7 @@ import { ACC, APPS, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from 
 import type { Evaluation } from '../evaluate';
 import { defaultDn } from '../evaluate';
 import { photoQuery, targetLabel, targetsOf } from '../targets';
+import { posAdvice } from '../positions';
 import type { Installation, Issue } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { fmt } from '../../ui/util';
@@ -93,7 +94,7 @@ function Detail({ t, i, ev, onIssue, onSet, onClose }: {
     const a = ACC[id];
     const st = i.acc[id];
     const need = ev.needs[id];
-    rows.push(['Rôle', a?.desc ?? ''], ['Pour cette installation', NEED_LABEL[need] || 'Non concerné'], ['État', st?.on ? `Installé${a?.inline ? ` · DN${st.dn}` : ''}` : 'Non installé']);
+    rows.push(['Rôle', a?.desc ?? ''], ['Où l\'installer', posAdvice(id, i, h)], ['Pour cette installation', NEED_LABEL[need] || 'Non concerné'], ['État', st?.on ? `Installé${a?.inline ? ` · DN${st.dn}` : ''}` : 'Non installé']);
     if (id === 'vessie' && ev.elec.vessel) rows.push(['Réglages', `${ev.elec.vessel.vol} L PN${ev.elec.vessel.pn} · ${fmt(ev.elec.vessel.pOn, 1)}/${fmt(ev.elec.vessel.pOff, 1)} bar`]);
     action = st?.on
       ? <button className="btn sm" onClick={() => onSet((x) => ({ ...x, acc: { ...x.acc, [id]: { ...x.acc[id], on: false } } }))}><Trash2 size={14} aria-hidden /> Retirer</button>

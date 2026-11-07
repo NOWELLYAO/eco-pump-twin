@@ -1,4 +1,5 @@
-import { Wand2 } from 'lucide-react';
+import { MapPin, Wand2 } from 'lucide-react';
+import { posAdvice } from '../positions';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES } from '../catalog';
 import { defaultDn, withPipe } from '../evaluate';
 import { SECTIONS, START_LABEL, SUPPLY_LABEL, TANK_SIZES, type ElecResult } from '../electrical';
@@ -237,6 +238,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
                       <span><b>{a.label}</b><small>{a.desc}</small></span>
                       {NEED_LABEL[n] && <em className={`need ${n}`}>{NEED_LABEL[n]}</em>}
                     </label>
+                    {on && <p className="iacc-pos"><MapPin size={13} aria-hidden /> <span>{posAdvice(a.id, i)}</span></p>}
                     {on && (a.inline || a.id === 'vessie') && (
                       <div className="iacc-opts">
                         {a.inline && <SelField label="DN" value={st?.dn || defaultDn(i, a.id)} options={dnOpts} onChange={(v) => setSt({ dn: v })} />}

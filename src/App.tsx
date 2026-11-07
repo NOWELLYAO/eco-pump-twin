@@ -7,7 +7,7 @@ import { targetsOf } from './installer/targets';
 import type { Installation, Issue } from './installer/types';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { PidView } from './installer/ui/PidView';
-import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
+import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
 
 type Page = 'design' | 'sim' | 'diag' | 'mat';
 const PAGES: { id: Page; label: string; icon: typeof PencilRuler }[] = [
@@ -109,6 +109,7 @@ export default function App() {
         <Goods ev={ev} />
         <ElecCard i={inst} ev={ev} />
         <LossTable ev={ev} />
+        <MountOrder i={inst} ev={ev} onFix={() => undefined} />
         <Bom i={inst} ev={ev} onFix={() => undefined} />
       </div>
 

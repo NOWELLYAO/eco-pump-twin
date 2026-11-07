@@ -1,13 +1,14 @@
 import type { MouseEvent, ReactNode } from 'react';
 import type { Readings, SimKind } from '../sim';
-import { ACC, ACCESSORIES, APPS, FLUIDS, PIPE_MATS } from '../catalog';
+import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
+import { REF_ORDER, aspGroups } from '../positions';
 import type { Installation } from '../types';
 import { RealGlyph } from './Glyphs';
 
 type Pt = [number, number];
-const W = 1000, H = 560;
+const H = 560;
 
 const SHORT: Record<string, string> = {
   clapet_pied: 'Clapet de pied', crepine: 'Crépine', vanne_asp: 'Vanne', filtre_asp: 'Filtre Y', prefiltre: 'Préfiltre',
@@ -100,6 +101,22 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
   const fluid = FLUIDS[i.fluid.type];
   const liquidCls = i.fluid.type === 'gasoil' || i.fluid.type === 'huile' ? 'r-oil' : i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'r-dirty' : 'r-water';
 
+  // Largeur du dessin : on allonge les conduites quand il y a beaucoup d'accessoires
+  const groups = aspGroups(i);
+  const refIds = REF_ORDER.filter(on);
+  const STEP_A = 58, STEP_R = 66;
+  const vertical0 = i.pumpType === 'multi_v';
+  const surface = !(i.mode === 'immergee');
+  const px0 = vertical0 ? 470 : 440;
+  const availAsp = surface ? (px0 - 28) - (i.mode === 'aspiration' ? 170 : 230) : 0;
+  const needAsp = surface ? (groups.near.length + groups.far.length) * STEP_A + (groups.far.length ? 70 : 0) + 40 : 0;
+  const DX = Math.max(0, needAsp - availAsp);
+  const refX0 = i.pumpType === 'immergee_forage' ? 195 : !surface ? 300 : px0 + DX + (vertical0 ? 80 : 0);
+  const availRef = 790 + DX - refX0 - 74;
+  const DR = Math.max(0, refIds.length * STEP_R - availRef);
+  const REF_END = 790 + DX + DR;
+  const W = 1000 + DX + DR;
+
   let G = 320;
   let asp: Pt[] | null = null;
   let ref: Pt[] = [];
@@ -135,7 +152,7 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
       </g>,
     );
     pumpXY = [195, pTop + 30];
-    ref = [[195, pTop], [195, G - 40], [790, G - 40]];
+    ref = [[195, pTop], [195, G - 40], [REF_END, G - 40]];
     refStart = polyLen(ref.slice(0, 2)) + 40;
     if (on('marche_sec')) front.push(<g key="el" transform={`translate(170,${pTop - 20})`}><path d={`M0 ${-(pTop - 20 - G)} V0`} className="r-cablepath" /><RealGlyph kind="electrode" /></g>);
     if (on('sonde_niveau')) front.push(<g key="sn" transform={`translate(228,${yD + 30})`}><path d={`M0 ${-(yD + 30 - G)} V0`} className="r-cablepath" /><RealGlyph kind="probe" /></g>);
@@ -172,7 +189,7 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
       </g>,
     );
     pumpXY = [205, floor - 40];
-    ref = [[270, floor - 20], [300, floor - 20], [300, G + 50], [790, G + 50]];
+    ref = [[270, floor - 20], [300, floor - 20], [300, G + 50], [REF_END, G + 50]];
     refStart = 50;
     const floats: [string, number][] = [['flotteur_arret', yStop], ['flotteur_marche', yStart], ['flotteur_alarme', yAlarm]];
     floats.forEach(([id, y], n) => {
@@ -190,7 +207,7 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
     // Pompe de surface : en aspiration ou en charge
     const vertical = i.pumpType === 'multi_v';
     const axisY = 288;
-    const px = vertical ? 470 : 440;
+    const px = (vertical ? 470 : 440) + DX;
     pumpXY = [px, axisY];
     scene.push(<rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />);
     if (i.mode === 'aspiration') {
@@ -216,7 +233,7 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
       dims.push(<Dim key="d1" x={58} y1={wl} y2={axisY} label={`En charge ${fm(i.geo.chargeHead)}`} />);
     }
     front.push(vertical ? <VerticalPump key="vp" x={px} y={axisY} atex={on('atex')} /> : <SurfacePump key="sp" x={px} y={axisY} atex={on('atex')} />);
-    ref = vertical ? [[px + 30, axisY], [px + 80, axisY], [px + 80, 150], [790, 150]] : [[px, axisY - 38], [px, 150], [790, 150]];
+    ref = vertical ? [[px + 30, axisY], [px + 80, axisY], [px + 80, 150], [REF_END, 150]] : [[px, axisY - 38], [px, 150], [REF_END, 150]];
     refStart = 26;
   }
 
@@ -284,18 +301,36 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
       anchors[`acc:${id}`] = { x: p.x, y: p.y, r: 26 };
       items.push(<g key={id} {...pick(`acc:${id}`)}><g transform={`translate(${p.x},${p.y})`}><RealGlyph kind={a.glyph} /></g><text x={p.x + 18} y={p.y + 8} className="r-label">{SHORT[id]}</text></g>);
     });
-    const rest = ACCESSORIES.filter((a) => a.side === 'asp' && on(a.id) && !startIds.includes(a.id)).reverse();
-    rest.forEach((a, n) => {
-      const d = L - 22 - n * Math.min(46, (L - 60) / Math.max(1, rest.length));
+    // Contre la pompe (le cône touche la bride), puis longueur droite, puis groupe côté bâche
+    const nearRev = [...groups.near].reverse();
+    let d = L - 22;
+    nearRev.forEach((id, n) => {
       const p = along(asp!, d);
-      placeGlyph(a.id, p, n, Math.abs(p.a) > 45 && Math.abs(p.a) < 135);
+      placeGlyph(id, p, n, Math.abs(p.a) > 45 && Math.abs(p.a) < 135);
+      d -= STEP_A;
     });
+    if (groups.far.length) {
+      const gapEnd = d + STEP_A - 26, gapStart = d - 30;
+      const p1 = along(asp!, gapStart), p2 = along(asp!, gapEnd);
+      const sd = Math.max(0.2, (5 * i.asp.dn) / 1000);
+      items.push(
+        <g key="gap" className="r-gap">
+          <path d={`M${p1.x} ${p1.y - 20} V${p1.y - 30} H${p2.x} V${p2.y - 20}`} />
+          <text x={(p1.x + p2.x) / 2} y={p1.y - 36} textAnchor="middle">≥ {sd.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} m droits</text>
+        </g>,
+      );
+      d -= 70;
+      [...groups.far].reverse().forEach((id, n) => {
+        const p = along(asp!, Math.max(30, d));
+        placeGlyph(id, p, n + nearRev.length, Math.abs(p.a) > 45 && Math.abs(p.a) < 135);
+        d -= STEP_A;
+      });
+    }
   }
   refStart = Math.max(refStart, polyLen(ref.slice(0, ref.length - 1)) + 34);
-  const refIds = ['cone_ref', 'manchon_ref', 'manometre', 'capteur_p', 'pressostat', 'clapet_ar', 'clapet_boule', 'vanne_ref', 'vessie', 'anti_belier', 'soupape', 'vidange', 'debitmetre', 'ventouse'].filter(on);
   const LR = polyLen(ref);
   const avail = LR - refStart - 40;
-  const step = Math.min(58, avail / Math.max(1, refIds.length));
+  const step = Math.min(STEP_R, avail / Math.max(1, refIds.length));
   refIds.forEach((id, n) => {
     const p = along(ref, refStart + n * step);
     placeGlyph(id, p, n, Math.abs(p.a) > 45 && Math.abs(p.a) < 135);
@@ -383,7 +418,7 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
   dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="realview" role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68 }} className="realview" role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
       <rect x={0} y={0} width={W} height={G} className="r-sky" />
       <g {...pick('source')}>{scene}</g>
       <g {...pick('dest')}>{destEls}</g>

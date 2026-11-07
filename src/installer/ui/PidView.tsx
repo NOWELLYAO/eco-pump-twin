@@ -3,9 +3,10 @@ import { ACC, ACCESSORIES, APPS, PIPE_MATS } from '../catalog';
 import type { Installation } from '../types';
 import type { Hydro } from '../hydraulics';
 import { solar } from '../electrical';
+import { REF_ORDER, aspGroups } from '../positions';
 import { PidGlyph } from './Glyphs';
 
-const W = 1100, H = 470;
+const H = 470;
 
 function Bubble({ x, y, code, num, field = true }: { x: number; y: number; code: string; num: number; field?: boolean }) {
   return (
@@ -32,9 +33,11 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
   const signals: { from: [number, number]; to: 'mcc' | 'vfd' }[] = [];
 
   const Y = imm ? 150 : 230;
-  const pumpX = imm ? 130 : 520;
+  const nAspInline = imm ? 0 : ACCESSORIES.filter((a) => a.side === 'asp' && on(a.id) && a.inline && a.id !== 'clapet_pied' && a.id !== 'crepine').length;
+  const nRefSlots = ['cone_ref', 'manchon_ref', 'manometre', 'capteur_p', 'pressostat', 'clapet_ar', 'clapet_boule', 'vanne_ref', 'vessie', 'anti_belier', 'soupape', 'vidange', 'debitmetre', 'ventouse'].filter(on).length;
+  const pumpX = imm ? 130 : Math.max(520, 240 + nAspInline * 62);
   const pumpY = imm ? 330 : Y;
-  const mcc: [number, number] = [imm ? 380 : 470, 420];
+  const mcc: [number, number] = [imm ? 380 : pumpX - 50, 420];
   const vfd: [number, number] = [mcc[0] + 130, 420];
 
   // ----- Source -----
@@ -50,7 +53,7 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
   const pTag = tag('P');
   anchors.pump = [pumpX, pumpY];
   els.push(
-    <g key="pump" className="p-pump" {...pick('pump')}>
+    <g key="pump" {...pick('pump')} className={`p-pump${onPick ? ' pickable' : ''}`}>
       <circle cx={pumpX} cy={pumpY} r={24} />
       <path d={`M${pumpX} ${pumpY - 24} H${pumpX + 30}`} />
       <path d={`M${pumpX - 14} ${pumpY + 19} L${pumpX - 22} ${pumpY + 34} H${pumpX + 22} L${pumpX + 14} ${pumpY + 19}`} />
@@ -72,7 +75,8 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
     if (i.mode === 'aspiration') els.push(<path key="aspv" d={`M95 330 V${Y}`} className="p-proc" />);
     lines.asp = `M${x0} ${Y} H${pumpX - 24}`;
     els.push(<g key="asp" {...pick('asp')}><path d={lines.asp} className="p-hit" /><path d={lines.asp} className="p-proc" /></g>);
-    const list = inline('asp').filter((a) => a.id !== 'clapet_pied' && a.id !== 'crepine');
+    const g = aspGroups(i);
+    const list = [...g.far, ...g.near].map((id) => ACC[id]).filter((a) => a && a.inline);
     if (i.mode === 'aspiration' && (on('clapet_pied') || on('crepine'))) els.push(<g key="foot" transform="translate(95,340)"><PidGlyph kind={on('clapet_pied') ? 'foot' : 'strainer'} /></g>);
     const span = pumpX - 60 - (x0 + 40);
     list.forEach((a, n) => {
@@ -94,7 +98,8 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
   // ----- Ligne de refoulement -----
   const rx0 = pumpX + 30;
   const ry0 = pumpY - 24;
-  const xEnd = 960;
+  const xEnd = Math.max(960, (imm ? pumpX + 120 : pumpX + 60) + nRefSlots * 62 + 40);
+  const W = xEnd + 140;
   lines.ref = imm ? `M${rx0} ${ry0} H${rx0 + 40} V${Y} H${xEnd}` : `M${rx0} ${ry0} H${xEnd}`;
   els.push(<g key="ref" {...pick('ref')}><path d={lines.ref} className="p-hit" /><path d={lines.ref} className="p-proc" /></g>);
   const startX = imm ? rx0 + 90 : rx0 + 30;
@@ -103,7 +108,7 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
   const slots = refList.length + ins.length;
   const span = xEnd - 40 - startX;
   let slot = 0;
-  const ordered = ['cone_ref', 'manchon_ref', 'manometre', 'capteur_p', 'pressostat', 'clapet_ar', 'clapet_boule', 'vanne_ref', 'vessie', 'anti_belier', 'soupape', 'vidange', 'debitmetre', 'ventouse'].filter(on);
+  const ordered = REF_ORDER.filter(on);
   for (const id of ordered) {
     const a = ACC[id];
     const x = startX + (span * (slot + 0.5)) / Math.max(1, slots);
@@ -196,7 +201,7 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
   }
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="pidview" role="img" aria-label="Schéma P&ID de l'installation">
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.62 }} className="pidview" role="img" aria-label="Schéma P&ID de l'installation">
       <rect x={1} y={1} width={W - 2} height={H - 2} className="p-frame" />
       {els}
       {insts}

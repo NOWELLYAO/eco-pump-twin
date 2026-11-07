@@ -9,7 +9,7 @@ import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
 import { DiagramPanel } from './DiagramPanel';
 import { InstallerForm } from './InstallerForm';
-import { Alerts, Bom, ElecCard, Goods, InstCurve, KeyFigures, LossTable, PartsAtRisk, Recommendations, ScoreCard } from './Report';
+import { Alerts, Bom, ElecCard, Goods, InstCurve, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './Report';
 
 export interface Shared {
   inst: Installation;
@@ -267,7 +267,7 @@ export function MaterialPage({ s }: { s: Shared }) {
     <div className="page-mat">
       <KeyFigures i={s.inst} ev={s.ev} />
       <div className="mat-cols">
-        <div className="stack"><Bom i={s.inst} ev={s.ev} onFix={s.fix} /><LossTable ev={s.ev} /></div>
+        <div className="stack"><MountOrder i={s.inst} ev={s.ev} onFix={s.fix} /><Bom i={s.inst} ev={s.ev} onFix={s.fix} /><LossTable ev={s.ev} /></div>
         <div className="stack"><ElecCard i={s.inst} ev={s.ev} /><section className="card"><InstCurve i={s.inst} ev={s.ev} /></section></div>
       </div>
     </div>
