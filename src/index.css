@@ -881,3 +881,37 @@ body.pdf-export .print-report .card { box-shadow: none; }
 
 body.pdf-export .print-report .btn, body.pdf-export .print-report .chev, body.pdf-export .print-report .rec, body.pdf-export .print-report button.link { display: none !important; }
 body.pdf-export .print-report .issue { break-inside: avoid; }
+
+/* ====== Mobile : navigation robuste (Safari et application installée) ====== */
+html, body { overflow-x: clip; }
+.livekpis { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ikpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1350px) { .livekpis { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 1100px) { .ikpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .livekpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* Dans le navigateur : onglets en haut, intégrés à l'en-tête collant */
+  .appbar { flex-wrap: wrap; row-gap: 6px; padding-top: 8px; padding-bottom: 0; }
+  .pagenav { position: static; order: 10; flex: 0 0 100%; margin: 0 -12px; padding: 0 4px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; background: var(--panel); border-top: 1px solid var(--line); border-bottom: 0; }
+  .pagenav button { flex-direction: column; justify-content: center; gap: 3px; min-height: 54px; padding: 6px 2px; font-size: .7rem; line-height: 1.1; border-radius: 0; border-bottom: 3px solid transparent; white-space: normal; text-align: center; }
+  .pagenav button[aria-current="page"] { background: transparent; border-bottom-color: var(--brand); }
+  .pagenav span { display: inline; }
+  .navbadge { position: absolute; top: 4px; right: calc(50% - 22px); }
+  .screen { padding-bottom: 40px; }
+  .mpower { position: static; }
+  .updbanner { position: static; }
+  /* En-tête compact */
+  .brand img { height: 30px; }
+  .appbar .icon-btn { width: 38px; height: 38px; }
+  .appbar .btn.newbtn, .appbar .btn.installbtn { padding: 0; width: 38px; height: 38px; justify-content: center; }
+  .scorechip { padding: 5px 10px; font-size: .98rem; }
+  .appbar { gap: 5px; }
+}
+/* Application installée sur l'écran d'accueil : onglets en bas, au-dessus de la barre système */
+@media (max-width: 760px) and (display-mode: standalone) {
+  .pagenav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; margin: 0; padding: 2px 4px env(safe-area-inset-bottom); border-top: 1px solid var(--line); box-shadow: 0 -2px 10px rgba(0, 0, 0, .06); }
+  .pagenav button { min-height: 58px; border-bottom: 0; border-top: 3px solid transparent; }
+  .pagenav button[aria-current="page"] { border-top-color: var(--brand); background: var(--brand-soft); }
+  .appbar { padding-bottom: 8px; }
+  .screen { padding-bottom: calc(90px + env(safe-area-inset-bottom)); }
+}
