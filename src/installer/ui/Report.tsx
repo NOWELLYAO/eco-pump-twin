@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { CheckCircle2, ChevronDown, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
 import { START_LABEL, SUPPLY_LABEL } from '../electrical';
 import { CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
@@ -74,11 +74,12 @@ export function KeyFigures({ i, ev }: { i: Installation; ev: Evaluation }) {
   );
 }
 
-function IssueCard({ x, onFix, open: initial }: { x: Issue; onFix: (x: Issue) => void; open: boolean }) {
+function IssueCard({ x, onFix, open: initial, onSelect, active }: { x: Issue; onFix: (x: Issue) => void; open: boolean; onSelect?: (x: Issue) => void; active?: boolean }) {
   const [open, setOpen] = useState(initial);
+  useEffect(() => { if (active) setOpen(true); }, [active]);
   return (
-    <li className={`issue lv-${LV[x.sev]}`}>
-      <button className="issue-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+    <li className={`issue lv-${LV[x.sev]}${active ? ' active' : ''}`} id={`issue-${x.id}`}>
+      <button className="issue-head" onClick={() => { setOpen(!open || !!onSelect); onSelect?.(x); }} aria-expanded={open}>
         <LevelIcon level={LV[x.sev]} size={18} />
         <strong>{x.title}</strong>
         <span className={`badge lv-${LV[x.sev]}`}>{SEV_LABEL[x.sev]}</span>
@@ -91,7 +92,10 @@ function IssueCard({ x, onFix, open: initial }: { x: Issue; onFix: (x: Issue) =>
           {x.parts.length > 0 && (<><h5>Pièces exposées</h5><div className="chips-s">{x.parts.map((p) => <span key={p} className="chip-s">{PARTS_LABEL(p)}</span>)}</div></>)}
           <h5>Solutions</h5>
           <ul className="sol">{x.solutions.map((s) => <li key={s}><Wrench size={13} aria-hidden /> {s}</li>)}</ul>
-          {x.fix && <button className="btn primary sm" onClick={() => onFix(x)}><Sparkles size={14} aria-hidden /> Corriger : {x.fix.label}</button>}
+          <div className="row">
+            {onSelect && <button className="btn sm" onClick={() => onSelect(x)}><Eye size={14} aria-hidden /> Voir sur le schéma</button>}
+            {x.fix && <button className="btn primary sm" onClick={() => onFix(x)}><Sparkles size={14} aria-hidden /> Corriger : {x.fix.label}</button>}
+          </div>
         </div>
       )}
     </li>
@@ -99,7 +103,7 @@ function IssueCard({ x, onFix, open: initial }: { x: Issue; onFix: (x: Issue) =>
 }
 const PARTS_LABEL = (p: string) => PARTS[p] ?? p;
 
-export function Alerts({ ev, onFix }: { ev: Evaluation; onFix: (x: Issue) => void }) {
+export function Alerts({ ev, onFix, onSelect, activeId, compact }: { ev: Evaluation; onFix: (x: Issue) => void; onSelect?: (x: Issue) => void; activeId?: string | null; compact?: boolean }) {
   const main = ev.issues.filter((x) => x.sev !== 'info');
   const recs = ev.issues.filter((x) => x.sev === 'info' && x.id.startsWith('rec_'));
   const infos = ev.issues.filter((x) => x.sev === 'info' && !x.id.startsWith('rec_'));
@@ -107,10 +111,10 @@ export function Alerts({ ev, onFix }: { ev: Evaluation; onFix: (x: Issue) => voi
     <section className="card">
       <h3><ShieldAlert size={16} aria-hidden /> Alertes et diagnostic</h3>
       {main.length === 0 ? <p className="muted ok-line"><CheckCircle2 size={16} aria-hidden /> Aucune alerte : l'installation respecte les règles de l'art.</p> : (
-        <ul className="issues">{main.map((x, n) => <IssueCard key={x.id} x={x} onFix={onFix} open={n < 2} />)}</ul>
+        <ul className="issues">{(compact ? main.slice(0, 4) : main).map((x, n) => <IssueCard key={x.id} x={x} onFix={onFix} open={!compact && n < 1} onSelect={onSelect} active={activeId === x.id} />)}</ul>
       )}
-      {infos.length > 0 && (<><h4 className="sub-h">Optimisations possibles</h4><ul className="issues">{infos.map((x) => <IssueCard key={x.id} x={x} onFix={onFix} open={false} />)}</ul></>)}
-      {recs.length > 0 && (
+      {!compact && infos.length > 0 && (<><h4 className="sub-h">Optimisations possibles</h4><ul className="issues">{infos.map((x) => <IssueCard key={x.id} x={x} onFix={onFix} open={false} onSelect={onSelect} active={activeId === x.id} />)}</ul></>)}
+      {!compact && recs.length > 0 && (
         <>
           <h4 className="sub-h">Accessoires conseillés non installés</h4>
           <div className="recs">

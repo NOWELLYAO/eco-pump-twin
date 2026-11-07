@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
+import type { Readings, SimKind } from '../sim';
 import { ACC, ACCESSORIES, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
@@ -86,9 +87,13 @@ function VerticalPump({ x, y, atex }: { x: number; y: number; atex: boolean }) {
   );
 }
 
-export function RealView({ i, h }: { i: Installation; h: Hydro }) {
+export interface Live { on: boolean; r: Readings; kind: SimKind; x: number; pv?: number }
+
+export function RealView({ i, h, highlight = [], onPick, live }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live }) {
   const on = (id: string) => !!i.acc[id]?.on;
-  const flow = h.ok && h.q > 0;
+  const flow = live ? live.on && live.r.q > 0 : h.ok && h.q > 0;
+  const anchors: Record<string, { x: number; y: number; r?: number }> = {};
+  const pick = (t: string) => (onPick ? { onClick: (e: MouseEvent) => { e.stopPropagation(); onPick(t); }, className: 'pickable' } : {});
   const forage = i.pumpType === 'immergee_forage';
   const pit = i.mode === 'immergee' && !forage;
   const dest = APPS[i.app].dest;
@@ -148,11 +153,12 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
     const yStop = Math.max(floor - 30 - i.geo.wetLevel * 60, 380);
     const yStart = Math.max(yStop - 40 - Math.min(80, i.geo.tankVolume / 25), 300);
     const yAlarm = Math.max(yStart - 30, 275);
+    const yWater = live && live.kind === 'pit' ? Math.max(G + 6, Math.min(floor - 4, yStop - (live.x / 0.5) * (yStop - yStart))) : yStart + 12;
     scene.push(
       <rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />,
       <rect key="pit" x={100} y={G} width={250} height={floor - G + 14} className="r-concrete" />,
       <rect key="in" x={114} y={G} width={222} height={floor - G} className="r-pitin" />,
-      <rect key="liq" x={114} y={yStart + 12} width={222} height={floor - yStart - 12} className={liquidCls} />,
+      <rect key="liq" x={114} y={yWater} width={222} height={floor - yWater} className={liquidCls} />,
       <rect key="lid" x={96} y={G - 10} width={258} height={10} rx={2} className="r-plinth" />,
       <path key="inlet" d={`M0 ${G + 40} H114`} stroke="#8a96a3" strokeWidth={14} className="r-pipe" />,
     );
@@ -222,7 +228,7 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
     destEls.push(
       <path key="legs" d={`M${ax + 30} ${ay + 34} L${ax + 18} ${destG} M${ax + 110} ${ay + 34} L${ax + 122} ${destG} ${ay + 90 < destG ? `M${ax + 26} ${ay + 90} H${ax + 114}` : ''}`} className="r-legs" />,
       <rect key="t" x={ax + 10} y={ay - 46} width={120} height={80} rx={10} className="r-tank" />,
-      <rect key="tw" x={ax + 16} y={ay - 18} width={108} height={46} rx={6} className="r-water" />,
+      <rect key="tw" x={ax + 16} y={ay + 28 - 64 * (live && live.kind === 'tank' ? Math.min(1, live.x) : 0.7)} width={108} height={64 * (live && live.kind === 'tank' ? Math.min(1, live.x) : 0.7)} rx={6} className="r-water" />,
     );
     if (on('flotteur_res')) destEls.push(<g key="fr" transform={`translate(${ax + 90},${ay - 18})`}><RealGlyph kind="float" /></g>);
   } else if (dest === 'batiment' || dest === 'incendie') {
@@ -247,6 +253,7 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
   // ----- Accessoires -----
   const items: ReactNode[] = [];
   let inlineN = 0;
+  let upN = 0;
   const placeGlyph = (id: string, p: { x: number; y: number; a: number }, _n: number, vertical: boolean) => {
     const a = ACC[id];
     const st = i.acc[id];
@@ -255,10 +262,13 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
     if (a.inline) inlineN++;
     const down = a.glyph === 'vessel' || a.glyph === 'drain';
     const up = !a.inline && !down;
+    if (up) upN++;
+    anchors[`acc:${id}`] = { x: p.x, y: p.y + (a.glyph === 'vessel' ? 40 : a.glyph === 'surge' ? -40 : !a.inline ? -22 : 0), r: 30 };
     items.push(
-      <g key={id} className="r-acc">
+      <g key={id} {...pick(`acc:${id}`)}>
+        <rect x={p.x - 24} y={p.y - 30} width={48} height={60} className="hit" />
         <g transform={`translate(${p.x},${p.y}) rotate(${vertical ? 0 : p.a})`}><RealGlyph kind={a.glyph} /></g>
-        <text x={vertical ? p.x + 22 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 88 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : 'middle'} className="r-label">
+        <text x={vertical ? p.x + 22 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 88 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) - (upN % 2) * 15 : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : 'middle'} className="r-label">
           <title>{a.label}</title>{SHORT[id] ?? a.label}{dnTxt}
         </text>
       </g>,
@@ -271,7 +281,8 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
     startIds.forEach((id, n) => {
       const a = ACC[id];
       const p = { x: asp![0][0], y: asp![0][1] + 14 + n * 4, a: 0 };
-      items.push(<g key={id} className="r-acc"><g transform={`translate(${p.x},${p.y})`}><RealGlyph kind={a.glyph} /></g><text x={p.x + 18} y={p.y + 8} className="r-label">{SHORT[id]}</text></g>);
+      anchors[`acc:${id}`] = { x: p.x, y: p.y, r: 26 };
+      items.push(<g key={id} {...pick(`acc:${id}`)}><g transform={`translate(${p.x},${p.y})`}><RealGlyph kind={a.glyph} /></g><text x={p.x + 18} y={p.y + 8} className="r-label">{SHORT[id]}</text></g>);
     });
     const rest = ACCESSORIES.filter((a) => a.side === 'asp' && on(a.id) && !startIds.includes(a.id)).reverse();
     rest.forEach((a, n) => {
@@ -295,7 +306,8 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
   const boxX = forage ? 60 : pit ? 420 : pxp + 190;
   const boxY = forage ? G - 34 : pit ? G - 52 : G - 34;
   if (on('coffret')) {
-    items.push(<g key="cof"><path d={`M${boxX} ${boxY + 28} C ${boxX - 40} ${boxY + 60}, ${pxp + 60} ${pyp + 10}, ${pxp + (forage || pit ? 20 : 70)} ${pyp}`} className="r-cablepath" /><g transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
+    anchors.cable = { x: boxX, y: boxY, r: 40 };
+    items.push(<g key="cof" {...pick('cable')}><path d={`M${boxX} ${boxY + 28} C ${boxX - 40} ${boxY + 60}, ${pxp + 60} ${pyp + 10}, ${pxp + (forage || pit ? 20 : 70)} ${pyp}`} className="r-cablepath" /><g transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
   }
   const isSolar = i.elec?.supply === 'solaire';
   const st = i.elec ? effectiveStart(i) : 'direct';
@@ -308,8 +320,9 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
     const ns = sr?.ns ?? 1, np = sr?.np ?? 1;
     const cols = Math.min(ns, 10), rows = Math.min(np, 3);
     const x0 = 560, y0 = 14, pw = 17, ph = 12;
+    anchors.pv = { x: x0 + 90, y: y0 + 30, r: 70 };
     items.push(
-      <g key="pv">
+      <g key="pv" {...pick('pv')}>
         <rect x={x0 - 8} y={y0 - 4} width={Math.max(200, cols * (pw + 3) + 16)} height={rows * (ph + 4) + 42} rx={8} className="r-pvbox" />
         {Array.from({ length: rows }).flatMap((_, r) => Array.from({ length: cols }).map((__, c) => (
           <path key={`pv${r}-${c}`} d={`M${x0 + c * (pw + 3) + 3} ${y0 + 4 + r * (ph + 4)} h${pw} l-3 ${ph} h${-pw} Z`} className="r-pv" />
@@ -326,6 +339,45 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
     items.push(<g key="ms" transform={`translate(${sx + 30},${sy - 6})`}><path d="M0 -30 V0" className="r-cablepath" /><RealGlyph kind="electrode" /></g>);
   }
 
+  anchors.pump = { x: pxp + (forage || pit ? 0 : 30), y: pyp, r: forage ? 50 : 62 };
+  anchors.source = forage ? { x: 195, y: (G + 540) / 2, r: 90 } : pit ? { x: 225, y: 420, r: 110 } : asp && i.mode === 'aspiration' ? { x: 165, y: 470, r: 90 } : { x: 135, y: 230, r: 100 };
+  anchors.dest = { x: ax + 70, y: ay, r: 80 };
+
+  // Lectures des instruments (simulation)
+  const lcd: ReactNode[] = [];
+  if (live) {
+    const r = live.r;
+    const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
+    const val: Record<string, string> = {
+      'acc:manometre': `${fx(r.pRef)} bar`, 'acc:vacuometre': `${fx(r.pAsp, 2)} bar`, 'acc:debitmetre': `${fx(r.q)} m³/h`,
+      'acc:capteur_p': `${fx(r.pRef)} bar`, 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar` : '',
+      cable: `${fx(r.amps)} A`, pv: live.pv != null ? `${fx(live.pv, 2)} kW` : '',
+    };
+    for (const [k, t] of Object.entries(val)) {
+      const an = anchors[k];
+      if (!an || !t) continue;
+      const w = t.length * 7.6 + 12;
+      const side = ['acc:manometre', 'acc:vacuometre', 'acc:capteur_p'].includes(k);
+      const y = k === 'acc:vessie' ? an.y + 44 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
+      const cx = side ? an.x + 16 + w / 2 : an.x;
+      lcd.push(<g key={`lcd-${k}`} className="lcd"><rect x={cx - w / 2} y={y - 13} width={w} height={19} rx={4} /><text x={cx} y={y + 1} textAnchor="middle">{t}</text></g>);
+    }
+    lcd.push(<g key="state" className={live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{live.on ? 'EN MARCHE' : 'ARRÊT'}</text></g>);
+  }
+
+  // Surbrillance des éléments signalés
+  const hl: ReactNode[] = [];
+  for (const t of highlight) {
+    if (t === 'asp' && asp) hl.push(<path key="h-asp" d={path(asp)} className="hl-path" />);
+    else if (t === 'ref') hl.push(<path key="h-ref" d={path(ref)} className="hl-path" />);
+    else if (anchors[t]) { const a = anchors[t]; hl.push(<circle key={`h-${t}`} cx={a.x} cy={a.y} r={a.r ?? 34} className="hl-ring" />); }
+    else if (t.startsWith('acc:')) {
+      const a = ACC[t.slice(4)];
+      const base = a?.side === 'asp' && asp ? along(asp, polyLen(asp) / 2) : a?.side === 'ref' ? along(ref, polyLen(ref) * 0.55) : anchors.cable ?? anchors.pump;
+      hl.push(<g key={`h-${t}`}><circle cx={base.x} cy={base.y} r={34} className="hl-ring ghost" /><text x={base.x} y={base.y - 42} textAnchor="middle" className="hl-txt">Manque : {a?.label ?? t}</text></g>);
+    }
+  }
+
   // Cotes
   const refEndY = ref[ref.length - 1][1];
   dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
@@ -333,13 +385,15 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="realview" role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
       <rect x={0} y={0} width={W} height={G} className="r-sky" />
-      {scene}
-      {destEls}
-      {asp && <Pipe pts={asp} mat={i.asp.material} dn={i.asp.dn} flow={flow} />}
-      <Pipe pts={ref} mat={i.ref.material} dn={i.ref.dn} flow={flow} />
-      {front}
+      <g {...pick('source')}>{scene}</g>
+      <g {...pick('dest')}>{destEls}</g>
+      {asp && <g {...pick('asp')}><Pipe pts={asp} mat={i.asp.material} dn={i.asp.dn} flow={flow} /></g>}
+      <g {...pick('ref')}><Pipe pts={ref} mat={i.ref.material} dn={i.ref.dn} flow={flow} /></g>
+      <g {...pick('pump')}>{front}</g>
       {items}
       {dims}
+      {lcd}
+      {hl}
       <g className="r-legend">
         <text x={16} y={26} className="r-title">{APPS[i.app].label} · {fluid.label} · {i.fluid.temp} °C</text>
         <text x={16} y={47}>{asp ? `Aspiration DN${i.asp.dn} ${PIPE_MATS[i.asp.material].label} ${i.asp.length} m · ` : ''}Refoulement DN{i.ref.dn} {PIPE_MATS[i.ref.material].label} {i.ref.length} m</text>

@@ -1,13 +1,15 @@
-# Jumeau numérique de pompes centrifuges · ECO PUMP AFRIK
+# Configurateur d'installation de pompes · ECO PUMP AFRIK
 
-Application web qui compare en continu chaque pompe à son **modèle numérique « pompe saine »** pour :
+Application web en quatre pages :
 
-- **surveiller** : débit, hauteur, puissance, rendement, vibrations, marge NPSH, avec un schéma de l'installation en direct ;
-- **diagnostiquer** : usure hydraulique, cavitation, aspiration dégradée, fonctionnement hors plage, défaut de roulement, surcharge moteur. Pour chaque cas, l'app donne la cause, les preuves et l'action à mener ;
-- **prédire** : temps restant avant le seuil critique de chaque indicateur (régression sur 72 h) ;
-- **chiffrer** : facture d'énergie et économies récupérables, dans votre devise.
+- **Conception** : saisie guidée de l'installation, vue réelle et schéma P&ID dessinés en direct, note et alertes principales.
+- **Simulation** : bouton marche/arrêt, défilement du temps (1 min/s à 1 h/s), réglages en direct (vanne, vitesse, niveau d'eau, colmatage, usure), instruments qui affichent leurs valeurs, courbes, alertes en direct et journal des événements (démarrages, arrêts, coups de bélier, cavitation, marche à sec, débordement). Le comportement s'adapte à l'installation : pressostat et réservoir à vessie, variateur à pression constante, fosse à flotteurs, pompage solaire sur une journée, remplissage d'un réservoir.
+- **Diagnostic** : alertes cliquables qui font clignoter l'élément concerné sur le schéma, corrections en un clic, préconisations, pièces exposées.
+- **Matériel & rapport** : nomenclature, électricité, solaire, pertes de charge, courbes, impression du rapport.
 
-Elle contient aussi un **configurateur d'installation** (onglet *Configurateur*, ou `/#installation`). Il permet de :
+Un clic sur n'importe quel élément du schéma ouvre sa fiche : caractéristiques, alertes liées, ajout ou retrait, et **photos réelles** (Wikimedia Commons, licences libres) avec un lien vers d'autres photos.
+
+Le configurateur permet de :
 
 - choisir l'application (forage, surpression, irrigation, relevage, drainage, transfert, incendie, hydrocarbures, piscine), le type de pompe et le montage (en aspiration, en charge, immergée) ;
 - décrire le fluide (température, masse volumique, viscosité, pH, matières en suspension, sable, taille des particules), la pompe, les niveaux et les distances, les conduites (matériau, DN, PN, longueur, coudes) et le besoin ;
@@ -46,33 +48,13 @@ npm run build    # version de production dans dist/
 2. Vercel détecte **Vite** automatiquement (build `npm run build`, dossier `dist`).
 3. Cliquez sur **Deploy**. Chaque `git push` sur `main` redéploie ensuite le site.
 
-## Utiliser de vraies données
-
-1. Ouvrez une pompe → **Paramètres** → saisissez la fiche constructeur (débit, hauteur et rendement au point optimal, NPSH requis, moteur) et l'installation (hauteur géométrique, NPSH disponible).
-2. Cliquez sur **Fichier modèle** pour obtenir le format CSV, remplissez-le avec les relevés de vos capteurs, puis **Importer un CSV**.
-
-Colonnes attendues (séparateur `;` ou `,`, décimale `,` ou `.`) :
-
-| colonne | unité |
-|---|---|
-| horodatage | texte libre |
-| debit_m3h | m³/h |
-| p_asp_bar | bar (relatif) |
-| p_ref_bar | bar (relatif) |
-| vitesse_tr_min | tr/min |
-| puissance_kw | kW électriques |
-| vibration_mm_s | mm/s RMS |
-| temp_palier_c | °C |
-
 ## Organisation du code
 
 ```
-src/engine/physics.ts    courbes H-Q et rendement, lois de similitude, réseau, point de fonctionnement
-src/engine/simulator.ts  installation « réelle » avec défauts injectables (remplacée par les capteurs en production)
-src/engine/twin.ts       cœur du jumeau : analyse mesure / modèle, règles de diagnostic, santé, prédiction, énergie
-src/engine/csv.ts        import / modèle CSV
-src/hooks/useTwin.ts     état de l'application, horloge de simulation, persistance
-src/ui/*                 composants d'interface
+src/engine/physics.ts        courbes H-Q et rendement, lois de similitude
+src/installer/sim.ts         simulation temporelle et lectures d'instruments
+src/installer/targets.ts     liens alertes ↔ éléments du schéma, mots-clés des photos
+src/installer/electrical.ts  câbles, démarrage, variateur, réservoir à vessie, solaire
 src/installer/catalog.ts     applications, pompes, fluides, matériaux, accessoires, pièces
 src/installer/hydraulics.ts  calculs hydrauliques de l'installation
 src/installer/evaluate.ts    règles d'expertise, note, pièces exposées
