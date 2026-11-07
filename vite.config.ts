@@ -4,10 +4,12 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // Application installable et utilisable hors ligne (PWA)
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(new Date().toISOString()) },
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['logo.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'ECO PUMP AFRIK — Configurateur d\'installation',
@@ -30,6 +32,7 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         navigateFallback: '/index.html',
+        clientsClaim: true,
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {

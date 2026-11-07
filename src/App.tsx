@@ -7,6 +7,7 @@ import { PRESETS, empty } from './installer/presets';
 import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
+import { UpdateBanner, appVersion } from './ui/Update';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { CommissionPage, CommissionResults } from './installer/ui/CommissionPage';
 import { PidView } from './installer/ui/PidView';
@@ -39,6 +40,7 @@ function Guide() {
       <p><b>Fiches</b> : cliquez sur n'importe quel élément du schéma (pompe, conduite, vanne, clapet, coffret…) pour voir ses caractéristiques, ses alertes et des photos réelles.</p>
       <p><b>Mise en service</b> : saisissez les pressions, le débit, les courants et la tension relevés sur place ; l'application les compare au calcul et indique les causes probables d'écart (sens de rotation, vanne, colmatage, entrée d'air, usure, déséquilibre électrique).</p>
       <p><b>Matériel & rapport</b> : nomenclature complète, électricité, solaire, pertes de charge, courbes, et impression du rapport.</p>
+      <p className="muted small">Version du {appVersion()}. Si un bandeau « Nouvelle version disponible » apparaît, touchez « Mettre à jour ».</p>
       <p><b>Sans internet</b> : bouton « Installer » pour ajouter l'application à l'écran d'accueil du téléphone ; elle fonctionne ensuite hors ligne.</p>
     </div>
   );
@@ -99,6 +101,7 @@ export default function App() {
         <button className="icon-btn" onClick={() => setGuide(true)} aria-label="Guide"><BookOpen size={18} /></button>
       </header>
 
+      <UpdateBanner />
       <main className="screen">
         <div className="page-title">
           <h1>{PAGES.find((p) => p.id === page)?.label}</h1>
