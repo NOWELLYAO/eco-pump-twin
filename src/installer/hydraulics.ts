@@ -190,7 +190,6 @@ export function solve(i: Installation): Hydro {
   const coolingV = i.acc.chemise?.on ? 0.5 : q / 3600 / ann;
   let startsH = 0;
   if (i.mode === 'immergee' && !isForage(i)) startsH = q / (4 * Math.max(0.05, i.geo.tankVolume / 1000));
-  else if (i.acc.vessie?.on && !i.acc.variateur?.on) startsH = q / (4 * Math.max(0.005, (i.acc.vessie.vol ?? 100) * 0.3 / 1000));
   const dAsp = i.asp.dn / 1000;
   const vIn = vel(q, i.asp.dn);
   const vortexS = dAsp * (1 + 2.3 * (vIn / Math.sqrt(G * Math.max(dAsp, 0.01))));

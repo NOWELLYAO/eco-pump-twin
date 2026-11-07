@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { CheckCircle2, ChevronDown, ListChecks, Package, ShieldAlert, Sparkles, Wrench } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
+import { START_LABEL, SUPPLY_LABEL } from '../electrical';
 import { CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
@@ -208,8 +209,23 @@ export function Bom({ i, ev, onFix }: { i: Installation; ev: Evaluation; onFix: 
   for (const a of ACCESSORIES) {
     const st = i.acc[a.id];
     if (st?.on && ev.needs[a.id] !== 'na') {
-      rows.push({ d: a.label, dn: a.inline ? `DN${st.dn || ''}` : '', q: String(st.qty || 1), r: a.id === 'vessie' ? `${st.vol ?? 100} L` : a.id === 'cone_exc' ? `méplat ${st.opt ?? 'haut'}` : '' });
+      rows.push({ d: a.label, dn: a.inline ? `DN${st.dn || ''}` : '', q: String(st.qty || 1), r: a.id === 'cone_exc' ? `méplat ${st.opt ?? 'haut'}` : '' });
     }
+  }
+  const r = ev.elec;
+  const e = i.elec;
+  rows.push({ d: `Câble moteur ${r.cableType}`, dn: `${r.cores} ${String(e.cableSec).replace('.', ',')} mm²`, q: `${e.cableLen} m`, r: e.cableMat === 'cu' ? 'cuivre' : 'aluminium' });
+  rows.push({ d: 'Disjoncteur moteur + contacteur', dn: '', q: '1', r: `réglage ${fmt(r.inom, 1)} A` });
+  if (r.start === 'variateur' && e.supply !== 'solaire') rows.push({ d: `Variateur de fréquence${r.filter ? ` + ${r.filter}` : ''}`, dn: '', q: '1', r: `≥ ${fmt(r.vfdKw, 1)} kW, ${fmt(r.vfdA, 1)} A` });
+  if (r.start === 'progressif') rows.push({ d: 'Démarreur progressif', dn: '', q: '1', r: `${fmt(i.pump.motorKw, 1)} kW` });
+  if (r.start === 'etoile') rows.push({ d: 'Démarreur étoile-triangle', dn: '', q: '1', r: `${fmt(i.pump.motorKw, 1)} kW` });
+  if (e.supply === 'groupe') rows.push({ d: 'Groupe électrogène', dn: '', q: '1', r: `${fmt(Math.max(r.genKva, e.genKva), 0)} kVA` });
+  if (r.vessel) { const row = rows.find((x) => x.d === 'Réservoir à vessie'); if (row) row.r = `${r.vessel.vol} L PN${r.vessel.pn} · précharge ${fmt(r.vessel.pre, 1)} bar · ${fmt(r.vessel.pOn, 1)}/${fmt(r.vessel.pOff, 1)} bar`; }
+  if (r.solar) {
+    rows.push({ d: `Panneau photovoltaïque ${e.solar.panelWc} Wc`, dn: '', q: String(r.solar.n), r: `${r.solar.ns} série × ${r.solar.np} parallèle · ${fmt(r.solar.wc / 1000, 2)} kWc` });
+    rows.push({ d: 'Contrôleur / onduleur de pompage solaire MPPT', dn: '', q: '1', r: `≥ ${fmt(i.pump.motorKw, 1)} kW, entrée ≥ ${fmt(r.solar.vocCold, 0)} V DC` });
+    rows.push({ d: 'Câble solaire DC', dn: `${String(e.solar.dcSec).replace('.', ',')} mm²`, q: `${e.solar.dcLen * 2} m`, r: 'aller + retour' });
+    rows.push({ d: 'Structure support panneaux + parafoudre DC + sectionneur DC', dn: '', q: '1', r: `≈ ${fmt(r.solar.area, 0)} m²` });
   }
   const missing = ev.issues.filter((x) => (x.id.startsWith('miss_') || x.id.startsWith('rec_')) && x.fix);
   const nFl = rows.length - 2;
@@ -260,5 +276,61 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
         </ComposedChart>
       </ResponsiveContainer>
     </figure>
+  );
+}
+
+export function ElecCard({ i, ev }: { i: Installation; ev: Evaluation }) {
+  const r = ev.elec;
+  const e = i.elec;
+  const sec = (v: number) => String(v).replace('.', ',');
+  const rows: [string, string, string?][] = [
+    ['Alimentation', `${SUPPLY_LABEL[e.supply]} · moteur ${e.voltage} V`],
+    ['Démarrage', e.supply === 'solaire' ? 'Contrôleur solaire (démarrage progressif)' : START_LABEL[r.start], `pointe ≈ ${fmt(r.istart, 0)} A`],
+    ['Courant nominal', `${fmt(r.inom, 1)} A`, `en service ≈ ${fmt(r.irun, 1)} A`],
+    ['Câble moteur', `${r.cores} ${sec(e.cableSec)} mm² ${e.cableMat === 'cu' ? 'cuivre' : 'alu'} · ${fmt(e.cableLen, 0)} m`, `conseillé ${r.cores} ${sec(r.secRec)} mm²`],
+    ['Chute de tension', `${fmt(r.dropRun, 1)} % en marche`, `${fmt(r.dropStart, 1)} % au démarrage`],
+    ['Protection', r.breaker],
+  ];
+  if (r.start === 'variateur' && e.supply !== 'solaire') rows.push(['Variateur', `≥ ${fmt(r.vfdKw, 1)} kW / ${fmt(r.vfdA, 1)} A`, r.filter ? `+ ${r.filter}` : 'sans filtre (câble court)']);
+  if (r.vfdSpeed) rows.push(['Consigne variateur', `${fmt(r.vfdSpeed.s * 100, 0)} % · ${fmt(r.vfdSpeed.hz, 1)} Hz`, `−${fmt(r.vfdSpeed.saving * 100, 0)} % d'énergie par m³`]);
+  if (e.supply === 'groupe') rows.push(['Groupe électrogène', `${fmt(r.genKva, 0)} kVA conseillés`, e.genKva ? `installé ${e.genKva} kVA` : '']);
+  const v = r.vessel;
+  const s = r.solar;
+  return (
+    <section className="card">
+      <h3><Zap size={16} aria-hidden /> Électricité</h3>
+      <table className="tbl kv"><tbody>{rows.map(([k, a, b]) => <tr key={k}><th>{k}</th><td>{a}{b && <small className="muted"> · {b}</small>}</td></tr>)}</tbody></table>
+      {v && (
+        <>
+          <h4 className="sub-h">Réservoir à vessie</h4>
+          <table className="tbl kv"><tbody>
+            <tr><th>Volume</th><td>{v.vol} L{v.vol !== v.volRec && <small className="muted"> · conseillé {v.volRec} L</small>}</td></tr>
+            <tr><th>Pression nominale</th><td>PN{v.pn}{v.pn !== v.pnRec && <small className="muted"> · conseillé PN{v.pnRec}</small>}</td></tr>
+            <tr><th>Pressostat</th><td>marche {fmt(v.pOn, 1)} bar · arrêt {fmt(v.pOff, 1)} bar</td></tr>
+            <tr><th>Précharge</th><td>{fmt(v.pre, 1)} bar <small className="muted">· réservoir vide, 0,2 bar sous la marche</small></td></tr>
+            <tr><th>Réserve utile</th><td>{fmt(v.dv * 1000, 0)} L<small className="muted"> · {r.start === 'variateur' ? 'régulation variateur' : `≤ ${fmt(v.starts, 0)} démarrages/h (maxi ${i.pump.maxStarts})`}</small></td></tr>
+            <tr><th>Repères</th><td><small className="muted">besoin au refoulement {fmt(v.pReq, 1)} bar · pompe vanne fermée {fmt(v.pMax, 1)} bar</small></td></tr>
+          </tbody></table>
+        </>
+      )}
+      {s && (
+        <>
+          <h4 className="sub-h"><Sun size={14} aria-hidden /> Pompage solaire</h4>
+          <div className="pvbig">
+            <b>{s.n}</b><span>panneaux de {e.solar.panelWc} Wc<br /><small>{s.ns} en série × {s.np} chaîne{s.np > 1 ? 's' : ''} en parallèle</small></span>
+          </div>
+          <table className="tbl kv"><tbody>
+            <tr><th>Puissance crête</th><td>{fmt(s.wc / 1000, 2)} kWc <small className="muted">· besoin {fmt(s.wcNeed / 1000, 2)} kWc, mini moteur {fmt(s.wcMinMotor / 1000, 2)} kWc</small></td></tr>
+            {s.n > s.nNeed && <tr><th>Pourquoi {s.n} ?</th><td><small className="muted">{s.nNeed} suffiraient en énergie, mais il faut {s.nsMin} panneaux en série pour atteindre la tension MPPT mini du contrôleur ({e.solar.vmpptMin} V).</small></td></tr>}
+            <tr><th>Volume journalier</th><td>≈ {fmt(s.dailyM3, 1)} m³/j <small className="muted">· besoin {fmt(e.solar.dailyM3, 1)} m³/j · ≈ {fmt(s.hours, 1)} h de pompage équivalent</small></td></tr>
+            <tr><th>Tensions de chaîne</th><td>Vmp {fmt(s.vmpStr, 0)} V · Voc à froid {fmt(s.vocCold, 0)} V <small className="muted">(maxi {e.solar.vdcMax} V)</small></td></tr>
+            <tr><th>Câble DC</th><td>{sec(e.solar.dcSec)} mm² · {fmt(s.dcDrop, 1)} % de pertes <small className="muted">· conseillé {sec(s.dcSecRec)} mm²</small></td></tr>
+            <tr><th>Surface au sol</th><td>≈ {fmt(s.area, 0)} m²</td></tr>
+            <tr><th>Stockage d'eau conseillé</th><td>{fmt(s.storage, 0)} m³ <small className="muted">(1,5 jour d'autonomie, sans batterie)</small></td></tr>
+            <tr><th>Énergie</th><td>{fmt(s.eM3 * 1000, 0)} Wh/m³ pompé</td></tr>
+          </tbody></table>
+        </>
+      )}
+    </section>
   );
 }

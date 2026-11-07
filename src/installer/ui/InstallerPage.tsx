@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Activity, Eye, FileText, Network, PencilRuler, Printer, Send } from 'lucide-react';
 import { evaluate } from '../evaluate';
 import { pressureHead, staticHead } from '../hydraulics';
+import { ensureElec } from '../electrical';
 import { PRESETS } from '../presets';
 import type { Installation, Issue } from '../types';
 import type { PumpConfig } from '../../engine/types';
@@ -9,14 +10,14 @@ import { healthyControls } from '../../engine/defaults';
 import { InstallerForm } from './InstallerForm';
 import { RealView } from './RealView';
 import { PidView } from './PidView';
-import { Alerts, Bom, Goods, InstCurve, KeyFigures, LossTable, PartsAtRisk, Recommendations, ScoreCard } from './Report';
+import { Alerts, Bom, ElecCard, Goods, InstCurve, KeyFigures, LossTable, PartsAtRisk, Recommendations, ScoreCard } from './Report';
 
 const KEY = 'ecopump-installer-v1';
 
 function load(): Installation {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as Installation;
+    if (raw) return ensureElec(JSON.parse(raw) as Installation);
   } catch { /* ignore */ }
   return PRESETS[2].build();
 }
@@ -34,8 +35,8 @@ export function InstallerPage({ onSendToTwin }: { onSendToTwin: (cfg: PumpConfig
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(inst)); } catch { /* ignore */ } }, [inst]);
   useEffect(() => { setSent(false); }, [inst]);
 
-  const set = (fn: (i: Installation) => Installation) => setInst((i) => fn(i));
-  const onFix = (x: Issue) => { if (x.fix) setInst((i) => x.fix!.apply(i)); };
+  const set = (fn: (i: Installation) => Installation) => setInst((i) => ensureElec(fn(i)));
+  const onFix = (x: Issue) => { if (x.fix) setInst((i) => ensureElec(x.fix!.apply(i))); };
 
   const toTwin = () => {
     const h = ev.hydro;
@@ -75,7 +76,7 @@ export function InstallerPage({ onSendToTwin }: { onSendToTwin: (cfg: PumpConfig
 
       <div className={`inst-grid show-${mtab}`}>
         <aside className="inst-form no-print">
-          <InstallerForm inst={inst} set={set} needs={ev.needs} />
+          <InstallerForm inst={inst} set={set} needs={ev.needs} er={ev.elec} />
         </aside>
         <div className="inst-main">
           <div className="inst-top">
@@ -87,10 +88,10 @@ export function InstallerPage({ onSendToTwin }: { onSendToTwin: (cfg: PumpConfig
               </div>
               <div className="vbody">
                 {view === 'real' && <RealView i={inst} h={ev.hydro} />}
-                {view === 'pid' && <PidView i={inst} />}
+                {view === 'pid' && <PidView i={inst} h={ev.hydro} />}
                 {view === 'curve' && <InstCurve i={inst} ev={ev} />}
               </div>
-              <div className="print-only"><PidView i={inst} /></div>
+              <div className="print-only"><PidView i={inst} h={ev.hydro} /></div>
             </section>
             <div className="m-report m-views-score"><ScoreCard ev={ev} /></div>
           </div>
@@ -102,6 +103,7 @@ export function InstallerPage({ onSendToTwin }: { onSendToTwin: (cfg: PumpConfig
                 <Recommendations ev={ev} />
               </div>
               <div className="stack">
+                <ElecCard i={inst} ev={ev} />
                 <PartsAtRisk ev={ev} />
                 <Goods ev={ev} />
                 <LossTable ev={ev} />

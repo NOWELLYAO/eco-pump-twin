@@ -62,7 +62,32 @@ export interface Duty {
   currency: string;
 }
 
-export interface AccState { on: boolean; dn: number; qty: number; opt?: string; vol?: number }
+export interface AccState { on: boolean; dn: number; qty: number; opt?: string; vol?: number; pn?: number; pOn?: number; pOff?: number; pre?: number }
+
+export type SupplyId = 'mono' | 'tri' | 'groupe' | 'solaire';
+export type StartId = 'direct' | 'etoile' | 'progressif' | 'variateur';
+
+export interface Solar {
+  psh: number; // ensoleillement (kWh/m²/jour = heures équivalentes plein soleil)
+  panelWc: number; vmp: number; voc: number; imp: number;
+  vdcMax: number; // tension DC maxi du contrôleur
+  vmpptMin: number; // tension mini de la plage MPPT
+  dailyM3: number; // besoin journalier (m³/j)
+  panels: number; // panneaux installés (0 = dimensionnement automatique)
+  dcLen: number; dcSec: number; // câble champ PV → contrôleur
+}
+
+export interface Elec {
+  supply: SupplyId;
+  voltage: number; // tension moteur (V)
+  start: StartId;
+  cosphi: number;
+  cableLen: number; // coffret → moteur (m)
+  cableSec: number; // mm²
+  cableMat: 'cu' | 'al';
+  genKva: number; // groupe électrogène installé (kVA)
+  solar: Solar;
+}
 
 export interface Installation {
   name: string;
@@ -76,11 +101,12 @@ export interface Installation {
   geo: Geometry;
   duty: Duty;
   acc: Record<string, AccState>;
+  elec: Elec;
 }
 
 export type Need = 'required' | 'recommended' | 'optional' | 'avoid' | 'na';
 export type Sev = 'critical' | 'warning' | 'info';
-export type Category = 'hydraulique' | 'aspiration' | 'materiaux' | 'accessoires' | 'securite' | 'energie';
+export type Category = 'hydraulique' | 'aspiration' | 'materiaux' | 'accessoires' | 'securite' | 'energie' | 'electricite';
 
 export interface Fix { label: string; apply: (i: Installation) => Installation }
 

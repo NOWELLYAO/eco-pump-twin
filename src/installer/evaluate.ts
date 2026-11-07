@@ -1,5 +1,6 @@
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
 import { isForage, solve, type Hydro } from './hydraulics';
+import { electrical, ensureElec, type ElecResult } from './electrical';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -66,14 +67,16 @@ export interface Evaluation {
   cats: Record<Category, number>;
   parts: { id: string; label: string; sev: Sev; causes: string[] }[];
   needs: Record<string, Need>;
+  elec: ElecResult;
 }
 
 export const CAT_LABEL: Record<Category, string> = {
   hydraulique: 'Hydraulique', aspiration: 'Aspiration & NPSH', materiaux: 'Matériaux & fluide',
-  accessoires: 'Accessoires', securite: 'Sécurité & pression', energie: 'Énergie',
+  accessoires: 'Accessoires', securite: 'Sécurité & pression', electricite: 'Électricité', energie: 'Énergie',
 };
 
-export function evaluate(i: Installation): Evaluation {
+export function evaluate(input: Installation): Evaluation {
+  const i = ensureElec(input);
   const h = solve(i);
   const out: Issue[] = [];
   const goods: string[] = [];
@@ -353,15 +356,6 @@ export function evaluate(i: Installation): Evaluation {
     add({ id: 'eutype', sev: 'warning', cat: 'materiaux', title: 'Pompe inadaptée aux eaux usées', detail: 'Une pompe à roue fermée se bouche avec les fibres.',
       consequences: ['Bouchages fréquents', 'Surcharge moteur'], parts: ['roue', 'garniture', 'moteur'], solutions: ['Pompe submersible vortex ou monocanal'] });
   }
-  if (i.acc.vessie?.on && !i.acc.variateur?.on && i.mode !== 'immergee' && h.ok && h.startsH > i.pump.maxStarts) {
-    const v = Math.ceil(h.q / (4 * i.pump.maxStarts) / 0.3 * 1000 / 25) * 25;
-    add({ id: 'vessie', sev: 'warning', cat: 'securite', title: 'Réservoir à vessie trop petit',
-      detail: `${f0(i.acc.vessie.vol ?? 0)} L : environ ${f0(h.startsH)} démarrages/h possibles, ${i.pump.maxStarts} admissibles.`,
-      consequences: ['Démarrages trop fréquents', 'Moteur et pressostat usés'], parts: ['moteur', 'coffret', 'membrane'],
-      solutions: [`Réservoir d'au moins ${f0(v)} L`, 'Ou piloter par variateur + capteur de pression'],
-      fix: { label: `Réservoir ${f0(v)} L`, apply: setAcc('vessie', true, { vol: v }) } });
-  }
-
   // ---------- Matériaux & fluide ----------
   const pc = pumpCompat(i.fluid.type, i.pump.material);
   if (pc !== 'ok') {
@@ -495,6 +489,11 @@ export function evaluate(i: Installation): Evaluation {
     }
   }
 
+  // ---------- Électricité, réservoir à vessie, solaire ----------
+  const el = electrical(i, h);
+  out.push(...el.issues);
+  goods.push(...el.goods);
+
   // ---------- Note ----------
   const W: Record<Sev, number> = { critical: 16, warning: 6, info: 1 };
   let score = 100 - out.reduce((s, x) => s + W[x.sev], 0);
@@ -523,7 +522,7 @@ export function evaluate(i: Installation): Evaluation {
     .sort((a, b) => rank[a.sev] - rank[b.sev] || b.causes.length - a.causes.length);
 
   out.sort((a, b) => rank[a.sev] - rank[b.sev]);
-  return { hydro: h, issues: out, goods, score, verdict, cats, parts, needs };
+  return { hydro: h, issues: out, goods, score, verdict, cats, parts, needs, elec: el.r };
 }
 
 export { APPS };

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { ACC, ACCESSORIES, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
+import { effectiveStart, solar } from '../electrical';
 import type { Installation } from '../types';
 import { RealGlyph } from './Glyphs';
 
@@ -296,7 +297,30 @@ export function RealView({ i, h }: { i: Installation; h: Hydro }) {
   if (on('coffret')) {
     items.push(<g key="cof"><path d={`M${boxX} ${boxY + 28} C ${boxX - 40} ${boxY + 60}, ${pxp + 60} ${pyp + 10}, ${pxp + (forage || pit ? 20 : 70)} ${pyp}`} className="r-cablepath" /><g transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
   }
-  if (on('variateur')) items.push(<g key="vfd"><g transform={`translate(${boxX + 50},${boxY + 2})`}><RealGlyph kind="vfd" /></g><text x={boxX + 50} y={boxY - 36} textAnchor="middle" className="r-label">Variateur</text></g>);
+  const isSolar = i.elec?.supply === 'solaire';
+  const st = i.elec ? effectiveStart(i) : 'direct';
+  if (i.elec && on('coffret')) {
+    const cores = i.elec.supply === 'mono' ? '3G' : st === 'etoile' ? '7G' : '4G';
+    items.push(<text key="cablelbl" x={boxX - 22} y={boxY + 54} className="r-label"><tspan x={boxX - 22}>{`Câble ${cores} ${String(i.elec.cableSec).replace('.', ',')} mm²`}</tspan><tspan x={boxX - 22} dy={15}>{`${i.elec.cableLen} m`}</tspan></text>);
+  }
+  if (isSolar) {
+    const sr = solar(i, h);
+    const ns = sr?.ns ?? 1, np = sr?.np ?? 1;
+    const cols = Math.min(ns, 10), rows = Math.min(np, 3);
+    const x0 = 560, y0 = 14, pw = 17, ph = 12;
+    items.push(
+      <g key="pv">
+        <rect x={x0 - 8} y={y0 - 4} width={Math.max(200, cols * (pw + 3) + 16)} height={rows * (ph + 4) + 42} rx={8} className="r-pvbox" />
+        {Array.from({ length: rows }).flatMap((_, r) => Array.from({ length: cols }).map((__, c) => (
+          <path key={`pv${r}-${c}`} d={`M${x0 + c * (pw + 3) + 3} ${y0 + 4 + r * (ph + 4)} h${pw} l-3 ${ph} h${-pw} Z`} className="r-pv" />
+        )))}
+        <text x={x0} y={y0 + rows * (ph + 4) + 18} className="r-label">{sr ? `${sr.n} panneaux ${i.elec.solar.panelWc} Wc · ${ns} série × ${np}` : 'Champ solaire'}</text>
+        <text x={x0} y={y0 + rows * (ph + 4) + 33} className="r-label">{sr ? `${(sr.wc / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kWc · ≈ ${sr.dailyM3.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} m³/jour` : ''}</text>
+        <path d={`M${x0 + 20} ${y0 + rows * (ph + 4) + 38} C ${x0} ${boxY - 60}, ${boxX + 40} ${boxY - 70}, ${boxX + 10} ${boxY - 30}`} className="r-dc" />
+      </g>,
+    );
+  }
+  if (on('variateur') || isSolar) items.push(<g key="vfd"><g transform={`translate(${boxX + 60},${boxY + 2})`}><RealGlyph kind="vfd" /></g><text x={boxX + 60} y={boxY - 36} textAnchor="middle" className="r-label">{isSolar ? 'MPPT' : 'Variateur'}</text></g>);
   if (on('marche_sec') && !forage && asp) {
     const [sx, sy] = asp[0];
     items.push(<g key="ms" transform={`translate(${sx + 30},${sy - 6})`}><path d="M0 -30 V0" className="r-cablepath" /><RealGlyph kind="electrode" /></g>);

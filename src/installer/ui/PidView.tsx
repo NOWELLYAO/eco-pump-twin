@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { ACC, ACCESSORIES, APPS, PIPE_MATS } from '../catalog';
 import type { Installation } from '../types';
+import type { Hydro } from '../hydraulics';
+import { solar } from '../electrical';
 import { PidGlyph } from './Glyphs';
 
 const W = 1100, H = 470;
@@ -17,7 +19,7 @@ function Bubble({ x, y, code, num, field = true }: { x: number; y: number; code:
 }
 
 /** Schéma P&ID (symboles ISA 5.1 simplifiés), généré depuis la configuration. */
-export function PidView({ i }: { i: Installation }) {
+export function PidView({ i, h }: { i: Installation; h: Hydro }) {
   const on = (id: string) => !!i.acc[id]?.on;
   const counters: Record<string, number> = {};
   const tag = (p: string) => (counters[p] = (counters[p] ?? 100) + 1);
@@ -140,9 +142,22 @@ export function PidView({ i }: { i: Installation }) {
     els.push(<g key="mcc"><rect x={mcc[0] - 50} y={mcc[1] - 18} width={100} height={36} rx={4} className="p-box" /><text x={mcc[0]} y={mcc[1] + 5} textAnchor="middle" className="p-cap">Coffret MCC</text></g>);
     els.push(<path key="pw" d={`M${motor[0]} ${motor[1]} V${mcc[1] - 40} H${mcc[0]} V${mcc[1] - 18}`} className="p-elec" />);
   }
-  if (on('variateur')) {
-    els.push(<g key="vfd"><rect x={vfd[0] - 40} y={vfd[1] - 18} width={80} height={36} rx={4} className="p-box" /><text x={vfd[0]} y={vfd[1] + 5} textAnchor="middle" className="p-cap">Variateur</text></g>);
-    els.push(<path key="vm" d={`M${mcc[0] + 50} ${mcc[1]} H${vfd[0] - 40}`} className="p-elec" />);
+  const isSolar = i.elec?.supply === 'solaire';
+  if (on('variateur') || isSolar) {
+    els.push(<g key="vfd"><rect x={vfd[0] - 46} y={vfd[1] - 18} width={92} height={36} rx={4} className="p-box" /><text x={vfd[0]} y={vfd[1] + 5} textAnchor="middle" className="p-cap">{isSolar ? 'Contrôleur MPPT' : 'Variateur'}</text></g>);
+    els.push(<path key="vm" d={`M${mcc[0] + 50} ${mcc[1]} H${vfd[0] - 46}`} className="p-elec" />);
+  }
+  if (isSolar) {
+    const sr = solar(i, h);
+    const px = vfd[0] + 150;
+    els.push(
+      <g key="pvb">
+        <rect x={px - 60} y={vfd[1] - 24} width={120} height={48} rx={4} className="p-box" />
+        {[0, 1, 2, 3].map((k) => <path key={k} d={`M${px - 50 + k * 26} ${vfd[1] - 16} h20 l-4 14 h-20 Z`} className="p-sym" />)}
+        <text x={px} y={vfd[1] + 18} textAnchor="middle" className="p-code">{sr ? `PV ${sr.n}×${i.elec.solar.panelWc} Wc (${sr.ns}S×${sr.np}P)` : 'Champ PV'}</text>
+        <path d={`M${px - 60} ${vfd[1]} H${vfd[0] + 46}`} className="p-elec" strokeDasharray="8 3" />
+      </g>,
+    );
   }
   signals.forEach((s, n) => {
     const t = s.to === 'vfd' && on('variateur') ? vfd : mcc;

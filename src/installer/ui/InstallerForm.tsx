@@ -1,9 +1,10 @@
 import { Wand2 } from 'lucide-react';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES } from '../catalog';
 import { defaultDn, withPipe } from '../evaluate';
+import { SECTIONS, START_LABEL, SUPPLY_LABEL, TANK_SIZES, type ElecResult } from '../electrical';
 import { fluidAt } from '../hydraulics';
 import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
-import type { AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId } from '../types';
+import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
 
 const dnOpts = DN_LIST.map((d) => ({ v: d, l: `DN${d}` }));
@@ -24,7 +25,7 @@ function PipeFields({ run, onChange }: { run: PipeRun; onChange: (r: PipeRun) =>
 
 const NEED_ORDER: Record<Need, number> = { required: 0, recommended: 1, avoid: 2, optional: 3, na: 9 };
 
-export function InstallerForm({ inst, set, needs }: { inst: Installation; set: (fn: (i: Installation) => Installation) => void; needs: Record<string, Need> }) {
+export function InstallerForm({ inst, set, needs, er }: { inst: Installation; set: (fn: (i: Installation) => Installation) => void; needs: Record<string, Need>; er: ElecResult }) {
   const i = inst;
   const imm = i.mode === 'immergee';
   const forage = i.pumpType === 'immergee_forage';
@@ -33,6 +34,11 @@ export function InstallerForm({ inst, set, needs }: { inst: Installation; set: (
   const geo = (g: Partial<Installation['geo']>) => set((x) => ({ ...x, geo: { ...x.geo, ...g } }));
   const fluid = (f: Partial<Installation['fluid']>) => set((x) => ({ ...x, fluid: { ...x.fluid, ...f } }));
   const duty = (d: Partial<Installation['duty']>) => set((x) => ({ ...x, duty: { ...x.duty, ...d } }));
+  const elec = (d: Partial<Installation['elec']>) => set((x) => ({ ...x, elec: { ...x.elec, ...d } }));
+  const sol = (d: Partial<Installation['elec']['solar']>) => set((x) => ({ ...x, elec: { ...x.elec, solar: { ...x.elec.solar, ...d } } }));
+  const setStart = (st: StartId) => set((x) => ({ ...x, elec: { ...x.elec, start: st }, acc: { ...x.acc, variateur: { ...((x.acc.variateur as AccState | undefined) ?? { dn: 0, qty: 1 }), on: st === 'variateur' } } }));
+  const solar = i.elec.supply === 'solaire';
+  const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
 
   const setPumpType = (pt: PumpTypeId) => set((x) => {
     const def = PUMP_TYPES[pt];
@@ -171,7 +177,48 @@ export function InstallerForm({ inst, set, needs }: { inst: Installation; set: (
         </div>
       </Section>
 
-      <Section n={imm ? 7 : 8} title="Accessoires d'installation" summary={`${nOn} accessoire(s) installé(s)`} open>
+      <Section n={imm ? 7 : 8} title="Électricité et alimentation" summary={`${SUPPLY_LABEL[i.elec.supply]} · ${i.elec.cableSec} mm² · ${i.elec.cableLen} m`}>
+        <div className="igrid">
+          <SelField label="Alimentation" value={i.elec.supply} wide options={(Object.keys(SUPPLY_LABEL) as SupplyId[]).map((k) => ({ v: k, l: SUPPLY_LABEL[k] }))}
+            onChange={(v) => set((x) => ({ ...x, elec: { ...x.elec, supply: v, voltage: v === 'mono' ? 230 : 400, start: v === 'solaire' ? 'variateur' : x.elec.start }, acc: v === 'solaire' ? { ...x.acc, variateur: { ...((x.acc.variateur as AccState | undefined) ?? { dn: 0, qty: 1 }), on: false } } : x.acc }))} />
+          <NumField label="Tension moteur" unit="V" value={i.elec.voltage} onChange={(v) => v > 0 && elec({ voltage: v })} />
+          <NumField label="Cos φ moteur" value={i.elec.cosphi} onChange={(v) => v > 0.3 && v <= 1 && elec({ cosphi: v })} />
+          {!solar && <SelField label="Mode de démarrage" value={i.acc.variateur?.on ? 'variateur' : i.elec.start === 'variateur' ? 'direct' : i.elec.start} wide options={(Object.keys(START_LABEL) as StartId[]).map((k) => ({ v: k, l: START_LABEL[k] }))} onChange={setStart} />}
+          <NumField label="Longueur câble coffret → moteur" unit="m" value={i.elec.cableLen} onChange={(v) => elec({ cableLen: v })} wide />
+          <SelField label="Section du câble" value={i.elec.cableSec} options={SECTIONS.map((x) => ({ v: x, l: `${String(x).replace('.', ',')} mm²` }))} onChange={(v) => elec({ cableSec: v })} />
+          <SelField label="Conducteur" value={i.elec.cableMat} options={[{ v: 'cu', l: 'Cuivre' }, { v: 'al', l: 'Aluminium' }]} onChange={(v) => elec({ cableMat: v })} />
+          <p className="ihint wide elec-hint">
+            Courant nominal <b>{fx(er.inom)} A</b>, au démarrage ≈ <b>{fx(er.istart, 0)} A</b>. Chute de tension {fx(er.dropRun)} % en marche.
+            Section conseillée : <b>{er.cores} {String(er.secRec).replace('.', ',')} mm²</b>{er.secRec !== i.elec.cableSec && <> </>}{er.secRec !== i.elec.cableSec && <button type="button" className="link" onClick={() => elec({ cableSec: er.secRec })}>appliquer</button>}
+          </p>
+          {i.elec.supply === 'groupe' && <NumField label="Puissance du groupe" unit="kVA" value={i.elec.genKva} onChange={(v) => elec({ genKva: v })} hint={`Conseillé : ${er.genKva} kVA`} wide />}
+        </div>
+        {solar && (
+          <>
+            <h4 className="isub">Champ solaire</h4>
+            <div className="igrid">
+              <NumField label="Ensoleillement" unit="kWh/m²/j" value={i.elec.solar.psh} onChange={(v) => v > 0 && sol({ psh: v })} hint="Afrique de l'Est / Ouest : 5 à 6" />
+              <NumField label="Besoin journalier" unit="m³/j" value={i.elec.solar.dailyM3} onChange={(v) => v > 0 && sol({ dailyM3: v })} />
+              <NumField label="Puissance d'un panneau" unit="Wc" value={i.elec.solar.panelWc} onChange={(v) => v > 0 && sol({ panelWc: v })} />
+              <NumField label="Vmp panneau" unit="V" value={i.elec.solar.vmp} onChange={(v) => v > 0 && sol({ vmp: v })} />
+              <NumField label="Voc panneau" unit="V" value={i.elec.solar.voc} onChange={(v) => v > 0 && sol({ voc: v })} />
+              <NumField label="Imp panneau" unit="A" value={i.elec.solar.imp} onChange={(v) => v > 0 && sol({ imp: v })} />
+              <NumField label="Tension DC maxi contrôleur" unit="V" value={i.elec.solar.vdcMax} onChange={(v) => v > 0 && sol({ vdcMax: v })} />
+              <NumField label="Tension MPPT mini" unit="V" value={i.elec.solar.vmpptMin} onChange={(v) => sol({ vmpptMin: v })} />
+              <NumField label="Panneaux installés" value={i.elec.solar.panels} onChange={(v) => sol({ panels: Math.round(v) })} hint="0 = calcul automatique" />
+              <NumField label="Câble DC (champ → contrôleur)" unit="m" value={i.elec.solar.dcLen} onChange={(v) => sol({ dcLen: v })} />
+              <SelField label="Section câble DC" value={i.elec.solar.dcSec} options={SECTIONS.filter((x) => x >= 2.5).map((x) => ({ v: x, l: `${String(x).replace('.', ',')} mm²` }))} onChange={(v) => sol({ dcSec: v })} />
+              {er.solar && (
+                <p className="ihint wide elec-hint">
+                  <b>{er.solar.n} panneaux</b> ({er.solar.ns} en série × {er.solar.np} chaîne{er.solar.np > 1 ? 's' : ''}) = {fx(er.solar.wc / 1000, 2)} kWc, ≈ {fx(er.solar.dailyM3)} m³/jour.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </Section>
+
+      <Section n={imm ? 8 : 9} title="Accessoires d'installation" summary={`${nOn} accessoire(s) installé(s)`} open>
         <button type="button" className="btn primary full" onClick={() => set((x) => autoEquip(x))}><Wand2 size={16} aria-hidden /> Équiper automatiquement (requis + conseillés)</button>
         {groups.map((g) => (
           <div key={g.side} className="iacc-group">
@@ -194,7 +241,16 @@ export function InstallerForm({ inst, set, needs }: { inst: Installation; set: (
                       <div className="iacc-opts">
                         {a.inline && <SelField label="DN" value={st?.dn || defaultDn(i, a.id)} options={dnOpts} onChange={(v) => setSt({ dn: v })} />}
                         {a.id === 'cone_exc' && <SelField label="Méplat" value={st?.opt ?? 'haut'} options={[{ v: 'haut', l: 'En haut' }, { v: 'bas', l: 'En bas' }]} onChange={(v) => setSt({ opt: v })} />}
-                        {a.id === 'vessie' && <NumField label="Volume" unit="L" value={st?.vol ?? 100} onChange={(v) => setSt({ vol: v })} />}
+                        {a.id === 'vessie' && er.vessel && (
+                          <>
+                            <SelField label="Volume" value={er.vessel.vol} options={[...new Set([...TANK_SIZES, er.vessel.vol])].sort((p, q) => p - q).map((v) => ({ v, l: `${v} L${v === er.vessel!.volRec ? ' (conseillé)' : ''}` }))} onChange={(v) => setSt({ vol: v })} />
+                            <SelField label="PN" value={er.vessel.pn} options={[6, 8, 10, 16, 25].map((v) => ({ v, l: `PN${v}${v === er.vessel!.pnRec ? ' (conseillé)' : ''}` }))} onChange={(v) => setSt({ pn: v })} />
+                            <NumField label="Enclenchement" unit="bar" value={er.vessel.pOn} onChange={(v) => setSt({ pOn: v })} />
+                            <NumField label="Arrêt" unit="bar" value={er.vessel.pOff} onChange={(v) => setSt({ pOff: v })} />
+                            <NumField label="Précharge (à vide)" unit="bar" value={er.vessel.pre} onChange={(v) => setSt({ pre: v })} />
+                            <button type="button" className="link" onClick={() => setSt({ vol: undefined, pn: undefined, pOn: undefined, pOff: undefined, pre: undefined })}>Réglages conseillés</button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

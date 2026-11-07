@@ -20,7 +20,15 @@ Elle contient aussi un **configurateur d'installation** (onglet *Configurateur*,
 - la liste des **pièces susceptibles d'être endommagées**, les **préconisations** par priorité, le bilan des pertes de charge et la **nomenclature** ;
 - un rapport imprimable, et l'envoi de la pompe vers le jumeau numérique.
 
-Les calculs couvrent : pertes de charge Darcy-Weisbach (Swamee-Jain) et singulières, point de fonctionnement, NPSH disponible (altitude, tension de vapeur, pertes), corrections de viscosité, vitesses, submersion anti-vortex (HI 9.8), coup de bélier (Joukowski), tenue PN, refroidissement des moteurs immergés, nombre de démarrages par heure, compatibilité fluide / matériaux, puissance moteur et coût énergétique.
+Le configurateur traite aussi la partie **électrique et énergie** :
+
+- alimentation (monophasé, triphasé, groupe électrogène, solaire), mode de démarrage (direct, étoile-triangle, démarreur progressif, variateur) ;
+- courant nominal et de démarrage, chute de tension du câble moteur en marche et au démarrage, intensité admissible, section et nombre de conducteurs conseillés, réglage du disjoncteur moteur ;
+- calibre du variateur, filtre de sortie (sinus ou dU/dt) pour les câbles longs, consigne de fréquence et économie d'énergie ; taille du groupe électrogène ;
+- réservoir à vessie : volume (loi de Boyle), PN, seuils marche/arrêt du pressostat, précharge, nombre de démarrages par heure, cohérence avec la pression maximale de la pompe ;
+- pompage solaire : nombre de panneaux, câblage série/parallèle selon la plage MPPT et la tension DC maximale du contrôleur (Voc à froid), puissance crête, volume journalier, section du câble DC, surface au sol et stockage d'eau conseillé.
+
+Les calculs hydrauliques couvrent : pertes de charge Darcy-Weisbach (Swamee-Jain) et singulières, point de fonctionnement, NPSH disponible (altitude, tension de vapeur, pertes), corrections de viscosité, vitesses, submersion anti-vortex (HI 9.8), coup de bélier (Joukowski), tenue PN, refroidissement des moteurs immergés, nombre de démarrages par heure, compatibilité fluide / matériaux, puissance moteur et coût énergétique.
 
 React 19 + TypeScript + Vite. Aucun serveur : les données restent dans le navigateur (localStorage).
 
