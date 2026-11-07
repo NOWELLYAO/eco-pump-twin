@@ -549,6 +549,9 @@ export function evaluate(input: Installation): Evaluation {
     .sort((a, b) => rank[a.sev] - rank[b.sev] || b.causes.length - a.causes.length);
 
   out.sort((a, b) => rank[a.sev] - rank[b.sev]);
+  // Un bouton « Corriger » qui ne changerait rien est retiré
+  const ref = JSON.stringify(i);
+  for (const x of out) if (x.fix) { try { if (JSON.stringify(ensureElec(x.fix.apply(i))) === ref) x.fix = undefined; } catch { x.fix = undefined; } }
   return { hydro: h, issues: out, goods, score, verdict, cats, parts, needs, elec: el.r };
 }
 

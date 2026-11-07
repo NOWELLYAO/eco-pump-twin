@@ -9,7 +9,7 @@ const f0 = (v: number) => Math.round(v).toLocaleString('fr-FR');
 export const SECTIONS = [1.5, 2.5, 4, 6, 10, 16, 25, 35, 50, 70, 95, 120];
 /** Intensité admissible (A), câble cuivre multiconducteur, pose courante. */
 const AMPACITY_CU = [17, 23, 31, 40, 54, 73, 95, 117, 141, 179, 216, 249];
-export const TANK_SIZES = [8, 12, 18, 24, 35, 50, 60, 80, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000];
+export const TANK_SIZES = [8, 12, 18, 24, 35, 50, 60, 80, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000, 3000, 5000];
 const START_FACTOR: Record<StartId, number> = { direct: 6, etoile: 2.2, progressif: 3, variateur: 1.1 };
 export const START_LABEL: Record<StartId, string> = { direct: 'Démarrage direct', etoile: 'Étoile-triangle', progressif: 'Démarreur progressif', variateur: 'Variateur de fréquence' };
 export const SUPPLY_LABEL = { mono: 'Réseau monophasé 230 V', tri: 'Réseau triphasé 400 V', groupe: 'Groupe électrogène', solaire: 'Solaire (contrôleur MPPT)' } as const;
@@ -75,6 +75,7 @@ export interface VesselResult {
   zMax: number;
   sizes: { vol: number; starts: number; ok: boolean }[];
   rec: { pOn: number; pOff: number; pre: number; vol: number; pn: number };
+  plan: { n: number; size: number; total: number }; // réservoir(s) conseillé(s)
   altDp: { vol: number; pOff: number } | null; // plus grand écart de pression → réservoir plus petit
   altTwo: { n: number; vol: number } | null; // plusieurs réservoirs
   volVfd: number; // avec variateur + capteur
@@ -93,6 +94,15 @@ export interface SolarResult {
 }
 
 const ceilTo = (v: number, list: number[]) => list.find((x) => x >= v) ?? list[list.length - 1];
+/** Au-delà de la plus grande taille du commerce : plusieurs réservoirs identiques. */
+export function tankPlan(v: number) {
+  const max = TANK_SIZES[TANK_SIZES.length - 1];
+  if (!Number.isFinite(v)) return { n: 1, size: max, total: max };
+  const n = Math.max(1, Math.ceil(v / max));
+  const size = ceilTo(v / n, TANK_SIZES);
+  return { n, size, total: n * size };
+}
+export const planLabel = (p: { n: number; size: number }) => (p.n > 1 ? `${p.n} × ${p.size} L` : `${p.size} L`);
 
 /** Réservoir à vessie : pressions de réglage, volume (loi de Boyle) et démarrages par heure. */
 export function vessel(i: Installation, h: Hydro): VesselResult | null {
@@ -127,7 +137,7 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
   const recPre = r1(recOn - 0.2);
   const recQ = flowAt((recOn + recOff) / 2) || h.q;
   const recTheo = theo(recQ, recOn, recOff, recPre).v;
-  const recVol = vfd ? ceilTo(Math.max(8, (h.q * 1000) / 60 * 0.1), TANK_SIZES) : ceilTo(recTheo, TANK_SIZES);
+  const recVol = vfd ? ceilTo(Math.max(8, (h.q * 1000) / 60 * 0.1), TANK_SIZES) : tankPlan(recTheo).total;
   const recPn = [6, 8, 10, 16, 25].find((p) => p >= Math.max(recOff * 1.1, pMax)) ?? 25;
 
   // Réglages réels (saisis ou conseillés)
@@ -138,7 +148,8 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
   const qFill = flowAt((pOn + pOff) / 2) || h.q;
   const { k, v: volTheo } = theo(qFill, pOn, pOff, pre);
   const volVfd = ceilTo(Math.max(8, (h.q * 1000) / 60 * 0.1), TANK_SIZES);
-  const volRec = vfd ? volVfd : ceilTo(volTheo, TANK_SIZES);
+  const plan = vfd ? { n: 1, size: volVfd, total: volVfd } : tankPlan(volTheo);
+  const volRec = plan.total;
   const vol = st.vol ?? volRec;
   const startsFor = (v: number) => (k > 0 && v > 0 ? qFill / (4 * (v / 1000) * k) : 999);
   const dv = (vol / 1000) * Math.max(0, k);
@@ -156,12 +167,12 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
       if (pOff2 > pOff && pOff2 <= pMax - 0.3 && pOff2 * 1.1 <= (st.pn ?? recPn) + 2) altDp = { vol: below, pOff: pOff2 };
     }
   }
-  const altTwo = !vfd && volTheo > 500 ? { n: 2, vol: ceilTo(volTheo / 2, TANK_SIZES) } : null;
+  const altTwo = !vfd && volTheo > 500 && volTheo <= TANK_SIZES[TANK_SIZES.length - 1] ? { n: 2, vol: ceilTo(volTheo / 2, TANK_SIZES) } : null;
   const pnRec = [6, 8, 10, 16, 25].find((p) => p >= Math.max(pOff * 1.1, pMax)) ?? 25;
   return {
     pReq, pMax, pOn, pOff, pre, pn: st.pn ?? pnRec, vol, volRec, pnRec, dv, starts, auto,
     qFill, useful: Math.max(0, k), volTheo: vfd ? volVfd : volTheo, zMax, sizes,
-    rec: { pOn: recOn, pOff: recOff, pre: recPre, vol: recVol, pn: recPn }, altDp, altTwo, volVfd, vfd,
+    rec: { pOn: recOn, pOff: recOff, pre: recPre, vol: recVol, pn: recPn }, plan, altDp, altTwo, volVfd, vfd,
   };
 }
 
@@ -360,8 +371,12 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
       add({ id: 'v_vol', sev: ves.starts > i.pump.maxStarts * 1.5 ? 'critical' : 'warning', cat: 'securite', title: 'Réservoir à vessie trop petit',
         detail: `${f0(ves.vol)} L entre ${f1(ves.pOn)} et ${f1(ves.pOff)} bar ne stockent que ${f0(ves.dv * 1000)} L utiles (${f0(ves.useful * 100)} % du volume) ; la pompe les remplit à ${f1(ves.qFill)} m³/h : jusqu'à ${f0(ves.starts)} démarrages/h pour ${i.pump.maxStarts} admissibles.`,
         consequences: ['Moteur et contacteur usés prématurément', 'Membrane fatiguée'], parts: ['moteur', 'coffret', 'membrane'],
-        solutions: [`Réservoir de ${f0(ves.volRec)} L (théorique ${f0(ves.volTheo)} L)`, ...(ves.altDp ? [`Ou ${f0(ves.altDp.vol)} L en réglant l'arrêt à ${f1(ves.altDp.pOff)} bar`] : []), ...(ves.altTwo ? [`Ou ${ves.altTwo.n} réservoirs de ${f0(ves.altTwo.vol)} L`] : []), `Ou variateur + capteur de pression : ${f0(ves.volVfd)} L suffisent`],
-        fix: { label: `${f0(ves.volRec)} L`, apply: (x) => ({ ...x, acc: { ...x.acc, vessie: { ...x.acc.vessie, vol: ves.volRec } } }) } });
+        solutions: ves.volTheo > 1500
+          ? [`Le plus raisonnable : variateur + capteur de pression, un réservoir de ${f0(ves.volVfd)} L suffit`, `Sinon : ${planLabel(ves.plan)} (théorique ${f0(ves.volTheo)} L) — encombrant et coûteux`, ...(ves.altDp ? [`Ou ${f0(ves.altDp.vol)} L en réglant l'arrêt à ${f1(ves.altDp.pOff)} bar`] : [])]
+          : [`Réservoir de ${planLabel(ves.plan)} (théorique ${f0(ves.volTheo)} L)`, ...(ves.altDp ? [`Ou ${f0(ves.altDp.vol)} L en réglant l'arrêt à ${f1(ves.altDp.pOff)} bar`] : []), ...(ves.altTwo ? [`Ou ${ves.altTwo.n} réservoirs de ${f0(ves.altTwo.vol)} L`] : []), `Ou variateur + capteur de pression : ${f0(ves.volVfd)} L suffisent`],
+        fix: ves.volTheo > 1500
+          ? { label: 'Variateur + capteur de pression', apply: (x) => ({ ...x, elec: { ...x.elec, start: 'variateur' }, acc: { ...x.acc, variateur: { dn: 0, qty: 1, ...((x.acc.variateur as object | undefined) ?? {}), on: true }, capteur_p: { dn: 0, qty: 1, ...((x.acc.capteur_p as object | undefined) ?? {}), on: true }, vessie: { ...x.acc.vessie, vol: undefined } } }) }
+          : { label: planLabel(ves.plan), apply: (x) => ({ ...x, acc: { ...x.acc, vessie: { ...x.acc.vessie, vol: ves.volRec } } }) } });
     } else goods.push(`Réservoir à vessie ${f0(ves.vol)} L PN${ves.pn} : ${f1(ves.pOn)} / ${f1(ves.pOff)} bar, ${start === 'variateur' ? 'régulation par variateur' : `${f0(ves.starts)} démarrages/h maxi`}`);
   }
 

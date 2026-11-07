@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
-import { MONTHS, START_LABEL, SUPPLY_LABEL } from '../electrical';
+import { MONTHS, START_LABEL, SUPPLY_LABEL, planLabel } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { losses, pumpHead, systemHeadAt } from '../hydraulics';
@@ -375,7 +375,8 @@ export function ElecCard({ i, ev }: { i: Installation; ev: Evaluation }) {
                 <li>Débit de la pompe entre marche et arrêt (sur sa courbe, à {fmt((v.pOn + v.pOff) / 2, 2)} bar) : <b>{fmt(v.qFill, 1)} m³/h</b>. C'est ce débit qui remplit le réservoir, pas le besoin ({fmt(i.duty.qReq, 1)} m³/h).</li>
                 <li>Pire cas pour les cycles : consommation = moitié du débit pompe → volume d'eau à stocker = Q / (4 × Z) = {fmt(v.qFill, 1)} / (4 × {v.zMax}) = <b>{fmt((v.qFill / (4 * v.zMax)) * 1000, 0)} L</b>.</li>
                 <li>Part utile du réservoir (loi de Boyle) = (P₀+1) × [1/(Pm+1) − 1/(Pa+1)] = <b>{fmt(v.useful * 100, 1)} %</b> du volume.</li>
-                <li>Volume théorique = {fmt((v.qFill / (4 * v.zMax)) * 1000, 0)} / {fmt(v.useful, 3)} × 1,1 (marge) = <b>{fmt(v.volTheo, 0)} L</b> → taille du commerce : <b>{v.volRec} L</b>.</li>
+                <li>Volume théorique = {fmt((v.qFill / (4 * v.zMax)) * 1000, 0)} / {fmt(v.useful, 3)} × 1,1 (marge) = <b>{fmt(v.volTheo, 0)} L</b> → taille du commerce : <b>{planLabel(v.plan)}</b>.</li>
+                {v.volTheo > 1500 && <li className="warnli">À ces pressions, seule une petite part du réservoir sert : une régulation par <b>variateur + capteur de pression</b> ({v.volVfd} L) est bien plus raisonnable.</li>}
               </ol>
               <table className="tbl sizes">
                 <thead><tr><th>Volume</th><th>Démarrages / h</th><th /></tr></thead>
