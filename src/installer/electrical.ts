@@ -1,5 +1,5 @@
 import { etaAt } from '../engine/physics';
-import { losses, pumpHead, specOf, staticHead, pressureHead, type Hydro } from './hydraulics';
+import { losses, pumpHead, specOf, staticHead, pressureHead, suctionZ, type Hydro } from './hydraulics';
 import { refStatic } from './catalog';
 import type { Elec, Installation, Issue, StartId } from './types';
 
@@ -69,6 +69,16 @@ export interface ElecResult {
 export interface VesselResult {
   pReq: number; pMax: number; pOn: number; pOff: number; pre: number; pn: number; vol: number;
   volRec: number; pnRec: number; dv: number; starts: number; auto: boolean;
+  qFill: number; // débit de la pompe entre marche et arrêt (m³/h)
+  useful: number; // part utile du réservoir (0–1)
+  volTheo: number; // volume théorique (L)
+  zMax: number;
+  sizes: { vol: number; starts: number; ok: boolean }[];
+  rec: { pOn: number; pOff: number; pre: number; vol: number; pn: number };
+  altDp: { vol: number; pOff: number } | null; // plus grand écart de pression → réservoir plus petit
+  altTwo: { n: number; vol: number } | null; // plusieurs réservoirs
+  volVfd: number; // avec variateur + capteur
+  vfd: boolean;
 }
 
 export const MONTHS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
@@ -89,30 +99,70 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
   const st = i.acc.vessie;
   if (!st?.on || !h.ok) return null;
   const rhoG = i.fluid.rho * 9.81;
-  const charge = i.mode === 'charge' ? i.geo.chargeHead : 0;
-  // Pression nécessaire au refoulement de la pompe pour servir le point haut au débit demandé.
+  const z = suctionZ(i);
+  // Pression nécessaire au refoulement pour servir le point le plus haut au débit demandé
   const lossRef = losses(i, i.duty.qReq).ref;
   const pReq = Math.max(0.5, ((refStatic(i) + pressureHead(i) + lossRef) * rhoG) / 1e5);
-  const pMax = ((pumpHead(i, 0) + charge) * rhoG) / 1e5;
-  const auto = st.pOn == null || st.pOff == null;
-  const pOnRec = Math.ceil((pReq + 0.2) * 10) / 10;
-  const pOffRec = Math.min(Math.round((pOnRec + 1.2) * 10) / 10, Math.floor((pMax - 0.3) * 10) / 10);
-  const pOn = st.pOn ?? pOnRec;
-  const pOff = st.pOff ?? Math.max(pOnRec + 0.5, pOffRec);
-  const pre = st.pre ?? Math.round((pOn - 0.2) * 10) / 10;
+  const pMax = ((pumpHead(i, 0) + Math.max(0, z)) * rhoG) / 1e5;
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  // Débit de la pompe à une pression de refoulement donnée (inverse de la courbe)
+  const flowAt = (pBar: number) => {
+    const H = (pBar * 1e5) / rhoG - z;
+    if (pumpHead(i, 0) <= H) return 0;
+    let lo = 0, hi = i.pump.qn * 3 * h.n;
+    for (let n = 0; n < 50; n++) { const m = (lo + hi) / 2; if (pumpHead(i, m) > H) lo = m; else hi = m; }
+    return lo;
+  };
   const vfd = effectiveStart(i) === 'variateur';
-  const z = i.pump.maxStarts;
-  const qPump = h.q; // m³/h
-  // Volume utile nécessaire : le pire cas est une consommation égale à la moitié du débit pompe.
-  const dvNeed = qPump / (4 * z); // m³
-  const k = (pre + 1) * (1 / (pOn + 1) - 1 / (pOff + 1));
-  const volRecRaw = vfd ? Math.max(8, (qPump * 1000) / 60 * 0.1) : (dvNeed / Math.max(0.02, k)) * 1000;
-  const volRec = ceilTo(volRecRaw, TANK_SIZES);
+  const zMax = i.pump.maxStarts;
+  const MARGIN = 1.1; // +10 % (formule constructeur V = 16,5 × Q × …)
+  const theo = (q: number, pOn: number, pOff: number, pre: number) => {
+    const k = (pre + 1) * (1 / (pOn + 1) - 1 / (pOff + 1));
+    return { k, v: k > 0 ? ((q / (4 * zMax)) / k) * 1000 * MARGIN : Infinity };
+  };
+
+  // Réglages conseillés (toujours recalculés)
+  const recOn = Math.ceil((pReq + 0.2) * 10) / 10;
+  const recOff = Math.max(r1(recOn + 0.6), Math.min(r1(recOn + 1.5), Math.floor((pMax - 0.3) * 10) / 10));
+  const recPre = r1(recOn - 0.2);
+  const recQ = flowAt((recOn + recOff) / 2) || h.q;
+  const recTheo = theo(recQ, recOn, recOff, recPre).v;
+  const recVol = vfd ? ceilTo(Math.max(8, (h.q * 1000) / 60 * 0.1), TANK_SIZES) : ceilTo(recTheo, TANK_SIZES);
+  const recPn = [6, 8, 10, 16, 25].find((p) => p >= Math.max(recOff * 1.1, pMax)) ?? 25;
+
+  // Réglages réels (saisis ou conseillés)
+  const auto = st.pOn == null || st.pOff == null;
+  const pOn = st.pOn ?? recOn;
+  const pOff = st.pOff ?? recOff;
+  const pre = st.pre ?? r1(pOn - 0.2);
+  const qFill = flowAt((pOn + pOff) / 2) || h.q;
+  const { k, v: volTheo } = theo(qFill, pOn, pOff, pre);
+  const volVfd = ceilTo(Math.max(8, (h.q * 1000) / 60 * 0.1), TANK_SIZES);
+  const volRec = vfd ? volVfd : ceilTo(volTheo, TANK_SIZES);
   const vol = st.vol ?? volRec;
+  const startsFor = (v: number) => (k > 0 && v > 0 ? qFill / (4 * (v / 1000) * k) : 999);
   const dv = (vol / 1000) * Math.max(0, k);
-  const starts = vfd ? 0 : dv > 0 ? qPump / (4 * dv) : 999;
+  const starts = vfd ? 0 : startsFor(vol);
+  const sizes = vfd ? [] : TANK_SIZES.filter((s) => s >= volTheo * 0.35 && s <= Math.max(volTheo * 2.2, 100)).slice(0, 7)
+    .map((s) => ({ vol: s, starts: startsFor(s), ok: startsFor(s) <= zMax }));
+  // Alternative : écart de pression plus grand pour se contenter de la taille inférieure
+  let altDp: VesselResult['altDp'] = null;
+  const below = [...TANK_SIZES].reverse().find((s) => s < volRec);
+  if (!vfd && below) {
+    const kNeed = ((qFill / (4 * zMax)) / (below / 1000)) * MARGIN;
+    const inv = 1 / (pOn + 1) - kNeed / (pre + 1);
+    if (inv > 0) {
+      const pOff2 = Math.ceil((1 / inv - 1) * 10) / 10;
+      if (pOff2 > pOff && pOff2 <= pMax - 0.3 && pOff2 * 1.1 <= (st.pn ?? recPn) + 2) altDp = { vol: below, pOff: pOff2 };
+    }
+  }
+  const altTwo = !vfd && volTheo > 500 ? { n: 2, vol: ceilTo(volTheo / 2, TANK_SIZES) } : null;
   const pnRec = [6, 8, 10, 16, 25].find((p) => p >= Math.max(pOff * 1.1, pMax)) ?? 25;
-  return { pReq, pMax, pOn, pOff, pre, pn: st.pn ?? pnRec, vol, volRec, pnRec, dv, starts, auto };
+  return {
+    pReq, pMax, pOn, pOff, pre, pn: st.pn ?? pnRec, vol, volRec, pnRec, dv, starts, auto,
+    qFill, useful: Math.max(0, k), volTheo: vfd ? volVfd : volTheo, zMax, sizes,
+    rec: { pOn: recOn, pOff: recOff, pre: recPre, vol: recVol, pn: recPn }, altDp, altTwo, volVfd, vfd,
+  };
 }
 
 /** Pompage solaire : champ photovoltaïque, câblage série/parallèle, volume journalier. */
@@ -308,9 +358,9 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
     }
     if (ves.starts > i.pump.maxStarts) {
       add({ id: 'v_vol', sev: ves.starts > i.pump.maxStarts * 1.5 ? 'critical' : 'warning', cat: 'securite', title: 'Réservoir à vessie trop petit',
-        detail: `${f0(ves.vol)} L entre ${f1(ves.pOn)} et ${f1(ves.pOff)} bar ne stockent que ${f0(ves.dv * 1000)} L utiles : jusqu'à ${f0(ves.starts)} démarrages/h pour ${i.pump.maxStarts} admissibles.`,
+        detail: `${f0(ves.vol)} L entre ${f1(ves.pOn)} et ${f1(ves.pOff)} bar ne stockent que ${f0(ves.dv * 1000)} L utiles (${f0(ves.useful * 100)} % du volume) ; la pompe les remplit à ${f1(ves.qFill)} m³/h : jusqu'à ${f0(ves.starts)} démarrages/h pour ${i.pump.maxStarts} admissibles.`,
         consequences: ['Moteur et contacteur usés prématurément', 'Membrane fatiguée'], parts: ['moteur', 'coffret', 'membrane'],
-        solutions: [`Réservoir de ${f0(ves.volRec)} L`, 'Ou variateur + capteur de pression (petit réservoir suffit)'],
+        solutions: [`Réservoir de ${f0(ves.volRec)} L (théorique ${f0(ves.volTheo)} L)`, ...(ves.altDp ? [`Ou ${f0(ves.altDp.vol)} L en réglant l'arrêt à ${f1(ves.altDp.pOff)} bar`] : []), ...(ves.altTwo ? [`Ou ${ves.altTwo.n} réservoirs de ${f0(ves.altTwo.vol)} L`] : []), `Ou variateur + capteur de pression : ${f0(ves.volVfd)} L suffisent`],
         fix: { label: `${f0(ves.volRec)} L`, apply: (x) => ({ ...x, acc: { ...x.acc, vessie: { ...x.acc.vessie, vol: ves.volRec } } }) } });
     } else goods.push(`Réservoir à vessie ${f0(ves.vol)} L PN${ves.pn} : ${f1(ves.pOn)} / ${f1(ves.pOff)} bar, ${start === 'variateur' ? 'régulation par variateur' : `${f0(ves.starts)} démarrages/h maxi`}`);
   }

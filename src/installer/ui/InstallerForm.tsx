@@ -255,12 +255,20 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
                         {a.id === 'cone_exc' && <SelField label="Méplat" value={st?.opt ?? 'haut'} options={[{ v: 'haut', l: 'En haut' }, { v: 'bas', l: 'En bas' }]} onChange={(v) => setSt({ opt: v })} />}
                         {a.id === 'vessie' && er.vessel && (
                           <>
-                            <SelField label="Volume" value={er.vessel.vol} options={[...new Set([...TANK_SIZES, er.vessel.vol])].sort((p, q) => p - q).map((v) => ({ v, l: `${v} L${v === er.vessel!.volRec ? ' (conseillé)' : ''}` }))} onChange={(v) => setSt({ vol: v })} />
-                            <SelField label="PN" value={er.vessel.pn} options={[6, 8, 10, 16, 25].map((v) => ({ v, l: `PN${v}${v === er.vessel!.pnRec ? ' (conseillé)' : ''}` }))} onChange={(v) => setSt({ pn: v })} />
-                            <NumField label="Enclenchement" unit="bar" value={er.vessel.pOn} onChange={(v) => setSt({ pOn: v })} />
-                            <NumField label="Arrêt" unit="bar" value={er.vessel.pOff} onChange={(v) => setSt({ pOff: v })} />
+                            <div className="vrec wide2">
+                              <b>Conseillé (recalculé en direct)</b>
+                              <span>Marche {fx(er.vessel.rec.pOn)} bar · arrêt {fx(er.vessel.rec.pOff)} bar · précharge {fx(er.vessel.rec.pre)} bar · {er.vessel.rec.vol} L PN{er.vessel.rec.pn}</span>
+                              <small>Pression nécessaire au refoulement : {fx(er.vessel.pReq)} bar · pompe vanne fermée : {fx(er.vessel.pMax)} bar</small>
+                              {!er.vessel.auto || st?.vol != null || st?.pre != null || st?.pn != null ? <button type="button" className="btn primary sm" onClick={() => setSt({ vol: undefined, pn: undefined, pOn: undefined, pOff: undefined, pre: undefined })}>Appliquer les réglages conseillés</button> : <small className="okc">✓ Réglages conseillés appliqués</small>}
+                            </div>
+                            <NumField label="Enclenchement (marche)" unit="bar" value={er.vessel.pOn} onChange={(v) => setSt({ pOn: v, pOff: er.vessel!.pOff, pre: Math.round((v - 0.2) * 10) / 10 })} />
+                            <NumField label="Déclenchement (arrêt)" unit="bar" value={er.vessel.pOff} onChange={(v) => setSt({ pOff: v, pOn: er.vessel!.pOn })} />
                             <NumField label="Précharge (à vide)" unit="bar" value={er.vessel.pre} onChange={(v) => setSt({ pre: v })} />
-                            <button type="button" className="link" onClick={() => setSt({ vol: undefined, pn: undefined, pOn: undefined, pOff: undefined, pre: undefined })}>Réglages conseillés</button>
+                            <SelField label="PN" value={er.vessel.pn} options={[6, 8, 10, 16, 25].map((v) => ({ v, l: `PN${v}${v === er.vessel!.pnRec ? ' (conseillé)' : ''}` }))} onChange={(v) => setSt({ pn: v })} />
+                            <SelField label="Volume" value={er.vessel.vol} wide options={[...new Set([...TANK_SIZES, er.vessel.vol])].sort((p, q) => p - q).map((v) => {
+                              const z = er.vessel!.vfd ? null : er.vessel!.qFill / (4 * (v / 1000) * Math.max(1e-6, er.vessel!.useful));
+                              return { v, l: `${v} L${z != null ? ` — ${Math.round(z)} démarrages/h${z <= er.vessel!.zMax ? '' : ' (trop)'}` : ''}${v === er.vessel!.volRec ? ' · conseillé' : ''}` };
+                            })} onChange={(v) => setSt({ vol: v })} />
                           </>
                         )}
                       </div>

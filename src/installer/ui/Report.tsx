@@ -316,13 +316,34 @@ export function ElecCard({ i, ev }: { i: Installation; ev: Evaluation }) {
         <>
           <h4 className="sub-h">Réservoir à vessie</h4>
           <table className="tbl kv"><tbody>
-            <tr><th>Volume</th><td>{v.vol} L{v.vol !== v.volRec && <small className="muted"> · conseillé {v.volRec} L</small>}</td></tr>
-            <tr><th>Pression nominale</th><td>PN{v.pn}{v.pn !== v.pnRec && <small className="muted"> · conseillé PN{v.pnRec}</small>}</td></tr>
-            <tr><th>Pressostat</th><td>marche {fmt(v.pOn, 1)} bar · arrêt {fmt(v.pOff, 1)} bar</td></tr>
-            <tr><th>Précharge</th><td>{fmt(v.pre, 1)} bar <small className="muted">· réservoir vide, 0,2 bar sous la marche</small></td></tr>
-            <tr><th>Réserve utile</th><td>{fmt(v.dv * 1000, 0)} L<small className="muted"> · {r.start === 'variateur' ? 'régulation variateur' : `≤ ${fmt(v.starts, 0)} démarrages/h (maxi ${i.pump.maxStarts})`}</small></td></tr>
-            <tr><th>Repères</th><td><small className="muted">besoin au refoulement {fmt(v.pReq, 1)} bar · pompe vanne fermée {fmt(v.pMax, 1)} bar</small></td></tr>
+            <tr><th>Réservoir</th><td><b>{v.vol} L PN{v.pn}</b>{v.vol !== v.volRec && <small className="muted"> · conseillé {v.volRec} L</small>}</td></tr>
+            <tr><th>Pressostat</th><td>marche {fmt(v.pOn, 1)} bar · arrêt {fmt(v.pOff, 1)} bar · précharge {fmt(v.pre, 1)} bar (réservoir vide)</td></tr>
+            <tr><th>Conseillé</th><td>marche {fmt(v.rec.pOn, 1)} · arrêt {fmt(v.rec.pOff, 1)} · précharge {fmt(v.rec.pre, 1)} bar · {v.rec.vol} L PN{v.rec.pn}</td></tr>
           </tbody></table>
+          {!v.vfd ? (
+            <>
+              <h5 className="calc-h">Détail du calcul</h5>
+              <ol className="calc">
+                <li>Pression nécessaire au refoulement : <b>{fmt(v.pReq, 2)} bar</b> (hauteur + pression au point d'usage + pertes) → marche ≥ {fmt(v.pReq + 0.2, 1)} bar.</li>
+                <li>Débit de la pompe entre marche et arrêt (sur sa courbe, à {fmt((v.pOn + v.pOff) / 2, 2)} bar) : <b>{fmt(v.qFill, 1)} m³/h</b>. C'est ce débit qui remplit le réservoir, pas le besoin ({fmt(i.duty.qReq, 1)} m³/h).</li>
+                <li>Pire cas pour les cycles : consommation = moitié du débit pompe → volume d'eau à stocker = Q / (4 × Z) = {fmt(v.qFill, 1)} / (4 × {v.zMax}) = <b>{fmt((v.qFill / (4 * v.zMax)) * 1000, 0)} L</b>.</li>
+                <li>Part utile du réservoir (loi de Boyle) = (P₀+1) × [1/(Pm+1) − 1/(Pa+1)] = <b>{fmt(v.useful * 100, 1)} %</b> du volume.</li>
+                <li>Volume théorique = {fmt((v.qFill / (4 * v.zMax)) * 1000, 0)} / {fmt(v.useful, 3)} × 1,1 (marge) = <b>{fmt(v.volTheo, 0)} L</b> → taille du commerce : <b>{v.volRec} L</b>.</li>
+              </ol>
+              <table className="tbl sizes">
+                <thead><tr><th>Volume</th><th>Démarrages / h</th><th /></tr></thead>
+                <tbody>{v.sizes.map((x) => (
+                  <tr key={x.vol} className={x.vol === v.vol ? 'sel' : ''}><td>{x.vol} L</td><td className="num">{fmt(x.starts, 0)} <small className="muted">/ {v.zMax}</small></td><td>{x.ok ? <span className="badge lv-ok">OK</span> : <span className="badge lv-warning">trop</span>}</td></tr>
+                ))}</tbody>
+              </table>
+              <h5 className="calc-h">Autres solutions</h5>
+              <ul className="calc">
+                {v.altDp && <li>Garder {v.altDp.vol} L en réglant l'arrêt à <b>{fmt(v.altDp.pOff, 1)} bar</b> (écart de pression plus grand).</li>}
+                {v.altTwo && <li>{v.altTwo.n} réservoirs de <b>{v.altTwo.vol} L</b> en parallèle (plus faciles à manutentionner).</li>}
+                <li>Variateur + capteur de pression : la pompe ne s'arrête presque plus, un réservoir de <b>{v.volVfd} L</b> suffit.</li>
+              </ul>
+            </>
+          ) : <p className="muted small">Avec variateur et capteur de pression, le réservoir sert seulement d'amortisseur : {v.volVfd} L suffisent (≈ 10 % du débit en L/min).</p>}
         </>
       )}
       {s && (
