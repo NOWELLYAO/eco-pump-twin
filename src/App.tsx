@@ -6,6 +6,7 @@ import { ensureElec } from './installer/electrical';
 import { PRESETS, empty } from './installer/presets';
 import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
+import { OfflineAndInstall } from './ui/Offline';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { PidView } from './installer/ui/PidView';
 import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
@@ -35,6 +36,7 @@ function Guide() {
       <p><b>Diagnostic</b> : cliquez sur une alerte pour voir l'élément concerné clignoter sur le schéma, puis corrigez-la en un clic.</p>
       <p><b>Fiches</b> : cliquez sur n'importe quel élément du schéma (pompe, conduite, vanne, clapet, coffret…) pour voir ses caractéristiques, ses alertes et des photos réelles.</p>
       <p><b>Matériel & rapport</b> : nomenclature complète, électricité, solaire, pertes de charge, courbes, et impression du rapport.</p>
+      <p><b>Sans internet</b> : bouton « Installer » pour ajouter l'application à l'écran d'accueil du téléphone ; elle fonctionne ensuite hors ligne.</p>
     </div>
   );
 }
@@ -87,6 +89,7 @@ export default function App() {
           ))}
         </nav>
         <div className="sp" />
+        <OfflineAndInstall />
         <button className={`scorechip lv-${lvl}`} onClick={() => setPage('diag')} title={ev.verdict.label}>{ev.score}<small>/100</small></button>
         <button className="btn newbtn" onClick={() => { setResetName(''); setReset(true); }} title="Repartir de zéro"><FilePlus2 size={17} aria-hidden /><span>Nouvelle</span></button>
         <button className="icon-btn" onClick={() => window.print()} aria-label="Imprimer le rapport"><Printer size={18} /></button>
@@ -109,7 +112,7 @@ export default function App() {
         <ScoreCard ev={ev} />
         <KeyFigures i={inst} ev={ev} />
         <section className="card"><PidView i={inst} h={ev.hydro} /></section>
-        <Alerts ev={ev} onFix={() => undefined} />
+        <Alerts ev={ev} onFix={() => undefined} printAll />
         <Recommendations ev={ev} />
         <PartsAtRisk ev={ev} />
         <Goods ev={ev} />

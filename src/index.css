@@ -794,3 +794,10 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .row.end { justify-content: flex-end; }
 .ipreset .btn.full { margin-bottom: 8px; background: var(--panel); }
 @media (max-width: 760px) { .appgrid { grid-template-columns: 1fr 1fr; } .newbtn span { display: none; } }
+
+.issue-head .chev { width: 30px; height: 30px; padding: 6px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); box-sizing: border-box; }
+.issue-head:hover .chev { border-color: var(--brand); color: var(--brand-ink); }
+
+.offline { display: inline-flex; align-items: center; gap: 5px; font-size: .8rem; font-weight: 700; color: var(--warn-ink); background: var(--warn-bg); padding: 5px 10px; border-radius: 99px; white-space: nowrap; }
+.installbtn { padding: 8px 12px; border-color: var(--brand); color: var(--brand-ink); }
+@media (max-width: 760px) { .installbtn span, .offline span { display: none; } .appbar { gap: 6px; } }

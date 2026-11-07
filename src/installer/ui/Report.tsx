@@ -75,16 +75,14 @@ export function KeyFigures({ i, ev }: { i: Installation; ev: Evaluation }) {
   );
 }
 
-function IssueCard({ x, onFix, open: initial, onSelect, active }: { x: Issue; onFix: (x: Issue) => void; open: boolean; onSelect?: (x: Issue) => void; active?: boolean }) {
-  const [open, setOpen] = useState(initial);
-  useEffect(() => { if (active) setOpen(true); }, [active]);
+function IssueCard({ x, onFix, open, onToggle, onSelect, active }: { x: Issue; onFix: (x: Issue) => void; open: boolean; onToggle: () => void; onSelect?: (x: Issue) => void; active?: boolean }) {
   return (
     <li className={`issue lv-${LV[x.sev]}${active ? ' active' : ''}`} id={`issue-${x.id}`}>
-      <button className="issue-head" onClick={() => { setOpen(!open || !!onSelect); onSelect?.(x); }} aria-expanded={open}>
+      <button className="issue-head" onClick={() => { const opening = !open; onToggle(); if (opening) onSelect?.(x); }} aria-expanded={open}>
         <LevelIcon level={LV[x.sev]} size={18} />
         <strong>{x.title}</strong>
         <span className={`badge lv-${LV[x.sev]}`}>{SEV_LABEL[x.sev]}</span>
-        <ChevronDown size={16} className={open ? 'chev open' : 'chev'} aria-hidden />
+        <ChevronDown size={18} className={open ? 'chev open' : 'chev'} aria-hidden />
       </button>
       {open && (
         <div className="issue-body">
@@ -104,7 +102,13 @@ function IssueCard({ x, onFix, open: initial, onSelect, active }: { x: Issue; on
 }
 const PARTS_LABEL = (p: string) => PARTS[p] ?? p;
 
-export function Alerts({ ev, onFix, onSelect, activeId, compact }: { ev: Evaluation; onFix: (x: Issue) => void; onSelect?: (x: Issue) => void; activeId?: string | null; compact?: boolean }) {
+export function Alerts({ ev, onFix, onSelect, activeId, compact, printAll }: { ev: Evaluation; onFix: (x: Issue) => void; onSelect?: (x: Issue) => void; activeId?: string | null; compact?: boolean; printAll?: boolean }) {
+  // Une seule alerte ouverte à la fois ; la flèche ouvre et ferme
+  const [openId, setOpenId] = useState<string | null>(activeId ?? null);
+  useEffect(() => { if (activeId) setOpenId(activeId); }, [activeId]);
+  const card = (x: Issue) => (
+    <IssueCard key={x.id} x={x} onFix={onFix} open={printAll || openId === x.id} onToggle={() => setOpenId(openId === x.id ? null : x.id)} onSelect={onSelect} active={activeId === x.id} />
+  );
   const main = ev.issues.filter((x) => x.sev !== 'info');
   const recs = ev.issues.filter((x) => x.sev === 'info' && x.id.startsWith('rec_'));
   const infos = ev.issues.filter((x) => x.sev === 'info' && !x.id.startsWith('rec_'));
@@ -112,9 +116,9 @@ export function Alerts({ ev, onFix, onSelect, activeId, compact }: { ev: Evaluat
     <section className="card">
       <h3><ShieldAlert size={16} aria-hidden /> Alertes et diagnostic</h3>
       {main.length === 0 ? <p className="muted ok-line"><CheckCircle2 size={16} aria-hidden /> Aucune alerte : l'installation respecte les règles de l'art.</p> : (
-        <ul className="issues">{(compact ? main.slice(0, 4) : main).map((x, n) => <IssueCard key={x.id} x={x} onFix={onFix} open={!compact && n < 1} onSelect={onSelect} active={activeId === x.id} />)}</ul>
+        <ul className="issues">{(compact ? main.slice(0, 4) : main).map(card)}</ul>
       )}
-      {!compact && infos.length > 0 && (<><h4 className="sub-h">Optimisations possibles</h4><ul className="issues">{infos.map((x) => <IssueCard key={x.id} x={x} onFix={onFix} open={false} onSelect={onSelect} active={activeId === x.id} />)}</ul></>)}
+      {!compact && infos.length > 0 && (<><h4 className="sub-h">Optimisations possibles</h4><ul className="issues">{infos.map(card)}</ul></>)}
       {!compact && recs.length > 0 && (
         <>
           <h4 className="sub-h">Accessoires conseillés non installés</h4>

@@ -54,7 +54,7 @@ export function Photos({ query, label }: { query: string; label: string }) {
           ))}
         </div>
       )}
-      {(err || (list && list.length === 0)) && <p className="muted small">Pas de photo libre trouvée pour cet élément.</p>}
+      {(err || (list && list.length === 0)) && <p className="muted small">{!navigator.onLine ? 'Hors ligne : les photos s\'afficheront avec une connexion (celles déjà vues restent disponibles).' : 'Pas de photo libre trouvée pour cet élément.'}</p>}
       <a className="btn sm" href={google} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden /> Plus de photos</a>
       <small className="muted small">Photos Wikimedia Commons (licences libres, cliquer pour l'auteur).</small>
     </div>
