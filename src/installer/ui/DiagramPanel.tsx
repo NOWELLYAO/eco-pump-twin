@@ -5,6 +5,7 @@ import type { Evaluation } from '../evaluate';
 import { defaultDn } from '../evaluate';
 import { photoQuery, targetLabel, targetsOf } from '../targets';
 import { posAdvice } from '../positions';
+import { termLines, type TermLive } from '../terminal';
 import type { Installation, Issue } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { fmt } from '../../ui/util';
@@ -129,8 +130,9 @@ function Detail({ t, i, ev, onIssue, onSet, onClose }: {
 export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSet, live, banner, onCloseBanner }: {
   i: Installation; ev: Evaluation; highlight: string[]; selected: string | null;
   onPick: (t: string | null) => void; onIssue: (x: Issue) => void; onSet: (fn: (x: Installation) => Installation) => void;
-  live?: Live; banner?: Issue | null; onCloseBanner?: () => void;
+  live?: Live & Partial<TermLive>; banner?: Issue | null; onCloseBanner?: () => void;
 }) {
+  const term = termLines(i, ev, live ? { on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh } : undefined);
   const [view, setView] = useState<View>('real');
   return (
     <div className="diagram" id="diagram">
@@ -149,7 +151,7 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
           </div>
         )}
         <div className="vbody" onClick={() => onPick(null)}>
-          {view === 'real' && <RealView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} live={live} />}
+          {view === 'real' && <RealView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} live={live} term={term} />}
           {view === 'pid' && <PidView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} />}
           {view === 'curve' && <InstCurve i={i} ev={ev} />}
         </div>

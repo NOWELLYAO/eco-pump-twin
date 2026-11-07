@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
+import { BookOpen, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
+import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
 import { ensureElec } from './installer/electrical';
-import { PRESETS } from './installer/presets';
+import { PRESETS, empty } from './installer/presets';
 import { targetsOf } from './installer/targets';
-import type { Installation, Issue } from './installer/types';
+import type { AppId, Installation, Issue } from './installer/types';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { PidView } from './installer/ui/PidView';
 import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
@@ -44,6 +45,10 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null);
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [guide, setGuide] = useState(false);
+  const [reset, setReset] = useState(false);
+  const [resetApp, setResetApp] = useState<AppId>('transfert');
+  const [resetEquip, setResetEquip] = useState(false);
+  const [resetName, setResetName] = useState('');
   const ev = useMemo(() => evaluate(inst), [inst]);
 
   useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(inst)); } catch { /* ignore */ } }, [inst]);
@@ -83,6 +88,7 @@ export default function App() {
         </nav>
         <div className="sp" />
         <button className={`scorechip lv-${lvl}`} onClick={() => setPage('diag')} title={ev.verdict.label}>{ev.score}<small>/100</small></button>
+        <button className="btn newbtn" onClick={() => { setResetName(''); setReset(true); }} title="Repartir de zéro"><FilePlus2 size={17} aria-hidden /><span>Nouvelle</span></button>
         <button className="icon-btn" onClick={() => window.print()} aria-label="Imprimer le rapport"><Printer size={18} /></button>
         <button className="icon-btn" onClick={() => setGuide(true)} aria-label="Guide"><BookOpen size={18} /></button>
       </header>
@@ -113,6 +119,31 @@ export default function App() {
         <Bom i={inst} ev={ev} onFix={() => undefined} />
       </div>
 
+      {reset && (
+        <div className="backdrop" onClick={() => setReset(false)}>
+          <div className="modal wide" role="dialog" aria-modal aria-label="Nouvelle installation" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>Nouvelle installation</h2><button className="icon-btn" onClick={() => setReset(false)} aria-label="Fermer"><X size={20} /></button></div>
+            <p className="muted">L'installation actuelle (« {inst.name} ») sera remplacée. Choisissez l'application : vous partirez d'une installation vide, sans accessoire, à concevoir étape par étape.</p>
+            <label className="ifld"><span>Nom du projet</span><input value={resetName} placeholder="Ex. : Forage de Kibera" onChange={(e) => setResetName(e.target.value)} /></label>
+            <div className="appgrid">
+              {(Object.keys(APPS) as AppId[]).map((a) => (
+                <button key={a} className={resetApp === a ? 'appcard on' : 'appcard'} onClick={() => setResetApp(a)}>
+                  <b>{APPS[a].label}</b><small>{APPS[a].desc}</small>
+                </button>
+              ))}
+            </div>
+            <label className="itoggle"><input type="checkbox" checked={resetEquip} onChange={(e) => setResetEquip(e.target.checked)} /><span>Ajouter tout de suite les accessoires obligatoires</span></label>
+            <div className="row end">
+              <button className="btn" onClick={() => setReset(false)}>Annuler</button>
+              <button className="btn primary" onClick={() => {
+                const n = empty(resetApp, resetEquip);
+                setInst({ ...n, name: resetName.trim() || `Nouvelle installation — ${APPS[resetApp].label}` });
+                setSelected(null); setActiveIssue(null); setReset(false); setPage('design');
+              }}><FilePlus2 size={16} aria-hidden /> Commencer de zéro</button>
+            </div>
+          </div>
+        </div>
+      )}
       {guide && (
         <div className="backdrop" onClick={() => setGuide(false)}>
           <div className="modal" role="dialog" aria-modal aria-label="Guide" onClick={(e) => e.stopPropagation()}>

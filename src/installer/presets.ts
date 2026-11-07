@@ -147,3 +147,11 @@ export function blank(app: AppId): Installation {
   const mode = PUMP_TYPES[pumpType].modes[0];
   return autoEquip(mk({ ...base(app, pumpType, mode), name: APPS[app].label }), false);
 }
+
+/** Installation entièrement vierge : aucun accessoire, valeurs par défaut, à concevoir de zéro. */
+export function empty(app: AppId, equip = false): Installation {
+  const pumpType = APPS[app].pumps[0];
+  const mode = PUMP_TYPES[pumpType].modes[0];
+  const i = mk({ ...base(app, pumpType, mode), name: 'Nouvelle installation', acc: {} });
+  return equip ? autoEquip(i, false) : i;
+}

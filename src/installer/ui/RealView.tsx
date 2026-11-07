@@ -4,6 +4,7 @@ import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
 import { REF_ORDER, aspGroups } from '../positions';
+import type { TermLine } from '../terminal';
 import type { Installation } from '../types';
 import { RealGlyph } from './Glyphs';
 
@@ -90,7 +91,7 @@ function VerticalPump({ x, y, atex }: { x: number; y: number; atex: boolean }) {
 
 export interface Live { on: boolean; r: Readings; kind: SimKind; x: number; pv?: number }
 
-export function RealView({ i, h, highlight = [], onPick, live }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live }) {
+export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
   const on = (id: string) => !!i.acc[id]?.on;
   const flow = live ? live.on && live.r.q > 0 : h.ok && h.q > 0;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
@@ -413,6 +414,37 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
     }
   }
 
+  // Console : on détecte la zone vide du sous-sol selon la scène et on y écrit l'état de l'installation
+  const consoleEl: ReactNode[] = [];
+  if (term && term.length) {
+    let box = { x0: 20, y0: G + 60, x1: W - 20, y1: H - 12 };
+    if (forage) box = { x0: 545, y0: G + 40, x1: W - 20, y1: H - 12 };
+    else if (pit) box = { x0: 380, y0: G + 112, x1: ax - 150, y1: H - 12 };
+    else if (i.mode === 'aspiration') box = { x0: 330, y0: G + 62, x1: W - 20, y1: H - 12 };
+    const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
+    if (bw > 220 && bh > 80) {
+      const lh = 16.5, maxLines = Math.floor((bh - 34) / lh), maxChars = Math.floor((bw - 24) / 7.55);
+      const lines = term.slice(0, maxLines);
+      const color: Record<string, string> = { ok: 't-ok', warn: 't-warn', crit: 't-crit', info: 't-info', cmd: 't-cmd' };
+      const sym: Record<string, string> = { ok: '[ OK ]', warn: '[ !! ]', crit: '[ XX ]', info: '[ ·· ]', cmd: '' };
+      consoleEl.push(
+        <g key="console" className="term">
+          <rect x={box.x0} y={box.y0} width={bw} height={bh} rx={9} className="t-bg" />
+          <rect x={box.x0} y={box.y0} width={bw} height={20} rx={9} className="t-bar" />
+          <rect x={box.x0} y={box.y0 + 12} width={bw} height={8} className="t-bar" />
+          {[0, 1, 2].map((k) => <circle key={k} cx={box.x0 + 14 + k * 13} cy={box.y0 + 10} r={4} className={`t-dot d${k}`} />)}
+          <text x={box.x0 + 56} y={box.y0 + 14} className="t-title">ECO PUMP AFRIK — console {live ? '(temps réel)' : '(analyse)'}</text>
+          {lines.map((l, n) => {
+            const pre = sym[l.tag] ? `${sym[l.tag]} ` : '';
+            const txt = (pre + l.text).slice(0, maxChars);
+            return <text key={n} x={box.x0 + 12} y={box.y0 + 38 + n * lh} className={`t-line ${color[l.tag]}`} xmlSpace="preserve">{txt}</text>;
+          })}
+          <text x={box.x0 + 12} y={box.y0 + 38 + lines.length * lh} className="t-line t-cmd">ecopump&gt; <tspan className="t-cursor">█</tspan></text>
+        </g>,
+      );
+    }
+  }
+
   // Cotes
   const refEndY = ref[ref.length - 1][1];
   dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
@@ -427,6 +459,7 @@ export function RealView({ i, h, highlight = [], onPick, live }: { i: Installati
       <g {...pick('pump')}>{front}</g>
       {items}
       {dims}
+      {consoleEl}
       {lcd}
       {hl}
       <g className="r-legend">

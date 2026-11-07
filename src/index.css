@@ -773,3 +773,24 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .mount-n { flex: none; width: 24px; height: 24px; border-radius: 50%; background: var(--brand); color: #fff; display: grid; place-items: center; font-size: .78rem; font-weight: 800; margin-top: 1px; }
 .mount li.missing .mount-n { background: var(--crit); }
 .mount-row p { margin: 3px 0 0; font-size: .87rem; color: var(--muted); }
+
+/* Console type terminal dans les zones vides */
+.term { pointer-events: none; }
+.t-bg { fill: #0a141c; fill-opacity: .93; stroke: #1f3b2c; stroke-width: 1.5; }
+.t-bar { fill: #1b2a35; }
+.t-dot.d0 { fill: #ff5f57; } .t-dot.d1 { fill: #febc2e; } .t-dot.d2 { fill: #28c840; }
+.t-title { font: 600 11px ui-monospace, Menlo, Consolas, monospace; fill: #9fb0bc; }
+.t-line { font: 500 12.5px ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace; white-space: pre; }
+.t-ok { fill: #6ee787; } .t-warn { fill: #f5c451; } .t-crit { fill: #ff7b72; } .t-info { fill: #79c0ff; } .t-cmd { fill: #e6edf3; }
+.t-cursor { fill: #6ee787; animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+.newbtn { padding: 8px 12px; }
+.modal.wide { width: min(760px, 100%); display: flex; flex-direction: column; gap: 12px; }
+.appgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.appcard { text-align: left; border: 1px solid var(--line); background: var(--panel-2); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.appcard small { color: var(--muted); font-size: .78rem; }
+.appcard.on { border-color: var(--brand); background: var(--brand-soft); box-shadow: 0 0 0 1px var(--brand); }
+.row.end { justify-content: flex-end; }
+.ipreset .btn.full { margin-bottom: 8px; background: var(--panel); }
+@media (max-width: 760px) { .appgrid { grid-template-columns: 1fr 1fr; } .newbtn span { display: none; } }

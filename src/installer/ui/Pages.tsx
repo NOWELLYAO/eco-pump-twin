@@ -107,7 +107,7 @@ export function SimPage({ s }: { s: Shared }) {
 
   const kind = ctx.kind;
   const r = readings(iSim, ctx.h, sim.on, ctx.er, sim.on ? sim.q : undefined);
-  const live = { on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined };
+  const live = { on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
   const reset = () => { setMods(NO_MODS); setSim(initSim(ctx)); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
