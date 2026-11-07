@@ -109,6 +109,12 @@ export function useTwin() {
     return p.id;
   }, []);
 
+  const addConfig = useCallback((p: PumpConfig) => {
+    setPumps((ps) => [...ps, p]);
+    setHists((h) => ({ ...h, [p.id]: Array.from({ length: 24 }, (_, i) => analyze(p, simulate(p, tRef.current - 24 + i))) }));
+    return p.id;
+  }, []);
+
   const remove = useCallback((id: string) => {
     setPumps((ps) => ps.filter((p) => p.id !== id));
   }, []);
@@ -134,7 +140,7 @@ export function useTwin() {
     window.location.reload();
   }, []);
 
-  return { states, settings, setSettings, playing, setPlaying, rate, setRate, t, step, update, add, remove, importCsv, backToSim, reset };
+  return { states, settings, setSettings, playing, setPlaying, rate, setRate, t, step, update, add, addConfig, remove, importCsv, backToSim, reset };
 }
 
 export type Twin = ReturnType<typeof useTwin>;

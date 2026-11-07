@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Activity, ArrowLeft, BookOpen, ChevronRight, Database, FlaskConical, Gauge, LayoutGrid, LineChart as LineIcon,
-  Pause, Play, Plus, Settings as Cog, SlidersHorizontal, Stethoscope, X,
+  Pause, Play, Plus, Settings as Cog, Wrench, SlidersHorizontal, Stethoscope, X,
 } from 'lucide-react';
 import { useTwin, type PumpState } from './hooks/useTwin';
 import { energy, LIMITS } from './engine/twin';
@@ -13,6 +13,7 @@ import { TrendChart } from './ui/TrendChart';
 import { DiagnosticList, EnergyCard, ForecastCard } from './ui/Panels';
 import { ConfigPanel, SettingsForm, SimLab } from './ui/Forms';
 import { fmt, money, signed, simClock } from './ui/util';
+import { InstallerPage } from './installer/ui/InstallerPage';
 
 type Tab = 'overview' | 'curves' | 'history' | 'energy' | 'sim' | 'config';
 const TABS: { id: Tab; label: string; icon: typeof Gauge }[] = [
@@ -232,29 +233,35 @@ function Guide() {
 export default function App() {
   const twin = useTwin();
   const [sel, setSel] = useState<string | null>(null);
+  const [section, setSection] = useState<'twin' | 'installer'>(() => (window.location.hash === '#installation' ? 'installer' : 'twin'));
+  useEffect(() => { window.history.replaceState(null, '', section === 'installer' ? '#installation' : '#'); }, [section]);
   const [tab, setTab] = useState<Tab>('overview');
   const [modal, setModal] = useState<'settings' | 'guide' | null>(null);
   const current = twin.states.find((s) => s.cfg.id === sel) ?? null;
-  const open = (id: string) => { setSel(id); setTab('overview'); window.scrollTo({ top: 0 }); };
+  const open = (id: string) => { setSection('twin'); setSel(id); setTab('overview'); window.scrollTo({ top: 0 }); };
+  const goFleet = () => { setSection('twin'); setSel(null); };
 
   return (
-    <div className={current ? 'app has-pump' : 'app'}>
+    <div className={`app ${current ? 'has-pump' : ''} sec-${section}`}>
       <header className="appbar">
-        <button className="brand" onClick={() => setSel(null)} aria-label="Accueil : parc de pompes">
+        <button className="brand" onClick={goFleet} aria-label="Accueil : parc de pompes">
           <img src="/logo.png" alt="ECO PUMP AFRIK" />
-          <span>Jumeau numérique</span>
         </button>
+        <nav className="topnav" aria-label="Modules">
+          <button aria-pressed={section === 'twin'} onClick={goFleet}><Gauge size={16} aria-hidden /><span>Jumeau numérique</span></button>
+          <button aria-pressed={section === 'installer'} onClick={() => setSection('installer')}><Wrench size={16} aria-hidden /><span>Configurateur</span></button>
+        </nav>
         <div className="sp" />
-        <div className="clock" title="Temps simulé">
+        <div className="clock twin-only" title="Temps simulé">
           <span className="live" data-on={twin.playing} aria-hidden />
           {simClock(twin.t)}
         </div>
-        <div className="seg" role="group" aria-label="Vitesse du temps">
+        <div className="seg twin-only" role="group" aria-label="Vitesse du temps">
           {[1, 6, 24].map((r) => (
             <button key={r} aria-pressed={twin.rate === r} onClick={() => twin.setRate(r)} title={`${r} h simulée(s) par seconde`}>×{r}</button>
           ))}
         </div>
-        <button className="icon-btn" onClick={() => twin.setPlaying(!twin.playing)} aria-label={twin.playing ? 'Pause' : 'Lecture'}>
+        <button className="icon-btn twin-only" onClick={() => twin.setPlaying(!twin.playing)} aria-label={twin.playing ? 'Pause' : 'Lecture'}>
           {twin.playing ? <Pause size={18} /> : <Play size={18} />}
         </button>
         <button className="icon-btn" onClick={() => setModal('guide')} aria-label="Guide"><BookOpen size={18} /></button>
@@ -263,12 +270,15 @@ export default function App() {
 
       <div className="layout">
         <aside className="side">
-          <button className={!current ? 'side-item on' : 'side-item'} onClick={() => setSel(null)}>
+          <button className={section === 'installer' ? 'side-item on' : 'side-item'} onClick={() => setSection('installer')}>
+            <Wrench size={18} aria-hidden /><span className="si-name">Configurateur d'installation</span>
+          </button>
+          <button className={section === 'twin' && !current ? 'side-item on' : 'side-item'} onClick={goFleet}>
             <LayoutGrid size={18} aria-hidden /><span className="si-name">Parc de pompes</span>
           </button>
           <div className="side-label">Pompes</div>
           {twin.states.map((s) => (
-            <button key={s.cfg.id} className={s.cfg.id === sel ? 'side-item on' : 'side-item'} onClick={() => open(s.cfg.id)}>
+            <button key={s.cfg.id} className={section === 'twin' && s.cfg.id === sel ? 'side-item on' : 'side-item'} onClick={() => open(s.cfg.id)}>
               <span className={`dot lv-${s.level}`} aria-hidden />
               <span className="si-name">{s.cfg.name}<small>{s.diags[0]?.title}</small></span>
               <span className="si-score">{s.score}</span>
@@ -277,9 +287,11 @@ export default function App() {
           <button className="side-item add" onClick={() => open(twin.add())}><Plus size={18} aria-hidden /><span className="si-name">Ajouter une pompe</span></button>
         </aside>
         <main>
-          {current
-            ? <PumpView st={current} twin={twin} tab={tab} setTab={setTab} onBack={() => setSel(null)} onDeleted={() => setSel(null)} />
-            : <FleetView states={twin.states} onOpen={open} twin={twin} />}
+          {section === 'installer'
+            ? <InstallerPage onSendToTwin={(cfg) => twin.addConfig(cfg)} />
+            : current
+              ? <PumpView st={current} twin={twin} tab={tab} setTab={setTab} onBack={() => setSel(null)} onDeleted={() => setSel(null)} />
+              : <FleetView states={twin.states} onOpen={open} twin={twin} />}
         </main>
       </div>
 

@@ -1,0 +1,218 @@
+import { etaAt, npshrAt } from '../engine/physics';
+import type { PumpSpec } from '../engine/types';
+import { ACC, ACCESSORIES, FLUIDS, PIPE_MATS, refLen, refStatic } from './catalog';
+import type { FluidId, Installation, PipeRun } from './types';
+
+const G = 9.81;
+export const area = (dnMm: number) => (Math.PI / 4) * (dnMm / 1000) ** 2;
+export const vel = (qM3h: number, dnMm: number) => (dnMm > 0 ? qM3h / 3600 / area(dnMm) : 0);
+const dyn = (v: number) => (v * v) / (2 * G);
+
+/** Pression atmosphérique selon l'altitude (kPa). */
+export const patm = (alt: number) => 101.325 * (1 - 2.25577e-5 * alt) ** 5.25588;
+
+/** Tension de vapeur de l'eau (kPa), formule d'Antoine. */
+export const pvWater = (t: number) => 0.133322 * 10 ** (8.07131 - 1730.63 / (233.426 + t));
+
+/** Masse volumique et viscosité de l'eau selon la température. */
+export function waterProps(t: number) {
+  const rho = 1000 - 0.0178 * Math.abs(t - 4) ** 1.7;
+  const nu = 1.78 / (1 + 0.0337 * t + 0.000221 * t * t);
+  return { rho, nu };
+}
+
+/** Propriétés par défaut d'un fluide à une température donnée. */
+export function fluidAt(type: FluidId, t: number) {
+  const d = FLUIDS[type];
+  if (d.water) {
+    const w = waterProps(t);
+    const solidsRho = d.rho - 998;
+    return { rho: Math.round(w.rho + solidsRho), nu: Math.round(w.nu * d.nu * 100) / 100 };
+  }
+  // Hydrocarbures : la viscosité chute avec la température.
+  return { rho: Math.round(d.rho * (1 - 0.0007 * (t - 20))), nu: Math.round(d.nu * Math.exp(-0.025 * (t - 20)) * 10) / 10 };
+}
+
+export function vaporPressure(i: Installation) {
+  const d = FLUIDS[i.fluid.type];
+  return d.water ? pvWater(i.fluid.temp) : (d.pv ?? 1) * Math.exp(0.04 * (i.fluid.temp - 20));
+}
+
+/** Perte de charge linéaire Darcy-Weisbach, coefficient de Swamee-Jain. */
+export function friction(run: PipeRun, length: number, q: number, nuCst: number) {
+  const d = run.dn / 1000;
+  const v = vel(q, run.dn);
+  if (v <= 0 || d <= 0) return { v: 0, re: 0, f: 0, h: 0 };
+  const re = (v * d) / (nuCst * 1e-6);
+  const eps = PIPE_MATS[run.material].rough / 1000;
+  const f = re < 2300 ? 64 / Math.max(re, 1) : 0.25 / Math.log10(eps / (3.7 * d) + 5.74 / re ** 0.9) ** 2;
+  return { v, re, f, h: f * (length / d) * dyn(v) };
+}
+
+/** Coefficients de correction pour liquides visqueux (approximation Hydraulic Institute). */
+export function viscCorr(nu: number) {
+  if (nu <= 10) return { ch: 1, ceta: 1, cq: 1 };
+  const ceta = Math.max(0.15, 1 - 0.14 * Math.log(nu / 10) - 0.012 * Math.log(nu / 10) ** 2);
+  const ch = 1 - (1 - ceta) * 0.35;
+  return { ch, ceta, cq: ch };
+}
+
+export const isForage = (i: Installation) => i.pumpType === 'immergee_forage';
+
+/** Hauteur géométrique totale (m). */
+export function staticHead(i: Installation) {
+  if (isForage(i)) return i.geo.dynamicLevel + i.geo.hRef;
+  if (i.mode === 'aspiration') return i.geo.hRef + i.geo.suctionLift;
+  if (i.mode === 'charge') return i.geo.hRef - i.geo.chargeHead;
+  return i.geo.hRef - i.geo.wetLevel;
+}
+
+/** Niveau du liquide au-dessus (+) ou au-dessous (−) de l'entrée de la pompe (m). */
+export function suctionZ(i: Installation) {
+  if (isForage(i)) return i.geo.pumpDepth - i.geo.dynamicLevel;
+  if (i.mode === 'aspiration') return -i.geo.suctionLift;
+  if (i.mode === 'charge') return i.geo.chargeHead;
+  return i.geo.wetLevel;
+}
+
+export interface LossDetail { label: string; h: number; side: 'asp' | 'ref' }
+
+/** Pertes de charge totales à un débit donné, détaillées. */
+export function losses(i: Installation, q: number) {
+  const nu = i.fluid.nu;
+  const items: LossDetail[] = [];
+  let asp = 0, ref = 0;
+  const onAcc = (side: 'asp' | 'ref') => ACCESSORIES.filter((a) => a.side === side && a.inline && i.acc[a.id]?.on);
+
+  if (i.mode !== 'immergee') {
+    const fr = friction(i.asp, i.asp.length, q, nu);
+    asp += fr.h; items.push({ label: `Conduite d'aspiration ${i.asp.length} m`, h: fr.h, side: 'asp' });
+    const el = i.asp.elbows * 0.3 * dyn(fr.v);
+    if (el > 0) { asp += el; items.push({ label: `${i.asp.elbows} coude(s) aspiration`, h: el, side: 'asp' }); }
+    const hasInlet = i.acc.clapet_pied?.on || i.acc.crepine?.on;
+    if (!hasInlet) { const e = 0.5 * dyn(fr.v); asp += e; items.push({ label: 'Entrée de conduite', h: e, side: 'asp' }); }
+    for (const a of onAcc('asp')) {
+      const s = i.acc[a.id];
+      const h = a.k * dyn(vel(q, s.dn || i.asp.dn)) * Math.max(1, s.qty || 1);
+      asp += h; items.push({ label: a.label, h, side: 'asp' });
+    }
+  } else {
+    const h = 0.5 * dyn(vel(q, i.pump.dnRef));
+    asp += h; items.push({ label: 'Crépine intégrée', h, side: 'asp' });
+  }
+
+  const L = refLen(i);
+  const fr = friction(i.ref, L, q, nu);
+  ref += fr.h; items.push({ label: `Conduite de refoulement ${Math.round(L)} m`, h: fr.h, side: 'ref' });
+  const el = i.ref.elbows * 0.3 * dyn(fr.v);
+  if (el > 0) { ref += el; items.push({ label: `${i.ref.elbows} coude(s) refoulement`, h: el, side: 'ref' }); }
+  for (const a of onAcc('ref')) {
+    const s = i.acc[a.id];
+    const h = a.k * dyn(vel(q, s.dn || i.ref.dn)) * Math.max(1, s.qty || 1);
+    ref += h; items.push({ label: a.label, h, side: 'ref' });
+  }
+  const ex = 1.0 * dyn(fr.v);
+  ref += ex; items.push({ label: 'Sortie de conduite', h: ex, side: 'ref' });
+  return { asp, ref, total: asp + ref, items };
+}
+
+export function specOf(i: Installation): PumpSpec {
+  return { qn: i.pump.qn, hn: i.pump.hn, etaBep: i.pump.eta, nn: i.pump.nn, motorKw: i.pump.motorKw, etaMotor: 0.88, npshrBep: i.pump.npshr, shutoffRatio: i.pump.shutoff };
+}
+
+export function pumpHead(i: Installation, q: number) {
+  const h0 = i.pump.hn * i.pump.shutoff;
+  const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
+  return viscCorr(i.fluid.nu).ch * (h0 - k * q * q);
+}
+
+export const pressureHead = (i: Installation) => (i.duty.pRes * 1e5) / (i.fluid.rho * G);
+export const systemHeadAt = (i: Installation, q: number) => staticHead(i) + pressureHead(i) + losses(i, q).total;
+
+export function shaftPower(i: Installation, q: number, h: number) {
+  const eta = Math.max(0.05, etaAt(specOf(i), q, 1) * viscCorr(i.fluid.nu).ceta);
+  return { eta, kw: (i.fluid.rho * G * (q / 3600) * h) / eta / 1000 };
+}
+
+export interface Hydro {
+  ok: boolean;
+  q: number; h: number; x: number;
+  hStatic: number; hPress: number; hLoss: number; lossAsp: number; lossRef: number;
+  lossItems: LossDetail[];
+  vAsp: number; vRef: number; vPumpIn: number; vPumpOut: number;
+  npsha: number; npshr: number; margin: number;
+  eta: number; pShaft: number; pElec: number; pShaftMax: number;
+  se: number; // kWh/m³
+  kwhYear: number; costYear: number;
+  surge: number; // surpression de coup de bélier (m)
+  pMaxBar: number; // pression maxi conduite de refoulement, vanne fermée (bar)
+  coolingV: number; // vitesse de l'eau le long du moteur (m/s)
+  startsH: number; // démarrages / heure (pire cas)
+  vortexS: number; // submersion mini anti-vortex (m)
+  corr: ReturnType<typeof viscCorr>;
+  patm: number; pv: number;
+  curve: { q: number; hp: number | null; hs: number }[];
+}
+
+/** Calcule tout le comportement hydraulique de l'installation. */
+export function solve(i: Installation): Hydro {
+  const hStatic = staticHead(i);
+  const hPress = pressureHead(i);
+  const f = (q: number) => pumpHead(i, q) - systemHeadAt(i, q);
+  const h0 = pumpHead(i, 0);
+  const k = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
+  const qMaxPump = Math.sqrt((i.pump.hn * i.pump.shutoff) / k);
+  let q = 0;
+  const ok = f(0) > 0;
+  if (ok) {
+    let lo = 0, hi = qMaxPump;
+    for (let n = 0; n < 60; n++) { const mid = (lo + hi) / 2; if (f(mid) > 0) lo = mid; else hi = mid; }
+    q = (lo + hi) / 2;
+  }
+  const L = losses(i, q);
+  const h = ok ? pumpHead(i, q) : h0;
+  const rhoG = i.fluid.rho * G;
+  const pa = patm(i.geo.altitude);
+  const pv = vaporPressure(i);
+  const npsha = ((pa - pv) * 1000) / rhoG + suctionZ(i) - L.asp;
+  const npshr = ok ? npshrAt(specOf(i), q, 1) : i.pump.npshr;
+  const pw = shaftPower(i, Math.max(q, 0.01), h);
+  const qRun = Math.min(qMaxPump * 0.95, i.pump.qn * 1.3);
+  const pMax = shaftPower(i, qRun, pumpHead(i, qRun)).kw;
+  const pElec = ok ? pw.kw / 0.88 : 0;
+  const se = q > 0 ? pElec / q : 0;
+  const kwhYear = pElec * i.duty.hoursPerDay * 365;
+  const vRef = vel(q, i.ref.dn);
+  const surge = (PIPE_MATS[i.ref.material].celerity * vRef) / G;
+  const suctionPress = Math.max(0, suctionZ(i)) * (i.mode === 'charge' ? 1 : 0);
+  const pMaxBar = ((h0 + suctionPress) * rhoG) / 1e5;
+  const ann = i.geo.boreDia > i.pump.diameterMm ? area(i.geo.boreDia) - area(i.pump.diameterMm) : 1e-6;
+  const coolingV = i.acc.chemise?.on ? 0.5 : q / 3600 / ann;
+  let startsH = 0;
+  if (i.mode === 'immergee' && !isForage(i)) startsH = q / (4 * Math.max(0.05, i.geo.tankVolume / 1000));
+  else if (i.acc.vessie?.on && !i.acc.variateur?.on) startsH = q / (4 * Math.max(0.005, (i.acc.vessie.vol ?? 100) * 0.3 / 1000));
+  const dAsp = i.asp.dn / 1000;
+  const vIn = vel(q, i.asp.dn);
+  const vortexS = dAsp * (1 + 2.3 * (vIn / Math.sqrt(G * Math.max(dAsp, 0.01))));
+
+  const qTop = Math.max(i.pump.qn * 1.5, q * 1.2);
+  const curve = Array.from({ length: 41 }, (_, n) => {
+    const qq = (qTop * n) / 40;
+    const hp = pumpHead(i, qq);
+    return { q: qq, hp: hp > 0 ? hp : null, hs: systemHeadAt(i, qq) };
+  });
+
+  return {
+    ok, q, h, x: q / i.pump.qn,
+    hStatic, hPress, hLoss: L.total, lossAsp: L.asp, lossRef: L.ref, lossItems: L.items,
+    vAsp: i.mode === 'immergee' ? 0 : vIn, vRef,
+    vPumpIn: vel(q, i.pump.dnAsp), vPumpOut: vel(q, i.pump.dnRef),
+    npsha, npshr, margin: npsha - npshr,
+    eta: pw.eta, pShaft: ok ? pw.kw : 0, pElec, pShaftMax: pMax,
+    se, kwhYear, costYear: kwhYear * i.duty.pricePerKwh,
+    surge, pMaxBar, coolingV, startsH, vortexS,
+    corr: viscCorr(i.fluid.nu), patm: pa, pv, curve,
+  };
+}
+
+export { ACC, refLen, refStatic };
