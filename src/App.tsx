@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, ClipboardCheck, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
+import { BookOpen, ClipboardCheck, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
 import { ensureElec } from './installer/electrical';
@@ -8,6 +8,7 @@ import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
 import { UpdateBanner, appVersion } from './ui/Update';
+import { buildReportPdf, shareOrDownload } from './ui/pdf';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { CommissionPage, CommissionResults } from './installer/ui/CommissionPage';
 import { PidView } from './installer/ui/PidView';
@@ -53,6 +54,27 @@ export default function App() {
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
   const [guide, setGuide] = useState(false);
   const [reset, setReset] = useState(false);
+  const [rep, setRep] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const standaloneIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && ((navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia('(display-mode: standalone)').matches);
+  const exportPdf = async () => {
+    const el = document.querySelector<HTMLElement>('.print-report');
+    if (!el) return;
+    setBusy('Création du PDF…');
+    document.body.classList.add('pdf-export');
+    try {
+      await new Promise((r) => window.setTimeout(r, 120));
+      const blob = await buildReportPdf(el, inst.name);
+      const safe = inst.name.normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'installation';
+      document.body.classList.remove('pdf-export');
+      const r = await shareOrDownload(blob, `Rapport-${safe}.pdf`, `Rapport — ${inst.name}`);
+      setBusy(r === 'downloaded' ? 'PDF téléchargé.' : r === 'shared' ? 'PDF partagé.' : null);
+      window.setTimeout(() => setBusy(null), 2500);
+    } catch (e) {
+      document.body.classList.remove('pdf-export');
+      setBusy(`Échec de la création du PDF (${(e as Error).message}).`);
+    }
+  };
   const [resetApp, setResetApp] = useState<AppId>('transfert');
   const [resetEquip, setResetEquip] = useState(false);
   const [resetName, setResetName] = useState('');
@@ -97,7 +119,7 @@ export default function App() {
         <OfflineAndInstall />
         <button className={`scorechip lv-${lvl}`} onClick={() => setPage('diag')} title={ev.verdict.label}>{ev.score}<small>/100</small></button>
         <button className="btn newbtn" onClick={() => { setResetName(''); setReset(true); }} title="Repartir de zéro"><FilePlus2 size={17} aria-hidden /><span>Nouvelle</span></button>
-        <button className="icon-btn" onClick={() => window.print()} aria-label="Imprimer le rapport"><Printer size={18} /></button>
+        <button className="icon-btn" onClick={() => setRep(true)} aria-label="Rapport PDF / impression"><FileDown size={18} /></button>
         <button className="icon-btn" onClick={() => setGuide(true)} aria-label="Guide"><BookOpen size={18} /></button>
       </header>
 
@@ -116,7 +138,7 @@ export default function App() {
 
       <div className="print-report" aria-hidden>
         <h1>Rapport d'installation — {inst.name}</h1>
-        {page === 'com' && <CommissionResults i={inst} ev={ev} />}
+        <CommissionResults i={inst} ev={ev} />
         <ScoreCard ev={ev} />
         <KeyFigures i={inst} ev={ev} />
         <section className="card"><PidView i={inst} h={ev.hydro} /></section>
@@ -130,6 +152,20 @@ export default function App() {
         <Bom i={inst} ev={ev} onFix={() => undefined} />
       </div>
 
+      {rep && (
+        <div className="backdrop" onClick={() => !busy?.startsWith('Création') && setRep(false)}>
+          <div className="modal" role="dialog" aria-modal aria-label="Rapport" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2>Rapport de l'installation</h2><button className="icon-btn" onClick={() => setRep(false)} aria-label="Fermer"><X size={20} /></button></div>
+            <p className="muted">Le rapport complet : note, chiffres clés, schéma P&ID, alertes, préconisations, pièces exposées, électricité, ordre de montage, nomenclature{inst.commissioning ? ' et procès-verbal de mise en service' : ''}.</p>
+            <div className="repbtns">
+              <button className="btn primary big" disabled={!!busy?.startsWith('Création')} onClick={exportPdf}><FileDown size={20} aria-hidden /> {busy?.startsWith('Création') ? busy : 'Créer le PDF (partager, enregistrer, imprimer)'}</button>
+              {!standaloneIOS && <button className="btn big" onClick={() => { setRep(false); window.setTimeout(() => window.print(), 200); }}><Printer size={20} aria-hidden /> Imprimer directement</button>}
+            </div>
+            {busy && !busy.startsWith('Création') && <p className="note ok">{busy}</p>}
+            <p className="small muted">Sur iPhone, le PDF s'ouvre dans le menu Partager : choisissez « Imprimer », « Enregistrer dans Fichiers », WhatsApp ou Mail.</p>
+          </div>
+        </div>
+      )}
       {reset && (
         <div className="backdrop" onClick={() => setReset(false)}>
           <div className="modal wide" role="dialog" aria-modal aria-label="Nouvelle installation" onClick={(e) => e.stopPropagation()}>

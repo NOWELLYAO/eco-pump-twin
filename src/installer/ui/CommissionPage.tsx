@@ -127,7 +127,7 @@ export function CommissionPage({ i, ev, set }: { i: Installation; ev: Evaluation
           </div>
           <div className="row mt-xs">
             <button className="btn sm" onClick={() => set((x) => ({ ...x, commissioning: { date: new Date().toISOString().slice(0, 10) } }))}><Eraser size={14} aria-hidden /> Nouvelle série de mesures</button>
-            <button className="btn sm" onClick={() => window.print()}><Printer size={14} aria-hidden /> Imprimer le PV</button>
+            <button className="btn sm" onClick={() => document.querySelector<HTMLButtonElement>('button[aria-label="Rapport PDF / impression"]')?.click()}><Printer size={14} aria-hidden /> PV en PDF</button>
           </div>
         </section>
       </aside>

@@ -868,3 +868,16 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .updbanner .btn { background: #fff; color: var(--brand-ink); border-color: #fff; }
 
 .calc .warnli { background: var(--warn-bg); border-radius: 6px; padding: 4px 8px; list-style: none; margin-left: -16px; }
+
+/* Rapport PDF : rendu hors écran, toujours en thème clair */
+.print-report { --app-bg: #fff; --panel: #fff; --panel-2: #f6f9fc; --fg: #17242e; --muted: #5a6b78; --line: #d7e0e8; --brand-soft: #e3f1fa; --brand-ink: #0d6699;
+  --good-bg: #e8f6e8; --warn-bg: #fff5dd; --crit-bg: #fde9e9; --good-ink: #0a7a0a; --warn-ink: #8a5a00; --crit-ink: #b42626; --input: #fff; --input-bd: #c7d3dd; --shadow: none; color: #17242e; background: #fff; }
+.print-report h1 { font-size: 1.4rem; margin: 0 0 4px; }
+body.pdf-export .print-report { display: flex !important; flex-direction: column; gap: 12px; position: absolute; left: -10000px; top: 0; width: 760px; padding: 4px; }
+body.pdf-export .print-report .issue-body { display: block; }
+body.pdf-export .print-report .card { box-shadow: none; }
+.repbtns { display: flex; flex-direction: column; gap: 10px; margin: 6px 0; }
+.btn.big { justify-content: center; padding: 14px 16px; font-size: 1rem; }
+
+body.pdf-export .print-report .btn, body.pdf-export .print-report .chev, body.pdf-export .print-report .rec, body.pdf-export .print-report button.link { display: none !important; }
+body.pdf-export .print-report .issue { break-inside: avoid; }
