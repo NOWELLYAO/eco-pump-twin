@@ -238,6 +238,16 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     refStart = 26;
   }
 
+  // Pompes en parallèle : copies en retrait + étiquette
+  const cntP = Math.max(1, i.pump.count ?? 1);
+  if (cntP > 1 && !forage && front.length) {
+    const main = front[0];
+    const ghosts = Array.from({ length: Math.min(cntP - 1, 3) }, (_, k) => (
+      <g key={`gh${k}`} opacity={0.5} transform={pit ? `translate(${(k + 1) * 78},0)` : `translate(${(k + 1) * 16},${-(k + 1) * 11})`}>{main}</g>
+    ));
+    front.unshift(...ghosts.reverse());
+  }
+
   // ----- Destination -----
   const [ax, ay] = ref[ref.length - 1];
   const destG = G;
@@ -375,6 +385,10 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     items.push(<g key="ms" transform={`translate(${sx + 30},${sy - 6})`}><path d="M0 -30 V0" className="r-cablepath" /><RealGlyph kind="electrode" /></g>);
   }
 
+  if (cntP > 1 && !forage) {
+    const sb = Math.max(0, i.pump.standby ?? 0);
+    dims.push(<text key="npump" x={pit ? 225 : pxp - 40} y={pit ? G - 18 : G + 46} textAnchor={pit ? 'middle' : 'start'} className="r-label par">{`${cntP} pompes en parallèle · ${cntP - sb} en service${sb ? ` + ${sb} secours` : ''}`}</text>);
+  }
   anchors.pump = { x: pxp + (forage || pit ? 0 : 30), y: pyp, r: forage ? 50 : 62 };
   anchors.source = forage ? { x: 195, y: (G + 540) / 2, r: 90 } : pit ? { x: 225, y: 420, r: 110 } : asp && i.mode === 'aspiration' ? { x: 165, y: 470, r: 90 } : { x: 135, y: 230, r: 100 };
   anchors.dest = { x: ax + 70, y: ay, r: 80 };

@@ -120,10 +120,15 @@ export function specOf(i: Installation): PumpSpec {
   return { qn: i.pump.qn, hn: i.pump.hn, etaBep: i.pump.eta, nn: i.pump.nn, motorKw: i.pump.motorKw, etaMotor: 0.88, npshrBep: i.pump.npshr, shutoffRatio: i.pump.shutoff };
 }
 
+/** Nombre de pompes qui tournent en même temps (installées − secours). */
+export const nRun = (i: Installation) => Math.max(1, Math.round((i.pump.count ?? 1) - (i.pump.standby ?? 0)));
+
+/** Courbe de l'ensemble des pompes en service (en parallèle : débits additionnés à hauteur égale). */
 export function pumpHead(i: Installation, q: number) {
   const h0 = i.pump.hn * i.pump.shutoff;
   const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
-  return viscCorr(i.fluid.nu).ch * (h0 - k * q * q);
+  const qe = q / nRun(i);
+  return viscCorr(i.fluid.nu).ch * (h0 - k * qe * qe);
 }
 
 export const pressureHead = (i: Installation) => (i.duty.pRes * 1e5) / (i.fluid.rho * G);
@@ -141,7 +146,8 @@ export interface Hydro {
   lossItems: LossDetail[];
   vAsp: number; vRef: number; vPumpIn: number; vPumpOut: number;
   npsha: number; npshr: number; margin: number;
-  eta: number; pShaft: number; pElec: number; pShaftMax: number;
+  n: number; // pompes en service
+  eta: number; pShaft: number; pElec: number; pShaftMax: number; // pShaft = par pompe ; pElec = total
   se: number; // kWh/m³
   kwhYear: number; costYear: number;
   surge: number; // surpression de coup de bélier (m)
@@ -161,7 +167,8 @@ export function solve(i: Installation): Hydro {
   const f = (q: number) => pumpHead(i, q) - systemHeadAt(i, q);
   const h0 = pumpHead(i, 0);
   const k = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
-  const qMaxPump = Math.sqrt((i.pump.hn * i.pump.shutoff) / k);
+  const n = nRun(i);
+  const qMaxPump = Math.sqrt((i.pump.hn * i.pump.shutoff) / k) * n;
   let q = 0;
   const ok = f(0) > 0;
   if (ok) {
@@ -175,11 +182,11 @@ export function solve(i: Installation): Hydro {
   const pa = patm(i.geo.altitude);
   const pv = vaporPressure(i);
   const npsha = ((pa - pv) * 1000) / rhoG + suctionZ(i) - L.asp;
-  const npshr = ok ? npshrAt(specOf(i), q, 1) : i.pump.npshr;
-  const pw = shaftPower(i, Math.max(q, 0.01), h);
-  const qRun = Math.min(qMaxPump * 0.95, i.pump.qn * 1.3);
-  const pMax = shaftPower(i, qRun, pumpHead(i, qRun)).kw;
-  const pElec = ok ? pw.kw / 0.88 : 0;
+  const npshr = ok ? npshrAt(specOf(i), q / n, 1) : i.pump.npshr;
+  const pw = shaftPower(i, Math.max(q / n, 0.01), h);
+  const qRun = Math.min((qMaxPump / n) * 0.95, i.pump.qn * 1.3);
+  const pMax = shaftPower(i, qRun, pumpHead(i, qRun * n)).kw;
+  const pElec = ok ? (n * pw.kw) / 0.88 : 0;
   const se = q > 0 ? pElec / q : 0;
   const kwhYear = pElec * i.duty.hoursPerDay * 365;
   const vRef = vel(q, i.ref.dn);
@@ -194,7 +201,7 @@ export function solve(i: Installation): Hydro {
   const vIn = vel(q, i.asp.dn);
   const vortexS = dAsp * (1 + 2.3 * (vIn / Math.sqrt(G * Math.max(dAsp, 0.01))));
 
-  const qTop = Math.max(i.pump.qn * 1.5, q * 1.2);
+  const qTop = Math.max(i.pump.qn * 1.5 * n, q * 1.2);
   const curve = Array.from({ length: 41 }, (_, n) => {
     const qq = (qTop * n) / 40;
     const hp = pumpHead(i, qq);
@@ -202,10 +209,10 @@ export function solve(i: Installation): Hydro {
   });
 
   return {
-    ok, q, h, x: q / i.pump.qn,
+    ok, q, h, x: q / n / i.pump.qn, n,
     hStatic, hPress, hLoss: L.total, lossAsp: L.asp, lossRef: L.ref, lossItems: L.items,
     vAsp: i.mode === 'immergee' ? 0 : vIn, vRef,
-    vPumpIn: vel(q, i.pump.dnAsp), vPumpOut: vel(q, i.pump.dnRef),
+    vPumpIn: vel(q / n, i.pump.dnAsp), vPumpOut: vel(q / n, i.pump.dnRef),
     npsha, npshr, margin: npsha - npshr,
     eta: pw.eta, pShaft: ok ? pw.kw : 0, pElec, pShaftMax: pMax,
     se, kwhYear, costYear: kwhYear * i.duty.pricePerKwh,

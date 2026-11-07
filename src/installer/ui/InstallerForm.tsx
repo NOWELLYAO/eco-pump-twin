@@ -1,5 +1,6 @@
 import { MapPin, Wand2 } from 'lucide-react';
 import { posAdvice } from '../positions';
+import { SolarSite } from './SolarSite';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES } from '../catalog';
 import { defaultDn, withPipe } from '../evaluate';
 import { SECTIONS, START_LABEL, SUPPLY_LABEL, TANK_SIZES, type ElecResult } from '../electrical';
@@ -106,7 +107,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
         </div>
       </Section>
 
-      <Section n={3} title="Pompe" summary={`${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW`}>
+      <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW`}>
         <p className="ihint">Valeurs de la fiche constructeur, au point de meilleur rendement (BEP).</p>
         <div className="igrid">
           <NumField label="Débit nominal" unit="m³/h" value={i.pump.qn} onChange={(v) => v > 0 && pump({ qn: v })} />
@@ -123,6 +124,13 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           <NumField label="Sable admissible" unit="g/m³" value={i.pump.sandMax} onChange={(v) => pump({ sandMax: v })} />
           <NumField label="Démarrages maxi" unit="/h" value={i.pump.maxStarts} onChange={(v) => v > 0 && pump({ maxStarts: v })} />
           <NumField label="H à débit nul / H nominale" value={i.pump.shutoff} onChange={(v) => v > 1 && pump({ shutoff: v })} hint="1,1 à 1,4 selon la pompe" />
+          {!forage && (
+            <>
+              <NumField label="Pompes installées en parallèle" value={i.pump.count ?? 1} onChange={(v) => { const c = Math.max(1, Math.min(6, Math.round(v))); pump({ count: c, standby: Math.min(i.pump.standby ?? 0, c - 1) }); }} hint="1 à 6, identiques" />
+              <NumField label="Dont en secours" value={i.pump.standby ?? 0} onChange={(v) => pump({ standby: Math.max(0, Math.min((i.pump.count ?? 1) - 1, Math.round(v))) })} hint={`${Math.max(1, (i.pump.count ?? 1) - (i.pump.standby ?? 0))} en service`} />
+              {(i.pump.count ?? 1) > 1 && <Toggle label="Permutation automatique des pompes" checked={!!i.pump.alternate} onChange={(v) => pump({ alternate: v })} />}
+            </>
+          )}
           {forage && <NumField label="Diamètre de la pompe" unit="mm" value={i.pump.diameterMm} onChange={(v) => pump({ diameterMm: v })} hint="4 pouces ≈ 98 mm, 6 pouces ≈ 142 mm" />}
         </div>
       </Section>
@@ -197,9 +205,10 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
         </div>
         {solar && (
           <>
+            <h4 className="isub">Emplacement et ensoleillement</h4>
+            <SolarSite s={i.elec.solar} set={sol} designMonth={er.solar?.designMonth ?? -1} />
             <h4 className="isub">Champ solaire</h4>
             <div className="igrid">
-              <NumField label="Ensoleillement" unit="kWh/m²/j" value={i.elec.solar.psh} onChange={(v) => v > 0 && sol({ psh: v })} hint="Afrique de l'Est / Ouest : 5 à 6" />
               <NumField label="Besoin journalier" unit="m³/j" value={i.elec.solar.dailyM3} onChange={(v) => v > 0 && sol({ dailyM3: v })} />
               <NumField label="Puissance d'un panneau" unit="Wc" value={i.elec.solar.panelWc} onChange={(v) => v > 0 && sol({ panelWc: v })} />
               <NumField label="Vmp panneau" unit="V" value={i.elec.solar.vmp} onChange={(v) => v > 0 && sol({ vmp: v })} />

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
-import { START_LABEL, SUPPLY_LABEL } from '../electrical';
+import { MONTHS, START_LABEL, SUPPLY_LABEL } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
-import { CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
 import type { Category, Installation, Issue, Sev } from '../types';
@@ -203,11 +203,13 @@ export function LossTable({ ev }: { ev: Evaluation }) {
   );
 }
 
+const PER_PUMP = new Set(['vanne_asp', 'manchon_asp', 'cone_exc', 'vacuometre', 'cone_ref', 'manchon_ref', 'manometre', 'clapet_ar', 'clapet_boule', 'vanne_ref', 'variateur', 'chemise', 'barres', 'atex']);
 export function Bom({ i, ev, onFix }: { i: Installation; ev: Evaluation; onFix: (x: Issue) => void }) {
   const imm = i.mode === 'immergee';
+  const nP = Math.max(1, i.pump.count ?? 1);
   const rows: { d: string; dn: string; q: string; r: string; missing?: Issue }[] = [
-    { d: `Pompe ${PUMP_TYPES[i.pumpType].label}`, dn: imm ? `DN${i.pump.dnRef}` : `DN${i.pump.dnAsp}/${i.pump.dnRef}`, q: '1', r: `${i.pump.qn} m³/h à ${i.pump.hn} m · ${PUMP_MATS[i.pump.material]}` },
-    { d: `Moteur ${i.pump.nn} tr/min${i.acc.atex?.on ? ' ATEX' : ''}`, dn: '', q: '1', r: `${i.pump.motorKw} kW` },
+    { d: `Pompe ${PUMP_TYPES[i.pumpType].label}`, dn: imm ? `DN${i.pump.dnRef}` : `DN${i.pump.dnAsp}/${i.pump.dnRef}`, q: String(nP), r: `${i.pump.qn} m³/h à ${i.pump.hn} m · ${PUMP_MATS[i.pump.material]}${nP > 1 ? ` · ${nP - (i.pump.standby ?? 0)} en service + ${i.pump.standby ?? 0} secours` : ''}` },
+    { d: `Moteur ${i.pump.nn} tr/min${i.acc.atex?.on ? ' ATEX' : ''}`, dn: '', q: String(nP), r: `${i.pump.motorKw} kW` },
   ];
   if (!imm) {
     rows.push({ d: `Tube aspiration ${PIPE_MATS[i.asp.material].label}`, dn: `DN${i.asp.dn}`, q: `${i.asp.length} m`, r: `PN${i.asp.pn}` });
@@ -218,14 +220,15 @@ export function Bom({ i, ev, onFix }: { i: Installation; ev: Evaluation; onFix: 
   for (const a of ACCESSORIES) {
     const st = i.acc[a.id];
     if (st?.on && ev.needs[a.id] !== 'na') {
-      rows.push({ d: a.label, dn: a.inline ? `DN${st.dn || ''}` : '', q: String(st.qty || 1), r: a.id === 'cone_exc' ? `méplat ${st.opt ?? 'haut'}` : '' });
+      rows.push({ d: a.label, dn: a.inline ? `DN${st.dn || ''}` : '', q: String(Math.round(st.qty || 1) * (PER_PUMP.has(a.id) ? nP : 1)), r: a.id === 'cone_exc' ? `méplat ${st.opt ?? 'haut'}` : '' });
     }
   }
   const r = ev.elec;
   const e = i.elec;
-  rows.push({ d: `Câble moteur ${r.cableType}`, dn: `${r.cores} ${String(e.cableSec).replace('.', ',')} mm²`, q: `${e.cableLen} m`, r: e.cableMat === 'cu' ? 'cuivre' : 'aluminium' });
-  rows.push({ d: 'Disjoncteur moteur + contacteur', dn: '', q: '1', r: `réglage ${fmt(r.inom, 1)} A` });
-  if (r.start === 'variateur' && e.supply !== 'solaire') rows.push({ d: `Variateur de fréquence${r.filter ? ` + ${r.filter}` : ''}`, dn: '', q: '1', r: `≥ ${fmt(r.vfdKw, 1)} kW, ${fmt(r.vfdA, 1)} A` });
+  rows.push({ d: `Câble moteur ${r.cableType}`, dn: `${r.cores} ${String(e.cableSec).replace('.', ',')} mm²`, q: `${nP > 1 ? `${nP} × ` : ''}${e.cableLen} m`, r: e.cableMat === 'cu' ? 'cuivre' : 'aluminium' });
+  rows.push({ d: 'Disjoncteur moteur + contacteur', dn: '', q: String(nP), r: `réglage ${fmt(r.inom, 1)} A` });
+  if (nP > 1) rows.push({ d: 'Collecteurs d\'aspiration et de refoulement', dn: `DN${i.asp.dn}/${i.ref.dn}`, q: '1', r: `${nP} piquages${i.pump.alternate ? ' · coffret avec permutation' : ''}` });
+  if (r.start === 'variateur' && e.supply !== 'solaire') rows.push({ d: `Variateur de fréquence${r.filter ? ` + ${r.filter}` : ''}`, dn: '', q: String(nP), r: `≥ ${fmt(r.vfdKw, 1)} kW, ${fmt(r.vfdA, 1)} A` });
   if (r.start === 'progressif') rows.push({ d: 'Démarreur progressif', dn: '', q: '1', r: `${fmt(i.pump.motorKw, 1)} kW` });
   if (r.start === 'etoile') rows.push({ d: 'Démarreur étoile-triangle', dn: '', q: '1', r: `${fmt(i.pump.motorKw, 1)} kW` });
   if (e.supply === 'groupe') rows.push({ d: 'Groupe électrogène', dn: '', q: '1', r: `${fmt(Math.max(r.genKva, e.genKva), 0)} kVA` });
@@ -337,7 +340,9 @@ export function ElecCard({ i, ev }: { i: Installation; ev: Evaluation }) {
             <tr><th>Surface au sol</th><td>≈ {fmt(s.area, 0)} m²</td></tr>
             <tr><th>Stockage d'eau conseillé</th><td>{fmt(s.storage, 0)} m³ <small className="muted">(1,5 jour d'autonomie, sans batterie)</small></td></tr>
             <tr><th>Énergie</th><td>{fmt(s.eM3 * 1000, 0)} Wh/m³ pompé</td></tr>
+            {s.designMonth >= 0 && <tr><th>Dimensionné sur</th><td>{MONTHS[s.designMonth]} : {fmt(s.pshDesign, 2)} kWh/m²/j, rendement global {fmt(s.prDesign * 100, 0)} %{e.solar.place ? ` · ${e.solar.place}` : ''}</td></tr>}
           </tbody></table>
+          {s.monthly && <SolarMonths s={s} need={e.solar.dailyM3} />}
         </>
       )}
     </section>
@@ -371,5 +376,29 @@ export function MountOrder({ i, ev, onFix }: { i: Installation; ev: Evaluation; 
         })}
       </ol>
     </section>
+  );
+}
+
+function SolarMonths({ s, need }: { s: NonNullable<Evaluation['elec']['solar']>; need: number }) {
+  const c = useChartColors();
+  const data = s.monthly!.map((x) => ({ mois: MONTHS[x.m].replace('.', ''), m3: Math.round(x.m3 * 10) / 10, used: x.used, ghi: x.ghi }));
+  return (
+    <figure className="mt-s">
+      <figcaption>Eau pompée par jour, mois par mois <span>(m³/jour)</span></figcaption>
+      <ResponsiveContainer width="100%" height={210}>
+        <BarChart data={data} margin={{ top: 10, right: 10, bottom: 0, left: -12 }}>
+          <CartesianGrid stroke={c.grid} vertical={false} />
+          <XAxis dataKey="mois" stroke={c.axis} fontSize={11} tickLine={false} interval={0} />
+          <YAxis stroke={c.axis} fontSize={11} tickLine={false} width={40} />
+          <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.grid}`, borderRadius: 10, color: c.ink, fontSize: 13 }}
+            formatter={(v, _n, p) => [`${fmt(Number(v), 1)} m³/j · ${fmt((p.payload as { ghi: number }).ghi, 2)} kWh/m²/j${(p.payload as { used: boolean }).used ? '' : ' (non utilisé)'}`, 'Volume']} />
+          <ReferenceLine y={need} stroke={c.s2} strokeDasharray="5 4" label={{ value: `Besoin ${fmt(need, 0)} m³/j`, position: 'insideTopRight', fill: c.axis, fontSize: 11 }} />
+          <Bar dataKey="m3" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+            {data.map((d) => <Cell key={d.mois} fill={d.used ? (d.m3 >= need ? c.s1 : c.crit) : c.grid} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+      <p className="axis-note">Barres bleues : mois utilisés couverts ; rouges : mois utilisés sous le besoin ; grises : mois non utilisés.</p>
+    </figure>
   );
 }

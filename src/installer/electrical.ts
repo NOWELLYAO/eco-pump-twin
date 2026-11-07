@@ -71,7 +71,11 @@ export interface VesselResult {
   volRec: number; pnRec: number; dv: number; starts: number; auto: boolean;
 }
 
+export const MONTHS = ['Janv.', 'Févr.', 'Mars', 'Avr.', 'Mai', 'Juin', 'Juil.', 'Août', 'Sept.', 'Oct.', 'Nov.', 'Déc.'];
+
 export interface SolarResult {
+  monthly: { m: number; ghi: number; m3: number; used: boolean }[] | null;
+  designMonth: number; pshDesign: number; prDesign: number;
   eM3: number; wcNeed: number; wcMinMotor: number; nNeed: number;
   ns: number; np: number; n: number; wc: number; area: number;
   vmpStr: number; vocCold: number; iStr: number; dailyM3: number; hours: number; storage: number;
@@ -115,10 +119,22 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
 export function solar(i: Installation, h: Hydro): SolarResult | null {
   if (i.elec.supply !== 'solaire' || !h.ok || h.q <= 0) return null;
   const s = i.elec.solar;
-  const PR = 0.7; // pertes : température, poussière, câbles, contrôleur, éclairement variable
+  // Pertes : température, poussière, câbles, contrôleur, éclairement variable.
+  // Avec données mensuelles : 0,78 hors température, puis −0,4 %/°C au-dessus de 25 °C de cellule (≈ air + 20 °C).
+  const hasM = Array.isArray(s.ghi) && s.ghi.length === 12 && s.ghi.every((v) => Number.isFinite(v) && v > 0);
+  const used = (m: number) => !s.months || s.months.length !== 12 || s.months[m];
+  const prM = (m: number) => (hasM ? 0.78 * (1 - 0.004 * Math.max(0, (s.temp?.[m] ?? 25) + 20 - 25)) : 0.7);
+  const pshM = (m: number) => (hasM ? s.ghi![m] : s.psh);
+  let designMonth = -1;
+  if (hasM) {
+    const idx = Array.from({ length: 12 }, (_, m) => m).filter(used);
+    designMonth = (idx.length ? idx : Array.from({ length: 12 }, (_, m) => m)).reduce((a, b) => (pshM(b) * prM(b) < pshM(a) * prM(a) ? b : a));
+  }
+  const pshDesign = hasM ? pshM(designMonth) : s.psh;
+  const PR = hasM ? prM(designMonth) : 0.7;
   const eM3 = (h.pElec / 0.95) / h.q; // kWh/m³ (rendement contrôleur 95 %)
-  const wcNeed = (s.dailyM3 * eM3 * 1000) / (s.psh * PR);
-  const wcMinMotor = i.pump.motorKw * 1000 * 1.3;
+  const wcNeed = (s.dailyM3 * eM3 * 1000) / (pshDesign * PR);
+  const wcMinMotor = i.pump.motorKw * h.n * 1000 * 1.3;
   const wcTarget = Math.max(wcNeed, wcMinMotor);
   const nNeed = Math.ceil(wcTarget / s.panelWc);
   const nsMax = Math.floor(s.vdcMax / (s.voc * 1.12)); // Voc à froid (+12 %)
@@ -136,12 +152,14 @@ export function solar(i: Installation, h: Hydro): SolarResult | null {
   } else best = { ns: Math.max(1, nsMax), np: Math.ceil(nTarget / Math.max(1, nsMax)), n: Math.max(1, nsMax) * Math.ceil(nTarget / Math.max(1, nsMax)) };
   if (s.panels > 0 && possible) best = { ns: best.ns, np: Math.max(1, Math.floor(s.panels / best.ns)), n: best.ns * Math.max(1, Math.floor(s.panels / best.ns)) };
   const wc = best.n * s.panelWc;
-  const dailyM3 = (wc * s.psh * PR) / 1000 / eM3;
+  const dailyM3 = (wc * pshDesign * PR) / 1000 / eM3;
+  const monthly = hasM ? Array.from({ length: 12 }, (_, m) => ({ m, ghi: pshM(m), m3: (wc * pshM(m) * prM(m)) / 1000 / eM3, used: used(m) })) : null;
   const vmpStr = best.ns * s.vmp;
   const iStr = best.np * s.imp;
   const dcDrop = ((2 * s.dcLen * iStr * 0.0225) / s.dcSec / vmpStr) * 100;
   const dcSecRec = SECTIONS.find((sec) => ((2 * s.dcLen * iStr * 0.0225) / sec / vmpStr) * 100 <= 2 && sec >= 4) ?? 120;
   return {
+    monthly, designMonth, pshDesign, prDesign: PR,
     eM3, wcNeed, wcMinMotor, nNeed, ns: best.ns, np: best.np, n: best.n, wc, area: (wc / 1000) / 0.21,
     vmpStr, vocCold: best.ns * s.voc * 1.12, iStr, dailyM3, hours: dailyM3 / h.q, storage: Math.ceil(s.dailyM3 * 1.5),
     dcDrop, dcSecRec, possible, nsMin, nsMax,
@@ -155,9 +173,11 @@ function vfdSpeed(i: Installation, h: Hydro) {
   const hs = staticHead(i) + pressureHead(i) + losses(i, q).total;
   const h0 = i.pump.hn * i.pump.shutoff;
   const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
-  const s = Math.sqrt((hs + k * q * q) / h0);
+  const n = h.n;
+  const qe = q / n;
+  const s = Math.sqrt((hs + k * qe * qe) / h0);
   if (!Number.isFinite(s) || s >= 0.99 || s < 0.5) return null;
-  const eta = Math.max(0.1, etaAt(specOf(i), q, s));
+  const eta = Math.max(0.1, etaAt(specOf(i), qe, s));
   const pNew = (i.fluid.rho * 9.81 * (q / 3600) * hs) / eta / 1000 / 0.88 / 0.97;
   const pNow = h.pElec;
   // Même volume pompé : comparer l'énergie par m³.
@@ -188,7 +208,8 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
   const vfdA = inom * 1.1;
   const filter = start === 'variateur' && len > 50 ? (immersed ? 'filtre sinus' : 'filtre dU/dt') : start === 'variateur' && immersed && len > 30 ? 'filtre dU/dt' : null;
   const genFactor: Record<StartId, number> = { direct: 3, etoile: 2.2, progressif: 2, variateur: 1.5 };
-  const genKva = Math.ceil((i.pump.motorKw * genFactor[start]) / 0.8 / 5) * 5;
+  // Groupe : démarrage de la dernière pompe pendant que les autres tournent
+  const genKva = Math.ceil(((i.pump.motorKw * genFactor[start]) + i.pump.motorKw * 1.25 * (h.n - 1)) / 0.8 / 5) * 5;
   const vs = start === 'variateur' && e.supply !== 'solaire' ? vfdSpeed(i, h) : null;
   const ves = vessel(i, h);
   const sol = solar(i, h);

@@ -36,6 +36,9 @@ export interface InstPump {
   maxStarts: number; // démarrages / h
   diameterMm: number; // diamètre hors-tout (pompes de forage)
   shutoff: number; // H0 / Hn
+  count?: number; // pompes installées en parallèle
+  standby?: number; // dont pompes de secours
+  alternate?: boolean; // permutation automatique
 }
 
 export interface Geometry {
@@ -75,6 +78,11 @@ export interface Solar {
   dailyM3: number; // besoin journalier (m³/j)
   panels: number; // panneaux installés (0 = dimensionnement automatique)
   dcLen: number; dcSec: number; // câble champ PV → contrôleur
+  lat?: number; lon?: number; place?: string;
+  ghi?: number[]; // ensoleillement moyen par mois (kWh/m²/j), 12 valeurs
+  temp?: number[]; // température moyenne par mois (°C)
+  months?: boolean[]; // mois d'utilisation
+  source?: string;
 }
 
 export interface Elec {
@@ -102,6 +110,7 @@ export interface Installation {
   duty: Duty;
   acc: Record<string, AccState>;
   elec: Elec;
+  commissioning?: import('./commissioning').Commissioning;
 }
 
 export type Need = 'required' | 'recommended' | 'optional' | 'avoid' | 'na';

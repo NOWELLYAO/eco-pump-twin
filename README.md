@@ -5,6 +5,7 @@ Application web en quatre pages :
 - **Conception** : saisie guidée de l'installation, vue réelle et schéma P&ID dessinés en direct, note et alertes principales.
 - **Simulation** : bouton marche/arrêt, défilement du temps (1 min/s à 1 h/s), réglages en direct (vanne, vitesse, niveau d'eau, colmatage, usure), instruments qui affichent leurs valeurs, courbes, alertes en direct et journal des événements (démarrages, arrêts, coups de bélier, cavitation, marche à sec, débordement). Le comportement s'adapte à l'installation : pressostat et réservoir à vessie, variateur à pression constante, fosse à flotteurs, pompage solaire sur une journée, remplissage d'un réservoir.
 - **Diagnostic** : alertes cliquables qui font clignoter l'élément concerné sur le schéma, corrections en un clic, préconisations, pièces exposées.
+- **Mise en service** : saisie des mesures relevées sur place (débit, pressions, courants par phase, tension, niveau dynamique, sens de rotation, bruit) ; comparaison au calcul et causes probables d'écart (sens de rotation inversé, réseau plus résistant ou plus ouvert, aspiration colmatée, entrée d'air, usure, surcharge, déséquilibre de phases, tension), avec les vérifications à faire ; PV imprimable.
 - **Matériel & rapport** : nomenclature, électricité, solaire, pertes de charge, courbes, impression du rapport.
 
 Un clic sur n'importe quel élément du schéma ouvre sa fiche : caractéristiques, alertes liées, ajout ou retrait, et **photos réelles** (Wikimedia Commons, licences libres) avec un lien vers d'autres photos.
@@ -21,6 +22,10 @@ Le configurateur permet de :
 - les **alertes**, avec les problèmes à prévoir, les pièces exposées, les solutions et une **correction en un clic** ;
 - la liste des **pièces susceptibles d'être endommagées**, les **préconisations** par priorité, le bilan des pertes de charge et la **nomenclature** ;
 - un rapport imprimable, et l'envoi de la pompe vers le jumeau numérique.
+
+Le configurateur gère aussi **plusieurs pompes en parallèle** (en service + secours, permutation automatique) : courbe combinée, NPSH et puissance par pompe, contrôle d'une pompe seule en bout de courbe, nomenclature par pompe.
+
+Pour le **solaire**, l'ensoleillement peut être chargé mois par mois pour l'emplacement de l'installation (GPS ou coordonnées), depuis la base climatique NASA POWER via la fonction `api/solar.js` (Vercel), ou saisi à la main. On coche les mois d'utilisation ; le champ est dimensionné sur le mois coché le moins ensoleillé, avec correction de température.
 
 Le configurateur traite aussi la partie **électrique et énergie** :
 

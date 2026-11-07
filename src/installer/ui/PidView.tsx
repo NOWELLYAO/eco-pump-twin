@@ -52,12 +52,17 @@ export function PidView({ i, h, highlight = [], onPick }: { i: Installation; h: 
   // ----- Pompe -----
   const pTag = tag('P');
   anchors.pump = [pumpX, pumpY];
+  const cntP = Math.max(1, i.pump.count ?? 1);
+  const sbP = Math.max(0, i.pump.standby ?? 0);
+  for (let k = Math.min(cntP - 1, 3); k >= 1; k--) {
+    els.push(<g key={`pg${k}`} className="p-pump ghost"><circle cx={pumpX + 9 * k} cy={pumpY - 9 * k} r={24} /></g>);
+  }
   els.push(
     <g key="pump" {...pick('pump')} className={`p-pump${onPick ? ' pickable' : ''}`}>
       <circle cx={pumpX} cy={pumpY} r={24} />
       <path d={`M${pumpX} ${pumpY - 24} H${pumpX + 30}`} />
       <path d={`M${pumpX - 14} ${pumpY + 19} L${pumpX - 22} ${pumpY + 34} H${pumpX + 22} L${pumpX + 14} ${pumpY + 19}`} />
-      <text x={pumpX} y={pumpY + 52} textAnchor="middle" className="p-tag">P-{pTag}</text>
+      <text x={pumpX} y={pumpY + 52} textAnchor="middle" className="p-tag">{cntP > 1 ? `P-${pTag} à P-${pTag + cntP - 1} (${cntP - sbP}${sbP ? ` + ${sbP} S` : ''})` : `P-${pTag}`}</text>
       <circle cx={imm ? pumpX + 60 : pumpX} cy={imm ? pumpY : pumpY + 80} r={13} className="p-motor" />
       <text x={imm ? pumpX + 60 : pumpX} y={imm ? pumpY + 4 : pumpY + 84} textAnchor="middle" className="p-code">M</text>
       <path d={imm ? `M${pumpX + 24} ${pumpY} H${pumpX + 47}` : `M${pumpX} ${pumpY + 34} V${pumpY + 67}`} />

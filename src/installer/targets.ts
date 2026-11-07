@@ -11,6 +11,7 @@ const MAP: Record<string, string[]> = {
   sub: ['pump', 'source'], bottomf: ['pump', 'source'], levels: ['source'], starts: ['source', 'cable'], wet: ['source', 'acc:flotteur_arret'],
   mono: ['cable'], dol: ['cable'], cableamp: ['cable'], drop: ['cable'], vfdfilter: ['cable', 'acc:variateur'], gen: ['cable'], gen0: ['cable'],
   v_off: ['acc:vessie', 'acc:pressostat'], v_on: ['acc:vessie', 'acc:pressostat'], v_diff: ['acc:pressostat'], v_pre: ['acc:vessie'], v_pn: ['acc:vessie'], v_pn2: ['acc:vessie'], v_vol: ['acc:vessie'],
+  par_single: ['pump'], par_spare: ['pump'], par_alt: ['pump', 'cable'],
   pv_str: ['pv'], pv_few: ['pv'], pv_motor: ['pv'], pv_dc: ['pv'], pv_dry: ['acc:marche_sec'],
 };
 

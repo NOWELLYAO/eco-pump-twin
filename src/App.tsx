@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
+import { BookOpen, ClipboardCheck, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
 import { ensureElec } from './installer/electrical';
@@ -8,14 +8,16 @@ import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
+import { CommissionPage, CommissionResults } from './installer/ui/CommissionPage';
 import { PidView } from './installer/ui/PidView';
 import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
 
-type Page = 'design' | 'sim' | 'diag' | 'mat';
+type Page = 'design' | 'sim' | 'diag' | 'com' | 'mat';
 const PAGES: { id: Page; label: string; icon: typeof PencilRuler }[] = [
   { id: 'design', label: 'Conception', icon: PencilRuler },
   { id: 'sim', label: 'Simulation', icon: FlaskConical },
   { id: 'diag', label: 'Diagnostic', icon: Stethoscope },
+  { id: 'com', label: 'Mise en service', icon: ClipboardCheck },
   { id: 'mat', label: 'Matériel & rapport', icon: Package },
 ];
 const KEY = 'ecopump-installer-v1';
@@ -35,6 +37,7 @@ function Guide() {
       <p><b>Simulation</b> : mettez la pompe en marche ou à l'arrêt, faites défiler le temps et jouez sur la vanne, la vitesse, le niveau d'eau, le colmatage ou l'usure. Les instruments, les courbes, les alertes et le journal des événements réagissent en direct.</p>
       <p><b>Diagnostic</b> : cliquez sur une alerte pour voir l'élément concerné clignoter sur le schéma, puis corrigez-la en un clic.</p>
       <p><b>Fiches</b> : cliquez sur n'importe quel élément du schéma (pompe, conduite, vanne, clapet, coffret…) pour voir ses caractéristiques, ses alertes et des photos réelles.</p>
+      <p><b>Mise en service</b> : saisissez les pressions, le débit, les courants et la tension relevés sur place ; l'application les compare au calcul et indique les causes probables d'écart (sens de rotation, vanne, colmatage, entrée d'air, usure, déséquilibre électrique).</p>
       <p><b>Matériel & rapport</b> : nomenclature complète, électricité, solaire, pertes de charge, courbes, et impression du rapport.</p>
       <p><b>Sans internet</b> : bouton « Installer » pour ajouter l'application à l'écran d'accueil du téléphone ; elle fonctionne ensuite hors ligne.</p>
     </div>
@@ -104,11 +107,13 @@ export default function App() {
         {page === 'design' && <DesignPage s={s} goDiag={() => setPage('diag')} />}
         {page === 'sim' && <SimPage s={s} />}
         {page === 'diag' && <DiagPage s={s} />}
+        {page === 'com' && <CommissionPage i={inst} ev={ev} set={s.set} />}
         {page === 'mat' && <MaterialPage s={s} />}
       </main>
 
       <div className="print-report" aria-hidden>
         <h1>Rapport d'installation — {inst.name}</h1>
+        {page === 'com' && <CommissionResults i={inst} ev={ev} />}
         <ScoreCard ev={ev} />
         <KeyFigures i={inst} ev={ev} />
         <section className="card"><PidView i={inst} h={ev.hydro} /></section>

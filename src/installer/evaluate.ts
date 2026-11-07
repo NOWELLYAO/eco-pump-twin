@@ -146,7 +146,34 @@ export function evaluate(input: Installation): Evaluation {
         fix: (side === 'asp' ? h.vAsp : h.vRef) > 0.9 ? { label: `${side === 'asp' ? 'Aspiration' : 'Refoulement'} en DN${nextDn(i[side].dn)}`, apply: bigger(side) } : undefined });
     } else if (share < 0.15) goods.push(`Pertes de charge maîtrisées (${f0(share * 100)} % de la hauteur)`);
 
-    // ---------- Vitesses ----------
+    // ---------- Pompes en parallèle ----------
+  const count = Math.max(1, i.pump.count ?? 1);
+  const standby = Math.max(0, Math.min(count - 1, i.pump.standby ?? 0));
+  if (count > 1 && h.ok && h.n > 1) {
+    const one = solve({ ...i, pump: { ...i.pump, standby: count - 1 } });
+    if (one.ok && (one.x > 1.25 || one.pShaft > i.pump.motorKw)) {
+      const over = one.pShaft > i.pump.motorKw;
+      add({ id: 'par_single', sev: over ? 'critical' : 'warning', cat: 'hydraulique', title: 'Une pompe seule part en bout de courbe',
+        detail: `Quand une seule pompe tourne (faible demande, panne de l'autre), elle débite ${f1(one.q)} m³/h, soit ${f0(one.x * 100)} % de son débit optimal${over ? `, et absorbe ${f1(one.pShaft, 2)} kW pour un moteur de ${f1(i.pump.motorKw)} kW` : ''}.`,
+        consequences: ['Cavitation et vibrations sur la pompe seule', over ? 'Déclenchement du moteur' : 'Usure accélérée'], parts: ['roue', 'moteur', 'roulements', 'garniture'],
+        solutions: ['Variateur sur chaque pompe pour limiter le débit d\'une pompe seule', 'Ou moteur dimensionné pour le bout de courbe', 'Ou vanne de réglage / limitation de débit'] });
+    }
+  }
+  if (count > 1) goods.push(`${count} pompes en parallèle : ${h.n} en service${standby ? ` + ${standby} en secours` : ''}${i.pump.alternate ? ', permutation automatique' : ''}`);
+  if (standby === 0 && (i.app === 'relevage' || i.app === 'incendie' || i.app === 'surpression')) {
+    add({ id: 'par_spare', sev: i.app === 'surpression' ? 'info' : 'warning', cat: 'securite', title: 'Pas de pompe de secours',
+      detail: i.app === 'relevage' ? 'Un poste de relevage doit continuer à fonctionner si une pompe tombe en panne.' : i.app === 'incendie' ? 'Une installation incendie doit disposer d\'une pompe de secours.' : 'Une panne de l\'unique pompe prive tout le bâtiment d\'eau.',
+      consequences: [i.app === 'relevage' ? 'Débordement de la fosse en cas de panne' : 'Coupure totale en cas de panne'], parts: [],
+      solutions: ['Installer une pompe de secours identique avec permutation automatique'],
+      fix: { label: '1 pompe de secours', apply: (x) => ({ ...x, pump: { ...x.pump, count: Math.max(1, x.pump.count ?? 1) + 1, standby: (x.pump.standby ?? 0) + 1, alternate: true } }) } });
+  }
+  if (standby > 0 && !i.pump.alternate) {
+    add({ id: 'par_alt', sev: 'info', cat: 'securite', title: 'Pompe de secours sans permutation',
+      detail: 'Une pompe qui ne tourne jamais se grippe et sa garniture se dessèche.', consequences: ['Pompe de secours bloquée le jour où on en a besoin'], parts: ['garniture', 'roulements'],
+      solutions: ['Activer la permutation automatique à chaque démarrage (ou toutes les 24 h)'], fix: { label: 'Activer la permutation', apply: (x) => ({ ...x, pump: { ...x.pump, alternate: true } }) } });
+  }
+
+  // ---------- Vitesses ----------
     if (!imm) {
       if (h.vAsp > 1.5) {
         add({ id: 'vasp', sev: h.vAsp > 2.2 ? 'critical' : 'warning', cat: 'aspiration', title: 'Vitesse trop élevée dans l\'aspiration',

@@ -55,7 +55,7 @@ export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult,
   const pAsp = bar(z - L.asp);
   const pRef = isForage(i) ? bar(Math.max(0, hq - i.geo.dynamicLevel - L.ref * (i.geo.pumpDepth / Math.max(1, i.ref.length + i.geo.pumpDepth)))) : bar(z - L.asp + hq);
   const kw = h.pElec * Math.max(0.3, ratio);
-  const amps = er.inom * Math.max(0.35, Math.min(1.2, kw / (i.pump.motorKw / 0.88)));
+  const amps = er.inom * Math.max(0.35, Math.min(1.2, kw / h.n / (i.pump.motorKw / 0.88)));
   return { q, pRef, pAsp, amps, kw, hmt: hq, margin: h.margin, on: true };
 }
 
@@ -134,10 +134,11 @@ function atSpeed(i: Installation, s: number): Hydro {
 /** Événements de démarrage / arrêt, tirés des calculs électriques et hydrauliques. */
 function startEvent(ctx: SimCtx, st: SimState): SimEvent[] {
   const { er, h, i } = ctx;
-  const ev: SimEvent[] = [{ t: st.t, sev: er.dropStart > 15 ? 'warning' : 'ok', text: `Démarrage — pointe ${f1(er.istart, 0)} A, chute de tension ${f1(er.dropStart)} %`, target: 'cable' }];
+  const cnt = Math.max(1, i.pump.count ?? 1);
+  const who = cnt > 1 ? (i.pump.alternate ? ` P-${101 + ((st.starts - 1) % cnt)} (permutation)` : ` (${h.n} pompe${h.n > 1 ? 's' : ''})`) : '';
+  const ev: SimEvent[] = [{ t: st.t, sev: er.dropStart > 15 ? 'warning' : 'ok', text: `Démarrage${who} — pointe ${f1(er.istart, 0)} A, chute de tension ${f1(er.dropStart)} %`, target: 'cable' }];
   if (h.ok && h.margin < 0.5) ev.push({ t: st.t, sev: 'critical', text: `Cavitation : marge NPSH ${f1(h.margin)} m — bruit de gravier, érosion de la roue`, target: 'pump' });
   if (!h.ok) ev.push({ t: st.t, sev: 'critical', text: 'Pompe en marche sans débit : elle n\'atteint pas la hauteur demandée', target: 'pump' });
-  void i;
   return ev;
 }
 function stopEvent(ctx: SimCtx, st: SimState, why: string): SimEvent[] {
@@ -197,7 +198,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const hs = (set * 1e5) / rhoG - suctionZ(i);
       const h0n = i.pump.hn * i.pump.shutoff;
       const kq = (h0n - i.pump.hn) / (i.pump.qn ** 2);
-      st.s = st.on ? Math.min(1, Math.sqrt((hs + kq * st.q * st.q) / h0n)) : 0;
+      const qe = st.q / h.n;
+      st.s = st.on ? Math.min(1, Math.sqrt((hs + kq * qe * qe) / h0n)) : 0;
     } else if (kind === 'pit') {
       const area = (i.geo.tankVolume / 1000) / 0.5; // m², 0,5 m entre flotteurs
       const qin = (0.15 + 0.75 * demand(hr)) * h.q * 0.55;
@@ -217,7 +219,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       st.x = Math.min(st.x, 1.3);
     } else if (kind === 'solar') {
       const sr = solarCalc(i, h);
-      const gpk = i.elec.solar.psh / 7.64; // kW/m² en crête
+      const gpk = (sr?.pshDesign ?? i.elec.solar.psh) / 7.64; // kW/m² en crête (mois de dimensionnement)
       const g = Math.max(0, Math.sin((Math.PI * (hr - 6)) / 12)) * gpk;
       st.pv = sr ? (sr.wc / 1000) * g * 0.75 : 0;
       const pFull = Math.max(0.1, h.pElec / 0.95);
