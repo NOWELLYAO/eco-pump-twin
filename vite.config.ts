@@ -10,7 +10,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'prompt',
       injectRegister: false,
-      includeAssets: ['logo.png', 'apple-touch-icon.png'],
+      includeAssets: ['logo.png', 'apple-touch-icon.png', 'apple-touch-icon-precomposed.png', 'apple-touch-icon-152.png', 'apple-touch-icon-167.png'],
       manifest: {
         name: 'ECO PUMP AFRIK — Configurateur d\'installation',
         short_name: 'EcoPump',
@@ -24,7 +24,8 @@ export default defineConfig({
         theme_color: '#1689c6',
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
           { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
