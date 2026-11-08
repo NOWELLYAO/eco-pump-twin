@@ -56,6 +56,7 @@ export interface FaultEffect {
   altJam?: boolean; // pompe de secours grippée : bloque quand la permutation la fait démarrer
   startFail?: boolean; // le démarrage échoue (groupe électrogène trop faible)
   sandy?: boolean; // eau chargée de sable
+  bkFloatStuck?: boolean; // robinet à flotteur du réservoir de secours bloqué ouvert
 }
 
 export interface FaultDef {
@@ -129,6 +130,14 @@ export const FAULTS: FaultDef[] = [
     sig: ['debit_bas', 'pression_basse', 'cycles_courts', 'fuite_visible'], field: ['La pompe tourne beaucoup plus longtemps', 'Zone humide ou affaissement sur le tracé', 'Consommation d\'énergie en hausse'],
     checks: ['Relever le compteur la nuit (aucune consommation normale)', 'Fermer les tronçons un à un pour localiser la fuite', 'Inspecter le tracé'],
     fix: ['Réparer la conduite (manchon de réparation)', 'Contrôler le coup de bélier si la casse est due à une surpression'], parts: ['tuyauterie', 'moteur'],
+  },
+  {
+    id: 'flotteur_secours', cat: 'hydraulique', label: 'Robinet à flotteur du réservoir de secours bloqué ouvert', target: 'dest',
+    what: 'Le flotteur du réservoir de secours est coincé (bras tordu, tartre, joint arraché) : la cuve pleine continue de se remplir et l\'eau part au trop-plein.',
+    applies: (i) => !!i.backup?.on && i.pumpType === 'immergee_forage', effect: { bkFloatStuck: true },
+    sig: ['debordement', 'ne_s_arrete_pas'], field: ['Le trop-plein du réservoir de secours coule en permanence', 'La pompe tourne beaucoup plus longtemps, même la nuit', 'Compteur de la maison faible alors que la pompe débite'],
+    checks: ['Monter au réservoir : la cuve est pleine et l\'eau entre toujours', 'Soulever le bras du flotteur à la main : l\'arrivée doit se couper', 'Comparer le débit de la pompe et celui du compteur de la maison'],
+    fix: ['Dégager ou redresser le bras du flotteur', 'Remplacer le robinet à flotteur (joint, pointeau)', 'Fermer la vanne d\'arrivée du by-pass en attendant'], parts: [],
   },
   // ---------------- Manque d'eau ----------------
   {
@@ -412,6 +421,7 @@ export function combined(ids: string[]): FaultEffect & { ids: string[] } {
     if (x.outage) e.outage = x.outage;
     if (x.noStop) e.noStop = true;
     if (x.primeLoss) e.primeLoss = true;
+    if (x.bkFloatStuck) e.bkFloatStuck = true;
     if (x.leak) e.leak = (e.leak ?? 0) + x.leak;
     if (x.backflow) e.backflow = true;
     if (x.vesselK) e.vesselK = x.vesselK;

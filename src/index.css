@@ -1434,3 +1434,9 @@ html, body { overflow-x: clip; }
 .r-ev.open path:first-child{fill:#7cc4f2}
 .r-ev.open rect{fill:#fde7c4;stroke:#b45309}
 .r-ev.shut path:first-child{fill:#9aa5b0}
+
+.why-run{margin:.6rem 0 .2rem;padding:.55rem .7rem;border-radius:10px;background:#eef6ff;border:1px solid #cfe3fa;font-size:.86rem;line-height:1.35;color:#1d3b5c}
+.why-run b{color:#0b5cad;margin-right:.25rem}
+.why-run.bad{background:#fff1f0;border-color:#f3c3be;color:#7a1f16}.why-run.bad b{color:#c0392b}
+.r-bk-badge.over rect{fill:#fff1f0;stroke:#c0392b;animation:bkpulse 1s ease-in-out infinite}.r-bk-badge.over text{fill:#c0392b}
+.r-puddle{fill:#7cc4f2;opacity:.7}

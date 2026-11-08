@@ -399,6 +399,10 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
           {/* robinet à flotteur : bras + boule qui suit le niveau */}
           <path d={`M${tx + 10} ${ty + 12} L${tx + 34} ${Math.max(ty + 12, yWb - 3)}`} className="r-arm" />
           <circle cx={tx + 36} cy={Math.max(ty + 12, yWb - 3)} r={5} className="g-float" />
+          {/* trop-plein : descend le long du support ; coule si le robinet à flotteur ne ferme plus */}
+          <path d={`M${tx + tw} ${ty + 12} h8 V${destG - 2}`} stroke="#8a96a3" strokeWidth={3.5} fill="none" className="r-pipe" />
+          {live?.overflow && <path d={`M${tx + tw} ${ty + 12} h8 V${destG - 2}`} className="r-flow" strokeWidth={2} />}
+          {live?.overflow && <ellipse cx={tx + tw + 8} cy={destG} rx={22} ry={4} className="r-puddle" />}
           {/* électrovanne normalement ouverte (tenue fermée par le coffret) puis clapet */}
           <g className={`r-obst r-ev${live ? (live.bkOpen ? ' open' : ' shut') : ''}`} transform={`translate(${teeOut},${ty + th + 9})`}>
             <path d="M-6 -7 L6 -7 L-6 7 L6 7 Z" />
@@ -408,9 +412,9 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
           </g>
           <g className="r-obst" transform={`translate(${teeOut},${Math.max(ty + th + 26, (ty + th + ay) / 2 + 6)}) rotate(90) scale(0.8)`}><RealGlyph kind="check" /></g>
           {live && (() => {
-            const msg = feeding ? `Secours · ${bc.pHouse.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} bar` : filling ? 'En remplissage' : 'Plein, en attente';
+            const msg = live.overflow ? 'Déborde !' : feeding ? `Secours · ${bc.pHouse.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} bar` : filling ? 'En remplissage' : 'Plein, en attente';
             const w = msg.length * 5.6 + 14;
-            return <g className={`r-bk-badge${feeding ? ' on' : filling ? ' fill' : ''}`}>
+            return <g className={`r-bk-badge${live.overflow ? ' over' : feeding ? ' on' : filling ? ' fill' : ''}`}>
               <rect x={tx + tw / 2 - w / 2} y={ty + th / 2 - 2} width={w} height={16} rx={8} />
               <text x={tx + tw / 2} y={ty + th / 2 + 9.5} textAnchor="middle">{msg}</text>
             </g>;
@@ -853,10 +857,24 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     else if (i.mode === 'aspiration') box = { x0: 330, y0: G + 62, x1: W - 20, y1: H - 12 };
     const bw = box.x1 - box.x0, bh = box.y1 - box.y0;
     if (bw > 220 && bh > 80) {
-      const lh = 16.5, maxLines = Math.floor((bh - 34) / lh), maxChars = Math.floor((bw - 24) / 7.55);
-      const lines = term.slice(0, maxLines);
       const color: Record<string, string> = { ok: 't-ok', warn: 't-warn', crit: 't-crit', info: 't-info', cmd: 't-cmd' };
       const sym: Record<string, string> = { ok: '[ OK ]', warn: '[ !! ]', crit: '[ XX ]', info: '[ ·· ]', cmd: '' };
+      const lh = 16.5, maxLines = Math.floor((bh - 34) / lh), maxChars = Math.floor((bw - 24) / 7.55);
+      // Lignes longues : retour à la ligne sur un mot, aligné sous le texte (après l'étiquette)
+      const rows: { tag: string; txt: string }[] = [];
+      for (const l of term) {
+        const pre = sym[l.tag] ? `${sym[l.tag]} ` : '';
+        let rest = pre + l.text, first = true;
+        const ind = ' '.repeat(Math.min(16, pre.length + 8));
+        while (rest.length) {
+          const room = maxChars - (first ? 0 : ind.length);
+          let cut = rest.length <= room ? rest.length : rest.lastIndexOf(' ', room);
+          if (cut <= room * 0.5) cut = Math.min(rest.length, room);
+          rows.push({ tag: l.tag, txt: (first ? '' : ind) + rest.slice(0, cut).trimEnd() });
+          rest = rest.slice(cut).trimStart(); first = false;
+        }
+      }
+      const lines = rows.slice(0, maxLines);
       consoleEl.push(
         <g key="console" className="term">
           <rect x={box.x0} y={box.y0} width={bw} height={bh} rx={9} className="t-bg" />
@@ -864,11 +882,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
           <rect x={box.x0} y={box.y0 + 12} width={bw} height={8} className="t-bar" />
           {[0, 1, 2].map((k) => <circle key={k} cx={box.x0 + 14 + k * 13} cy={box.y0 + 10} r={4} className={`t-dot d${k}`} />)}
           <text x={box.x0 + 56} y={box.y0 + 14} className="t-title">ECO PUMP AFRIK — console {live ? '(temps réel)' : '(analyse)'}</text>
-          {lines.map((l, n) => {
-            const pre = sym[l.tag] ? `${sym[l.tag]} ` : '';
-            const txt = (pre + l.text).slice(0, maxChars);
-            return <text key={n} x={box.x0 + 12} y={box.y0 + 38 + n * lh} className={`t-line ${color[l.tag]}`} xmlSpace="preserve">{txt}</text>;
-          })}
+          {lines.map((l, n) => <text key={n} x={box.x0 + 12} y={box.y0 + 38 + n * lh} className={`t-line ${color[l.tag]}`} xmlSpace="preserve">{l.txt}</text>)}
           <text x={box.x0 + 12} y={box.y0 + 38 + lines.length * lh} className="t-line t-cmd">ecopump&gt; <tspan className="t-cursor">█</tspan></text>
         </g>,
       );

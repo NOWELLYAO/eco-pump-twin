@@ -166,7 +166,7 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
   onPick: (t: string | null) => void; onIssue: (x: Issue) => void; onSet: (fn: (x: Installation) => Installation) => void;
   live?: Live & Partial<TermLive>; banner?: Issue | null; onCloseBanner?: () => void;
 }) {
-  const term = termLines(i, ev, live ? { phys: live.phys, on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz } : undefined);
+  const term = termLines(i, ev, live ? { phys: live.phys, on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz, why: live.why } : undefined);
   const [view, setView] = useState<View>('real');
   const elive: ELive | undefined = live ? {
     q: live.r.q, pRef: live.r.pRef, pAsp: live.r.pAsp, kw: live.r.kw, hz: live.hz, x: live.x, kind: live.kind, clock: live.clock, starts: live.starts,

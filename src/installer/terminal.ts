@@ -4,7 +4,7 @@ import type { Readings, SimKind } from './sim';
 
 export type TermTag = 'ok' | 'warn' | 'crit' | 'info' | 'cmd';
 export interface TermLine { tag: TermTag; text: string }
-export interface TermLive { phys?: { tm: number; tl: number; relay: number; pPeak?: number; burst: string | null; burnt: boolean; sealGone: boolean }; on: boolean; r: Readings; kind: SimKind; x: number; clock?: string; events?: { sev: string; text: string }[]; starts?: number; vol?: number; kwh?: number; hz?: number }
+export interface TermLive { phys?: { tm: number; tl: number; relay: number; pPeak?: number; burst: string | null; burnt: boolean; sealGone: boolean }; on: boolean; r: Readings; kind: SimKind; x: number; clock?: string; events?: { sev: string; text: string }[]; starts?: number; vol?: number; kwh?: number; hz?: number; why?: string | null }
 
 const f = (v: number, d = 1) => (Number.isFinite(v) ? v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
 const pad = (s: string, n: number) => (s.length >= n ? s : s + ' '.repeat(n - s.length));
@@ -21,6 +21,7 @@ export function termLines(i: Installation, ev: Evaluation, live?: TermLive): Ter
   if (live) {
     L.push({ tag: 'cmd', text: `ecopump> simulate --live   ${live.clock ?? ''}` });
     L.push({ tag: live.on ? 'ok' : 'warn', text: `${pad('POMPE', 8)}${live.on ? 'EN MARCHE' : 'ARRÊT'}  Q=${f(live.r.q)} m³/h  HMT=${f(live.r.hmt)} m${live.on && live.hz != null ? `  F=${f(live.hz)} Hz` : ''}` });
+    if (live.why) L.push({ tag: /ANORMALE/.test(live.why) ? 'crit' : 'info', text: `${pad('AUTOM.', 8)}${live.why}` });
     if (live.kind === 'vfd' && live.on) L.push({ tag: 'info', text: `${pad('RÉGUL.', 8)}pression constante : la vitesse varie, la HMT reste stable` });
     L.push({ tag: 'info', text: `${pad('PRESS.', 8)}refoul. ${f(live.kind === 'vessel' || live.kind === 'vfd' ? live.x : live.r.pRef, 2)} bar${i.mode === 'immergee' ? '' : `  aspi. ${f(live.r.pAsp, 2)} bar`}` });
     L.push({ tag: tag(live.r.amps > e.inom * 1.05), text: `${pad('MOTEUR', 8)}${f(live.r.amps)} A / In ${f(e.inom)} A  ${f(live.r.kw, 2)} kW` });
