@@ -220,7 +220,9 @@ export function SimPage({ s }: { s: Shared }) {
         <div className="livekpis">
           <div className={sim.on ? 'on' : ''}><small><Droplets size={13} aria-hidden /> Débit</small><b>{fmt(r.q, 1)}<span>m³/h</span></b></div>
           <div><small><Gauge size={13} aria-hidden /> Refoulement</small><b>{fmt(kind === 'vessel' || kind === 'vfd' ? sim.x : r.pRef, 2)}<span>bar</span></b></div>
-          <div><small>Aspiration</small><b>{fmt(r.pAsp, 2)}<span>bar</span></b></div>
+          {s.inst.mode !== 'immergee' ? <div><small>Aspiration</small><b>{fmt(r.pAsp, 2)}<span>bar</span></b></div>
+            : s.inst.pumpType === 'immergee_forage' ? <div className={sim.noFlow ? 'bad' : ''}><small>Eau au-dessus de la pompe</small><b>{fmt(Math.max(0, s.inst.geo.pumpDepth - s.inst.geo.dynamicLevel - sim.dd), 1)}<span>m</span></b><em>niveau {fmt(s.inst.geo.dynamicLevel + sim.dd, 1)} m · pompe à {fmt(s.inst.geo.pumpDepth, 0)} m</em></div>
+            : kind === 'pit' ? <div><small>Niveau dans la fosse</small><b>{fmt(sim.x * 100, 0)}<span>cm</span></b><em>marche à 50 cm · arrêt à 0</em></div> : null}
           <div><small><Zap size={13} aria-hidden /> Courant</small><b>{fmt(r.amps, 1)}<span>A</span></b></div>
           <div><small>Puissance</small><b>{fmt(r.kw, 2)}<span>kW</span></b></div>
           <div className={sim.on && ctx.h.margin < 1 ? 'bad' : ''}><small>Marge NPSH</small><b>{fmt(ctx.h.margin, 1)}<span>m</span></b></div>

@@ -168,7 +168,7 @@ export function evaluate(input: Installation): Evaluation {
       const alt = solve(withPipe(i, side, nextDn(i[side].dn)));
       const saveKwh = Math.max(0, h.kwhYear - alt.kwhYear * (h.q / Math.max(alt.q, 0.01)));
       add({ id: 'losses', sev: share > 0.3 ? 'warning' : 'info', cat: 'energie', title: 'Pertes de charge importantes',
-        detail: `Les pertes représentent ${f1(h.hLoss)} m, soit ${f0(share * 100)} % de la hauteur fournie (aspiration ${f1(h.lossAsp)} m, refoulement ${f1(h.lossRef)} m).`,
+        detail: `Les pertes représentent ${f1(h.hLoss)} m, soit ${f0(share * 100)} % de la hauteur fournie (${imm ? `entrée de la pompe ${f1(h.lossAsp)} m` : `aspiration ${f1(h.lossAsp)} m`}, refoulement ${f1(h.lossRef)} m).`,
         consequences: ['Surconsommation électrique permanente', 'Débit réduit'], parts: [],
         solutions: [`Passer ${side === 'asp' ? 'l\'aspiration' : 'le refoulement'} de DN${i[side].dn} à DN${nextDn(i[side].dn)} : environ ${f0(saveKwh)} kWh/an économisés (${f0(saveKwh * i.duty.pricePerKwh)} ${i.duty.currency}/an)`, 'Réduire le nombre de coudes et d\'accessoires à forte perte'],
         fix: (side === 'asp' ? h.vAsp : h.vRef) > 0.9 ? { label: `${side === 'asp' ? 'Aspiration' : 'Refoulement'} en DN${nextDn(i[side].dn)}`, apply: bigger(side) } : undefined });

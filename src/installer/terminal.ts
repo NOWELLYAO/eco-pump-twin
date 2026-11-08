@@ -22,7 +22,7 @@ export function termLines(i: Installation, ev: Evaluation, live?: TermLive): Ter
     L.push({ tag: 'cmd', text: `ecopump> simulate --live   ${live.clock ?? ''}` });
     L.push({ tag: live.on ? 'ok' : 'warn', text: `${pad('POMPE', 8)}${live.on ? 'EN MARCHE' : 'ARRÊT'}  Q=${f(live.r.q)} m³/h  HMT=${f(live.r.hmt)} m${live.on && live.hz != null ? `  F=${f(live.hz)} Hz` : ''}` });
     if (live.kind === 'vfd' && live.on) L.push({ tag: 'info', text: `${pad('RÉGUL.', 8)}pression constante : la vitesse varie, la HMT reste stable` });
-    L.push({ tag: 'info', text: `${pad('PRESS.', 8)}refoul. ${f(live.kind === 'vessel' || live.kind === 'vfd' ? live.x : live.r.pRef, 2)} bar  aspi. ${f(live.r.pAsp, 2)} bar` });
+    L.push({ tag: 'info', text: `${pad('PRESS.', 8)}refoul. ${f(live.kind === 'vessel' || live.kind === 'vfd' ? live.x : live.r.pRef, 2)} bar${i.mode === 'immergee' ? '' : `  aspi. ${f(live.r.pAsp, 2)} bar`}` });
     L.push({ tag: tag(live.r.amps > e.inom * 1.05), text: `${pad('MOTEUR', 8)}${f(live.r.amps)} A / In ${f(e.inom)} A  ${f(live.r.kw, 2)} kW` });
     if (live.kind === 'pit') L.push({ tag: tag(live.x > 0.8, live.x > 1.1), text: `${pad('FOSSE', 8)}niveau ${f(live.x * 100, 0)} cm (marche 50 · arrêt 0)` });
     if (live.kind === 'tank') L.push({ tag: tag(live.x > 1), text: `${pad('RÉSERV.', 8)}${f(Math.min(100, live.x * 100), 0)} % plein` });

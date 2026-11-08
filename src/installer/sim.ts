@@ -671,7 +671,7 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
     if (kind === 'pit' && st.q < normal.h.q * 0.85) o.add(st.q < 0.05 ? 'debit_nul' : 'debit_bas');
     if (r.amps > rn.amps * 1.12 + 0.1 || r.amps > er.inom * 1.05) o.add('courant_haut');
     if (r.amps < rn.amps * 0.86) o.add('courant_bas');
-    if (r.pAsp < rn.pAsp - 0.12) o.add('depression_forte');
+    if (i.mode !== 'immergee' && r.pAsp < rn.pAsp - 0.12) o.add('depression_forte');
   }
   if (kind === 'vessel' && ctx.er.vessel) {
     const v = ctx.er.vessel;
