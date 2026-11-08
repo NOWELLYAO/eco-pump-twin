@@ -1,6 +1,6 @@
 import { useId, useRef, type MouseEvent, type ReactNode } from 'react';
 import { useDeclutter } from '../../ui/declutter';
-import type { Readings, SimKind } from '../sim';
+import { electrodeDepth, type Readings, type SimKind } from '../sim';
 import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
@@ -100,7 +100,7 @@ export interface Live {
   syms?: string[]; runTot?: number; startLog?: number[]; simT?: number; // pour le coffret en direct
   phys?: Phys;
   hz?: number;
-  overflow?: boolean; backDrop?: boolean;
+  overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -173,7 +173,8 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const k = (bottomY - G - 10) / Math.max(10, i.geo.boreDepth);
     const yS = G + i.geo.staticLevel * k, yD = G + i.geo.dynamicLevel * k, yP = G + i.geo.pumpDepth * k;
     // Niveau réel : dynamique (+ rabattement) en pompage, remonte vers le statique à l'arrêt
-    const yNow = live ? (live.on && !live.hum ? Math.min(bottomY - 6, yD + (live.dd ?? 0) * k) : yS) : yD;
+    // En marche : niveau dynamique ; à l'arrêt : remonte vers le statique, sauf si la nappe est rabattue (source qui se tarit)
+    const yNow = live ? Math.min(bottomY - 6, (live.on && !live.hum) || (live.dd ?? 0) > 0.05 ? yD + (live.dd ?? 0) * k : yS) : yD;
     scene.push(
       <rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />,
       <rect key="bore" x={150} y={G} width={90} height={bottomY - G} className="r-bore" />,
@@ -189,8 +190,10 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       <path key="c1" d={`M150 ${G - 12} V${bottomY}`} className="r-casing" />, <path key="c2" d={`M240 ${G - 12} V${bottomY}`} className="r-casing" />,
       <rect key="head" x={140} y={G - 26} width={110} height={14} rx={2} className="r-plinth" />,
     );
-    const top = Math.min(yP - 60, bottomY - 110);
+    // L'entrée de la pompe (crépine entre pompe et moteur) est dessinée à la profondeur réelle de la pompe
+    const top = Math.min(yP - 56, bottomY - 110);
     const pTop = Math.max(yD + 6, top);
+    const yE = Math.max(yD + 3, Math.min(pTop + 50, G + electrodeDepth(i) * k)); // électrodes / sonde de niveau
     front.push(
       <g key="fp">
         {on('chemise') && <rect x={174} y={pTop - 8} width={42} height={112} rx={6} className="r-jacket" />}
@@ -204,8 +207,8 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     motorBox = { x: 183, y: pTop + 56, w: 24, h: 40 }; impXY = [195, pTop + 28];
     ref = [[195, pTop], [195, G - 40], [REF_END, G - 40]];
     refStart = polyLen(ref.slice(0, 2)) + 40;
-    if (on('marche_sec')) front.push(<g key="el" transform={`translate(170,${pTop - 20})`}><path d={`M0 ${-(pTop - 20 - G)} V0`} className="r-cablepath" /><RealGlyph kind="electrode" /></g>);
-    if (on('sonde_niveau')) front.push(<g key="sn" transform={`translate(228,${yD + 30})`}><path d={`M0 ${-(yD + 30 - G)} V0`} className="r-cablepath" /><RealGlyph kind="probe" /></g>);
+    if (on('marche_sec')) front.push(<g key="el" transform={`translate(170,${yE})`}><path d={`M0 ${-(yE - G)} V0`} className="r-cablepath" /><RealGlyph kind="electrode" /><title>Électrodes de manque d'eau : la pompe s'arrête si l'eau descend sous ce point</title></g>);
+    if (on('sonde_niveau')) front.push(<g key="sn" transform={`translate(228,${yE + 8})`}><path d={`M0 ${-(yE + 8 - G)} V0`} className="r-cablepath" /><RealGlyph kind="probe" /><title>Sonde de niveau : mesure la hauteur d'eau, arrêt au niveau mini</title></g>);
     dims.push(
       <g key="lv" className="r-note">
         <text x={258} y={yS + 4}>Niveau statique {fm(i.geo.staticLevel)}</text>
@@ -761,7 +764,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       lcd.push(rotor('imp', impXY, forage ? 8 : 12, impTurn, 5, 'imp'));
       if (fanXY) lcd.push(rotor('fan', fanXY, 13, turning, 4, 'fan'));
     }
-    const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : 'ARRÊT';
+    const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : live.lowLevel ? 'ARRÊT · MANQUE D\'EAU' : 'ARRÊT';
     lcd.push(<g key="state" className={live.trip || live.hum || live.noFlow ? 'state fault' : live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{stTxt}</text></g>);
   }
 

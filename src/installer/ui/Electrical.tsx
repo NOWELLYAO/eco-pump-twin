@@ -16,6 +16,7 @@ export interface ELive {
   q?: number; pRef?: number; pAsp?: number; kw?: number; hz?: number; x?: number; kind?: string;
   clock?: string; starts?: number; startsH?: number; vol?: number; kwh?: number; runTot?: number; pv?: number;
   syms?: string[]; floatPit?: 'high' | 'low' | 'tangle'; floatRes?: boolean; noFlow?: boolean; sandy?: boolean; unbalance?: boolean; relayK?: number;
+  lowLevel?: boolean;
   phys?: { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean };
 }
 
@@ -131,7 +132,7 @@ function partState(p0: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fa
   const p = { ...p0, id: p0.base ?? p0.id };
   if (p.id === 'q1' && tk === 'decl_thermique') return 'trip';
   if (p.id === 'q2' && tk === 'decl_diff') return 'trip';
-  if (p.id === 'ka2' && tk === 'decl_manque_eau') return 'trip';
+  if (p.id === 'ka2' && (tk === 'decl_manque_eau' || L.lowLevel)) return 'trip';
   if ((p.id === 'u1' || p.id === 'kp') && tk === 'decl_variateur') return 'trip';
   if (p.id === 'ka1' && (L.faults.includes('perte_phase') || L.faults.includes('rotation'))) return 'fault';
   if (p.id === 'km1' && L.faults.includes('contacteur_colle')) return 'fault';
@@ -243,6 +244,7 @@ function activeAlarms(i: Installation, ev: Evaluation, L: ELive): Alarm[] {
   if (L.on && L.noFlow) add('debit_nul', 'Pompe en marche sans débit', true);
   if ((L.startsH ?? 0) > i.pump.maxStarts) add('cycles_courts', `Démarrages trop fréquents : ${L.startsH} dans l'heure (maxi ${i.pump.maxStarts})`);
   if (L.on && e.dropRun > 5) add('drop', `Chute de tension en marche : ${fmt(e.dropRun, 1)} % (maxi 5 %)`);
+  if (L.lowLevel) add('lowlevel', 'Manque d\'eau dans le forage : électrodes hors de l\'eau, la pompe attend que le niveau remonte');
   const P = L.phys;
   if (P) {
     if (P.burnt) add('burnt', 'Moteur grillé : bobinage à remplacer ou rebobiner', true);

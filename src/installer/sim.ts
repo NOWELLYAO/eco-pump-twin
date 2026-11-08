@@ -124,6 +124,7 @@ export interface SimState {
   sealGone?: boolean; // garniture détruite (vaporisation, marche à sec)
   cavT?: number; // temps de marche en cavitation (s)
   dryRun?: number; // durée de marche à sec en cours (s)
+  lowLevel?: boolean; // forage : électrodes / sonde hors de l'eau, pompe arrêtée en attendant que le niveau remonte
   faultT?: Record<string, number>; // instant d'apparition de chaque panne (pour les pannes qui s'aggravent)
   flags?: Record<string, boolean>; // événements déjà signalés
   outageUntil: number; // coupure secteur jusqu'à t
@@ -209,6 +210,11 @@ export function surgePeak(i: Installation, h: Hydro, q: number, soft: boolean): 
   const prot = i.acc.anti_belier?.on || i.acc.vessie?.on;
   const dH = (c * v) / G * (prot ? 0.35 : 1) * (soft ? 0.3 : 1);
   return { p: ((refStatic(i) + dH) * i.fluid.rho * G) / 1e5, dH };
+}
+/** Profondeur des électrodes de manque d'eau (ou du seuil de la sonde) dans un forage : 2 m au-dessus de la pompe au plus. */
+export function electrodeDepth(i: Installation): number {
+  const imm = Math.max(0.5, i.geo.pumpDepth - i.geo.dynamicLevel);
+  return i.geo.pumpDepth - Math.min(2, imm * 0.5);
 }
 /** Réglage du relais thermique du disjoncteur moteur (A). */
 export function relaySetting(ctx: SimCtx, fx: FaultEffect = ctx.fx): number {
@@ -307,6 +313,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     st.blocked = false;
     if (fx.tripAtStart) { st.starts++; st.startLog = [...st.startLog, st.t].slice(-60); trip(fx.tripAtStart, fx.tripKind ?? 'decl_diff'); return; }
     if (st.burnt) { st.blocked = true; return; }
+    if (st.lowLevel) return; // manque d'eau : redémarrage quand le niveau sera remonté
     st.on = true; st.starts++; st.runT = 0; st.startLog = [...st.startLog, st.t].slice(-60);
     // Chaque démarrage chauffe le bobinage (courant de démarrage pendant ~1 à 3 s)
     st.tm = (st.tm ?? tAmb) + 2.5 * Math.min(4, (er.istart / Math.max(0.1, er.inom) / 6) ** 2) * (soft ? 0.5 : 1);
@@ -481,6 +488,21 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       }
     }
 
+
+    // ----- Forage : électrodes / sonde de niveau (protection manque d'eau) -----
+    if (isForage(i) && (hasDryProt || i.acc.sonde_niveau?.on)) {
+      const eD = electrodeDepth(i);
+      const lvl = i.geo.dynamicLevel + st.dd;
+      const what = hasDryProt ? 'Électrodes de manque d\'eau hors de l\'eau' : 'Sonde de niveau : niveau mini atteint';
+      if (st.on && !st.hum && lvl > eD) {
+        st.lowLevel = true; seen('decl_manque_eau');
+        newEv.push({ t: st.t, sev: 'warning', text: `${what} (niveau ${f1(lvl)} m, seuil ${f1(eD)} m) : la pompe est arrêtée pour la protéger, redémarrage quand le niveau remonte`, target: hasDryProt ? 'acc:marche_sec' : 'acc:sonde_niveau' });
+        stop('manque d\'eau dans le forage', true);
+      } else if (st.lowLevel && lvl < eD - 1) {
+        st.lowLevel = false;
+        newEv.push({ t: st.t, sev: 'ok', text: `Niveau remonté à ${f1(lvl)} m : redémarrage autorisé`, target: 'source' });
+      }
+    } else st.lowLevel = false;
 
     // ===== Physique : moteur, liquide dans la pompe, pression =====
     {
