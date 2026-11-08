@@ -3,7 +3,8 @@ import { Activity, Camera, CircuitBoard, ExternalLink, Eye, Network, Plus, Trash
 import { ACC, APPS, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import type { Evaluation } from '../evaluate';
 import { defaultDn } from '../evaluate';
-import { photoQuery, targetLabel, targetsOf } from '../targets';
+import { targetLabel, targetsOf } from '../targets';
+import { genericSpec, type PhotoSpec } from '../photos';
 import { grundfosFor, type BrandRange } from '../brands';
 import { posAdvice } from '../positions';
 import { termLines, type TermLive } from '../terminal';
@@ -22,18 +23,28 @@ interface Photo { thumb: string; page: string; title: string }
 interface PhotoSet { list: Photo[]; brand: boolean }
 const photoCache = new Map<string, PhotoSet>();
 
-async function commons(q: string, signal: AbortSignal): Promise<Photo[]> {
-  const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(`filetype:bitmap ${q}`)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&iiurlwidth=360&format=json&origin=*`;
+async function commons(q: string, ok: (t: string) => boolean, signal: AbortSignal): Promise<Photo[]> {
+  const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(`filetype:bitmap ${q}`)}&gsrnamespace=6&gsrlimit=40&prop=imageinfo&iiprop=url&iiurlwidth=360&format=json&origin=*`;
   const j = await (await fetch(url, { signal })).json();
   const pages = Object.values(j?.query?.pages ?? {}) as { index: number; title: string; imageinfo?: { thumburl?: string; descriptionurl?: string }[] }[];
   return pages.sort((a, b) => a.index - b.index)
     .map((p) => ({ thumb: p.imageinfo?.[0]?.thumburl ?? '', page: p.imageinfo?.[0]?.descriptionurl ?? '', title: p.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, '') }))
-    .filter((p) => p.thumb).slice(0, 6);
+    .filter((p) => p.thumb && ok(p.title.replace(/[_-]+/g, ' ')));
+}
+
+/** Plusieurs requêtes, résultats filtrés et dédoublonnés, jusqu'à 6 photos */
+async function search(spec: PhotoSpec, signal: AbortSignal): Promise<Photo[]> {
+  const out: Photo[] = [];
+  for (const q of spec.queries) {
+    for (const p of await commons(q, spec.ok, signal)) if (!out.some((o) => o.thumb === p.thumb)) out.push(p);
+    if (out.length >= 4) break;
+  }
+  return out.slice(0, 6);
 }
 
 /** Photos réelles : d'abord la gamme Grundfos correspondante, sinon des photos libres génériques (Wikimedia Commons). */
-export function Photos({ query, label, brand }: { query: string; label: string; brand?: BrandRange | null }) {
-  const key = `${brand?.q.join('|') ?? ''}#${query}`;
+export function Photos({ generic, label, brand }: { generic: PhotoSpec; label: string; brand?: BrandRange | null }) {
+  const key = `${brand?.q.join('|') ?? ''}#${generic.queries.join('|')}`;
   const [set, setSet] = useState<PhotoSet | null>(photoCache.get(key) ?? null);
   const [err, setErr] = useState(false);
   useEffect(() => {
@@ -41,11 +52,13 @@ export function Photos({ query, label, brand }: { query: string; label: string; 
     setSet(null); setErr(false);
     const ctl = new AbortController();
     (async () => {
-      for (const q of brand?.q ?? []) {
-        const l = await commons(q, ctl.signal);
+      if (brand) {
+        const ok = (t: string) => /grundfos/i.test(t) && brand.match.test(t) && !(brand.not && brand.not.test(t));
+        // Le nom du fichier doit citer Grundfos ET la gamme ; sinon on n'affiche pas de photo « Grundfos »
+        const l = await search({ queries: brand.q, ok }, ctl.signal);
         if (l.length) return { list: l, brand: true };
       }
-      return { list: await commons(query, ctl.signal), brand: false };
+      return { list: await search(generic, ctl.signal), brand: false };
     })()
       .then((r) => { photoCache.set(key, r); setSet(r); })
       .catch((e) => { if (e.name !== 'AbortError') setErr(true); });
@@ -142,7 +155,7 @@ function Detail({ t, i, ev, onIssue, onSet, onClose }: {
             </ul>
           )}
         </div>
-        <Photos query={photoQuery(t, i.pumpType)} label={targetLabel(t)} brand={grundfosFor(t, i)} />
+        <Photos generic={genericSpec(t, i)} label={targetLabel(t)} brand={grundfosFor(t, i)} />
       </div>
     </section>
   );

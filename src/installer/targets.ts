@@ -23,7 +23,7 @@ export function targetsOf(id: string): string[] {
 }
 
 /** Mots-clés (anglais, Wikimedia Commons) pour trouver des photos réelles. */
-const PHOTO_EN: Record<string, string> = {
+export const PHOTO_EN: Record<string, string> = {
   pump: 'centrifugal pump', pump_immergee_forage: 'submersible borehole pump', pump_submersible_relevage: 'submersible sewage pump', pump_multi_v: 'vertical multistage pump',
   pump_drainage_immergee: 'submersible drainage pump', pump_auto_amorcante: 'self-priming pump',
   asp: 'pump suction pipe', ref: 'water pipeline pump', cable: 'electrical control panel motor starter', pv: 'solar water pumping panels', source: 'water well borehole',
