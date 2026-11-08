@@ -31,8 +31,8 @@ function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boole
   );
 }
 
-export function FaultPanel({ inst, kind, active, obs, trip, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
-  inst: Installation; kind: SimKind; active: string[]; obs: Sym[]; trip: string | null; outageLeft: number;
+export function FaultPanel({ inst, kind, active, obs, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
+  inst: Installation; kind: SimKind; active: string[]; obs: Sym[]; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
   mystery: Mystery | null;
   onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void;
   onRepair: (id: string) => void; onRepairAll: () => void; onRearm: () => void; onShow: (t: string) => void;
@@ -51,6 +51,13 @@ export function FaultPanel({ inst, kind, active, obs, trip, outageLeft, mystery,
       <h3><Stethoscope size={17} aria-hidden /> Pannes et dépannage</h3>
 
       {/* État des protections */}
+      {isolated && !trip && (
+        <div className="fstate out">
+          <Zap size={16} aria-hidden />
+          <span><b>Pompe 1 isolée : {isolated}</b> — {spare ? 'la pompe de secours a pris le relais.' : 'l\'installation continue avec une pompe de moins (débit réduit).'}</span>
+          <button type="button" className="btn sm" onClick={onRearm}><RotateCcw size={14} aria-hidden /> Réarmer</button>
+        </div>
+      )}
       {(trip || outageLeft > 0) && (
         <div className={`fstate ${trip ? 'trip' : 'out'}`}>
           <Zap size={16} aria-hidden />

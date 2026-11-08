@@ -2,7 +2,7 @@ import { refStatic } from './catalog';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, pumpHead, solve, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
-import { applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
+import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
 
 const G = 9.81;
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -115,6 +115,7 @@ export interface SimState {
   runaway: boolean; // l'arrêt est demandé mais la pompe tourne
   blocked: boolean; // le démarrage est demandé mais impossible
   backDrop: boolean; // la pression / le niveau chute pompe arrêtée
+  isolated: string | null; // pompe 1 en défaut, isolée : les autres pompes continuent (message)
 }
 
 export const clock = (t: number) => {
@@ -141,7 +142,7 @@ export function initSim(ctx: SimCtx): SimState {
   const x = kind === 'vessel' ? (er.vessel?.pOn ?? 3) + 0.4 : kind === 'vfd' ? (er.vessel?.pOn ?? 3) + 0.5 : kind === 'pit' ? 0.2 : kind === 'tank' ? 0.6 : 0;
   return {
     t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [],
-    trip: null, tripKind: null, recent: {}, hum: false, primed: true, noFlow: false, runT: 0, outageUntil: 0, dd: 0, startLog: [], runaway: false, blocked: false, backDrop: false,
+    trip: null, tripKind: null, recent: {}, hum: false, primed: true, noFlow: false, runT: 0, outageUntil: 0, dd: 0, startLog: [], runaway: false, blocked: false, backDrop: false, isolated: null,
   };
 }
 
@@ -191,7 +192,10 @@ function submergence(i: Installation) {
 
 /** Avance la simulation de dt secondes (par pas internes de 5 s). */
 export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
-  const { i, h, er, kind, fx } = ctx;
+  const { i, h, er, kind } = ctx;
+  const multi = Math.max(1, i.pump.count ?? 1) > 1 || !!prev.isolated;
+  // Pompe en défaut isolée : ses pannes propres ne jouent plus, les autres pompes assurent le service
+  let fx = prev.isolated ? combined(ctx.fx.ids.filter((x) => !LOCAL_FAULTS.has(x))) : ctx.fx;
   const st: SimState = { ...prev, events: prev.events };
   const newEv: SimEvent[] = [];
   const rhoG = i.fluid.rho * G;
@@ -207,6 +211,14 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const seen = (...xs: Sym[]) => { st.recent = { ...st.recent }; for (const x of xs) st.recent[x] = st.t; };
   const trip = (msg: string, kind: Sym = 'decl_thermique') => {
     if (st.trip) return;
+    if (multi && fx.tripLocal && !st.isolated) {
+      const sb = Math.max(0, i.pump.standby ?? 0);
+      st.isolated = msg; st.tripKind = kind; seen(kind);
+      st.hum = false; st.noFlow = false; st.runT = 0;
+      fx = combined(ctx.fx.ids.filter((x) => !LOCAL_FAULTS.has(x)));
+      newEv.push({ t: st.t, sev: 'critical', text: `${msg} — pompe 1 isolée, ${sb ? 'basculement automatique sur la pompe de secours' : 'les autres pompes continuent (débit réduit)'}`, target: 'cable' });
+      return;
+    }
     st.trip = msg; st.tripKind = kind; seen(kind); st.on = false; st.hum = false; st.noFlow = false; st.q = 0;
     newEv.push({ t: st.t, sev: 'critical', text: `${msg} — la pompe est arrêtée, réarmement nécessaire`, target: 'cable' });
   };
@@ -439,9 +451,9 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const running = st.on && !st.hum && !st.noFlow;
   const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : undefined, kind === 'vfd' ? st.s : 1);
   if (st.t < st.outageUntil) { o.add('pas_de_tension'); o.add('ne_demarre_pas'); }
-  if (st.trip && st.tripKind) o.add(st.tripKind);
+  if ((st.trip || st.isolated) && st.tripKind) o.add(st.tripKind);
   // Symptômes passagers : ceux des 3 dernières heures, ou des 3 heures avant le déclenchement (tant qu'il n'est pas réarmé)
-  const ref = st.trip && st.tripKind && st.recent[st.tripKind as Sym] != null ? st.recent[st.tripKind as Sym]! : st.t;
+  const ref = (st.trip || st.isolated) && st.tripKind && st.recent[st.tripKind as Sym] != null ? st.recent[st.tripKind as Sym]! : st.t;
   for (const [k, t] of Object.entries(st.recent)) if (t != null && t > ref - 3 * 3600) o.add(k as Sym);
   if (fx.ids.includes('sous_tension') && st.t >= st.outageUntil) o.add('tension_basse');
   if (st.overflow) o.add('debordement');

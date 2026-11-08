@@ -136,8 +136,18 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
   const term = termLines(i, ev, live ? { on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz } : undefined);
   const [view, setView] = useState<View>('real');
   const elive: ELive | undefined = live ? {
-    powered: live.powered ?? true, on: live.on, trip: live.trip ?? null, tripKind: live.tripKind ?? null, hum: !!live.hum, amps: live.r.amps, faults: live.faults ?? [],
+    isolated: !!live.isolated, powered: live.powered ?? true, on: live.on, trip: live.trip ?? null, tripKind: live.tripKind ?? null, hum: !!live.hum, amps: live.r.amps, faults: live.faults ?? [],
     coilOn: live.on && !(live.runaway && (live.faults ?? []).includes('contacteur_colle')),
+    running: (() => {
+      if (!live.on) return [];
+      const cnt = Math.max(1, i.pump.count ?? 1);
+      // Pompe 1 isolée : seules les autres peuvent tourner
+      const ids = Array.from({ length: cnt }, (_, k) => k + 1).filter((k) => !(live.isolated && k === 1));
+      const nRun = Math.max(1, Math.min(ids.length, cnt - Math.max(0, i.pump.standby ?? 0)));
+      // Permutation : la pompe de tête change à chaque démarrage
+      const first = i.pump.alternate && ids.length > 1 ? (Math.max(0, (live.starts ?? 1) - 1) % ids.length) : 0;
+      return Array.from({ length: nRun }, (_, k) => ids[(first + k) % ids.length]);
+    })(),
   } : undefined;
   return (
     <div className="diagram" id="diagram">

@@ -44,6 +44,7 @@ export interface FaultEffect {
   floatRes?: boolean; // flotteur du réservoir bloqué
   drawdown?: number; // le niveau baisse de N m par heure de pompage
   pswitch?: 'stuck' | 'drift';
+  tripLocal?: boolean; // le déclenchement ne concerne qu'une pompe (pas le réseau ni le coffret commun)
 }
 
 export interface FaultDef {
@@ -279,6 +280,8 @@ export const FAULTS: FaultDef[] = [
 ];
 
 export const faultById = (id: string) => FAULTS.find((f) => f.id === id);
+/** Pannes propres à une pompe / un départ : avec plusieurs pompes, les autres prennent le relais. */
+export const LOCAL_FAULTS = new Set(['perte_phase', 'condensateur', 'contacteur_colle', 'defaut_variateur', 'roulements', 'rotation', 'roue_bouchee', 'garniture']);
 
 /** Applique les effets hydrauliques permanents des pannes actives. */
 export function applyFaults(i: Installation, ids: string[]): Installation {
@@ -295,7 +298,7 @@ export function combined(ids: string[]): FaultEffect & { ids: string[] } {
     if (!f) continue;
     const x = f.effect;
     if (x.ampsK) e.ampsK = (e.ampsK ?? 1) * x.ampsK;
-    if (x.tripAfter != null && x.tripAfter < (e.tripAfter ?? Infinity)) { e.tripAfter = x.tripAfter; e.tripMsg = x.tripMsg; e.tripKind = x.tripKind; }
+    if (x.tripAfter != null && x.tripAfter < (e.tripAfter ?? Infinity)) { e.tripAfter = x.tripAfter; e.tripMsg = x.tripMsg; e.tripKind = x.tripKind; e.tripLocal = LOCAL_FAULTS.has(id); }
     if (x.tripAtStart) { e.tripAtStart = x.tripAtStart; e.tripKind = x.tripKind; }
     if (x.noStart) e.noStart = true;
     if (x.outage) e.outage = x.outage;
@@ -328,3 +331,12 @@ export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; sco
   const tot = scored.slice(0, 4).reduce((a, b) => a + b.score, 0) || 1;
   return scored.slice(0, 4).map((x) => ({ ...x, score: x.score / tot }));
 }
+
+/** Gravité des symptômes, pour la note en service. */
+export const SYM_WEIGHT: Record<Sym, number> = {
+  decl_thermique: 25, decl_diff: 30, decl_manque_eau: 25, decl_variateur: 25, pas_de_tension: 25, marche_a_sec: 25, debit_nul: 20,
+  debordement: 20, ne_s_arrete_pas: 18, ronfle: 18, ne_demarre_pas: 12, pression_haute: 10, cycles_courts: 10, depression_forte: 8,
+  courant_haut: 8, pression_basse: 8, debit_bas: 8, pression_tombe_arret: 6, courant_bas: 4, bruit: 5, fuite_visible: 5,
+  tension_basse: 8, marche_sans_commande: 15,
+};
+

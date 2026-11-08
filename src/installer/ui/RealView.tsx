@@ -93,7 +93,7 @@ export interface Live {
   on: boolean; r: Readings; kind: SimKind; x: number; pv?: number;
   dd?: number; trip?: string | null; hum?: boolean; noFlow?: boolean; vesFill?: number;
   floatPit?: 'high' | 'low'; floatRes?: boolean; tripKind?: string | null;
-  faults?: string[]; powered?: boolean; runaway?: boolean;
+  faults?: string[]; powered?: boolean; runaway?: boolean; isolated?: boolean;
 }
 
 /** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */

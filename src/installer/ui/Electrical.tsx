@@ -9,6 +9,8 @@ import { fmt } from '../../ui/util';
 export interface ELive {
   powered: boolean; on: boolean; coilOn: boolean;
   trip: string | null; tripKind: string | null; hum: boolean; amps: number; faults: string[];
+  running?: number[]; // pompes en marche (1, 2…)
+  isolated?: boolean; // pompe 1 isolée après défaut
 }
 
 type Kind = 'switch' | 'spd' | 'rcd' | 'mcb' | 'mpcb' | 'contactor' | 'timer' | 'soft' | 'vfd' | 'mppt' | 'relay' | 'transfo' | 'fuse' | 'cap' | 'terminal' | 'filter' | 'dcswitch' | 'psu';
@@ -16,12 +18,13 @@ type Door = 'lamp-w' | 'lamp-g' | 'lamp-r' | 'lamp-o' | 'sel' | 'estop' | 'amp' 
 
 interface EPart {
   id: string; tag: string; label: string; kind: Kind | Door; poles: number; row: 0 | 1 | 2 | 'door';
+  base?: string; pump?: number;
   role: string; setting?: string; panne?: string; faults?: string[];
 }
 
 export interface ECfg {
   mono: boolean; solar: boolean; start: ReturnType<typeof effectiveStart>; vfd: boolean;
-  dryRelay: boolean; phaseRelay: boolean; pumps: number; parts: EPart[];
+  dryRelay: boolean; phaseRelay: boolean; pumps: number; standby: number; parts: EPart[];
   auto: 'pressostat' | 'capteur' | 'flotteurs' | 'flotteur_res' | 'soleil' | 'manuel';
 }
 
@@ -85,13 +88,41 @@ export function elecConfig(i: Installation, ev: Evaluation): ECfg {
   P.push({ id: 's0', tag: 'S0', label: 'Arrêt d\'urgence', kind: 'estop', poles: 1, row: 'door', role: 'Coupe la commande immédiatement ; à déverrouiller en tournant.' });
   P.push({ id: 'p2', tag: 'P2', label: 'Compteur horaire', kind: 'hour', poles: 1, row: 'door', role: 'Compte les heures de marche pour planifier l\'entretien (roulements, garniture).' });
   if (vfd) P.push({ id: 'kp', tag: 'U1', label: solar ? 'Afficheur du contrôleur' : 'Clavier déporté du variateur', kind: 'keypad', poles: 1, row: 'door', role: 'Affiche fréquence, courant, pression, codes défaut ; réglage de la consigne.' });
-  return { mono, solar, start, vfd, dryRelay, phaseRelay, pumps, parts: P, auto };
+  // Plusieurs pompes : un départ moteur complet par pompe (disjoncteur, contacteur / variateur…) et un voyant de marche chacune
+  const standby = Math.max(0, Math.min(pumps - 1, i.pump.standby ?? 0));
+  const PER = new Set(['q1', 'km1', 'km2', 'km3', 'kt', 'flt', 'c1', 'h2', 'p1', ...(solar ? [] : ['u1'])]);
+  let parts = P;
+  if (pumps > 1) {
+    parts = [];
+    const shared = P.filter((p) => !PER.has(p.id));
+    const per = P.filter((p) => PER.has(p.id));
+    for (const p of shared.filter((q) => q.row === 0)) parts.push(p);
+    for (let k = 1; k <= pumps; k++) {
+      const sb = k > pumps - standby;
+      for (const p of per.filter((q) => q.row !== 'door')) parts.push({ ...p, id: `${p.id}.${k}`, base: p.id, pump: k, tag: `${p.tag}.${k}`, label: `${p.label} — pompe ${k}${sb ? ' (secours)' : ''}` });
+    }
+    for (const p of shared.filter((q) => q.row !== 0)) parts.push(p);
+    for (let k = 1; k <= pumps; k++) {
+      for (const p of per.filter((q) => q.row === 'door')) parts.push({ ...p, id: `${p.id}.${k}`, base: p.id, pump: k, tag: `${p.tag}.${k}`, label: `${p.label} — pompe ${k}` });
+    }
+  }
+  return { mono, solar, start, vfd, dryRelay, phaseRelay, pumps, standby, parts, auto };
 }
 
 /** État de chaque composant pour la simulation. */
-function partState(p: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fault' {
+function partState(p0: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fault' {
   if (!L) return 'off';
   const tk = L.tripKind;
+  // Départ d'une pompe donnée : la panne touche la pompe en service, les autres suivent leur propre marche
+  const run = L.running ?? (L.on ? [1] : []);
+  const faulty = L.isolated ? 1 : run[0] ?? 1;
+  if (p0.pump != null && p0.pump !== faulty) {
+    const b = p0.base ?? p0.id;
+    if (!L.powered) return 'off';
+    if (['km1', 'km2', 'km3', 'u1', 'kt', 'flt', 'c1', 'h2'].includes(b)) return run.includes(p0.pump) ? 'on' : 'off';
+    return 'on';
+  }
+  const p = { ...p0, id: p0.base ?? p0.id };
   if (p.id === 'q1' && tk === 'decl_thermique') return 'trip';
   if (p.id === 'q2' && tk === 'decl_diff') return 'trip';
   if (p.id === 'ka2' && tk === 'decl_manque_eau') return 'trip';
@@ -103,7 +134,7 @@ function partState(p: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fau
   if (p.id === 'q0' || p.id === 'qdc') return L.powered ? 'on' : 'off';
   if (['km1', 'km2', 'km3', 'u1', 'kt', 'flt', 'c1', 'h2', 'kp'].includes(p.id)) return L.on || (p.id === 'km1' && L.faults.includes('contacteur_colle') && L.on) ? 'on' : 'off';
   if (p.id === 'h1') return L.powered ? 'on' : 'off';
-  if (p.id === 'h3') return L.trip ? 'trip' : 'off';
+  if (p.id === 'h3') return L.trip || L.isolated ? 'trip' : 'off';
   return L.powered ? 'on' : 'off';
 }
 
@@ -167,7 +198,7 @@ function DoorItem({ p, x, y, st, L, sel, onPick }: { p: EPart; x: number; y: num
     case 'lamp-o': body = lamp('o', false); break;
     case 'sel': body = <><circle cx={x} cy={y} r={15} className="d-bezel" /><rect x={x - 3} y={y - 13} width={6} height={26} rx={3} className="d-handle" transform={`rotate(40 ${x} ${y})`} /><text x={x - 22} y={y - 16} className="d-mini">M</text><text x={x - 3} y={y - 19} className="d-mini">0</text><text x={x + 15} y={y - 16} className="d-mini">A</text></>; break;
     case 'estop': body = <><rect x={x - 16} y={y - 16} width={32} height={32} rx={4} className="d-yellow" /><circle cx={x} cy={y} r={12} className="d-red" /></>; break;
-    case 'amp': body = <><rect x={x - 26} y={y - 22} width={52} height={44} rx={3} className="d-meter" /><path d={`M${x - 18} ${y + 8} A 20 20 0 0 1 ${x + 18} ${y + 8}`} className="d-scale" /><path d={`M${x} ${y + 10} L${x - 16 + Math.min(32, ((L?.amps ?? 0) / Math.max(1, (L?.amps ?? 0) + 4)) * 32 * 1.6)} ${y - 8}`} className="d-needle" /><text x={x} y={y + 19} textAnchor="middle" className="d-mini">{L ? `${fmt(L.amps, 1)} A` : 'A'}</text></>; break;
+    case 'amp': body = <><rect x={x - 26} y={y - 22} width={52} height={44} rx={3} className="d-meter" /><path d={`M${x - 18} ${y + 8} A 20 20 0 0 1 ${x + 18} ${y + 8}`} className="d-scale" /><path d={`M${x} ${y + 10} L${x - 16 + Math.min(32, ((L?.amps ?? 0) / Math.max(1, (L?.amps ?? 0) + 4)) * 32 * 1.6)} ${y - 8}`} className="d-needle" /><text x={x} y={y + 19} textAnchor="middle" className="d-mini">{L ? `${fmt(p.pump == null || (L.running ?? []).includes(p.pump) ? L.amps : 0, 1)} A` : 'A'}</text></>; break;
     case 'hour': body = <><rect x={x - 24} y={y - 12} width={48} height={24} rx={3} className="d-meter" /><text x={x} y={y + 5} textAnchor="middle" className="d-digits">01234</text></>; break;
     case 'keypad': body = <><rect x={x - 24} y={y - 28} width={48} height={56} rx={4} className="d-keypad" /><rect x={x - 18} y={y - 22} width={36} height={16} rx={2} className={`m-screen ${st}`} /><text x={x} y={y - 10} textAnchor="middle" className="m-scrtxt">{st === 'trip' ? 'OV' : st === 'on' ? 'RUN' : 'rdy'}</text></>; break;
     default: body = null;
@@ -188,7 +219,8 @@ export function CabinetView({ i, ev, live }: { i: Installation; ev: Evaluation; 
   const rows: (0 | 1 | 2)[] = [0, 1, 2];
   const rowY = [70, 230, 390];
   const titles = [cfg.solar ? 'Arrivée champ solaire' : 'Arrivée et protections', 'Départ moteur', 'Commande et sécurités'];
-  const hl = new Set(cfg.parts.filter((p) => p.faults?.some((f) => live?.faults.includes(f))).map((p) => p.id));
+  const faultyPump = live?.isolated ? 1 : (live?.running ?? [])[0] ?? 1;
+  const hl = new Set(cfg.parts.filter((p) => (p.pump == null || p.pump === faultyPump) && p.faults?.some((f) => live?.faults.includes(f))).map((p) => p.id));
   const placed: ReactNode[] = [];
   let maxX = 0;
   rows.forEach((r) => {
@@ -291,7 +323,65 @@ function Lamp({ x, y, on, cls, label, sub }: { x: number; y: number; on: boolean
   );
 }
 
+/** Plusieurs pompes : schéma unifilaire (un trait = toutes les phases), un départ par pompe. */
+function PowerMulti({ i, ev, cfg, L }: { i: Installation; ev: Evaluation; cfg: ECfg; L?: ELive }) {
+  const powered = L ? L.powered : false;
+  const tripQ2 = L?.tripKind === 'decl_diff';
+  const run = L?.running ?? [];
+  const faulty = L?.isolated ? 1 : run[0] ?? 1;
+  const ticks = (x: number, y: number) => <path d={Array.from({ length: cfg.mono ? 2 : 3 }, (_, k) => `M${x - 6} ${y + 4 + k * 5} l12 -6`).join(' ')} className="sym" />;
+  const els: ReactNode[] = [];
+  const X = 60;
+  let y = 40;
+  els.push(<text key="src" x={X} y={28} textAnchor="middle" className="e-tag">{cfg.solar ? 'Champ PV' : cfg.mono ? 'L N 230 V' : 'L1 L2 L3 400 V'}</text>);
+  let lv = powered;
+  els.push(<VContact key="q0" x={X} y={y} closed={powered || !L} disc live={lv} />, <text key="q0t" x={X + 20} y={y + 26} className="e-tag">Q0</text>, ticks(X, y + 48));
+  y += 64;
+  if (!cfg.solar) {
+    els.push(<VContact key="q2" x={X} y={y} closed={!tripQ2} breaker live={lv} />, <text key="q2t" x={X + 20} y={y + 20} className="e-tag">Q2</text>, <text key="q2s" x={X + 20} y={y + 34} className="e-sub">différentiel 30 mA{tripQ2 ? ' — déclenché' : ''}</text>);
+    y += 44; lv = lv && !tripQ2;
+  }
+  const n = cfg.pumps;
+  const sp = Math.min(140, 470 / n);
+  const xs = Array.from({ length: n }, (_, k) => 70 + sp / 2 + k * sp);
+  const busY = y + 20;
+  els.push(<path key="d" d={`M${X} ${y} V${busY}`} className={lv ? 'w live' : 'w'} />, <path key="bus" d={`M${Math.min(X, xs[0])} ${busY} H${xs[n - 1]}`} className={lv ? 'w live bus' : 'w bus'} />, <text key="bt" x={xs[n - 1] + 8} y={busY + 4} className="e-sub">jeu de barres</text>);
+  xs.forEach((x, k0) => {
+    const k = k0 + 1;
+    const sb = k > n - cfg.standby;
+    const isF = k === faulty;
+    const trip1 = isF && L?.tripKind === 'decl_thermique' && (!!L?.trip || !!L?.isolated);
+    const tripV = isF && L?.tripKind === 'decl_variateur' && (!!L?.trip || !!L?.isolated);
+    let yy = busY;
+    let f = lv;
+    const on = run.includes(k);
+    els.push(<path key={`a${k}`} d={`M${x} ${yy} V${yy + 14}`} className={f ? 'w live' : 'w'} />); yy += 14;
+    if (!cfg.solar) {
+      els.push(<VContact key={`q1${k}`} x={x} y={yy} closed={!trip1} breaker live={f} />, <text key={`q1t${k}`} x={x + 14} y={yy + 24} className="e-tag">Q1.{k}</text>);
+      if (trip1) els.push(<text key={`q1x${k}`} x={x + 14} y={yy + 38} className="e-trip">déclenché</text>);
+      yy += 48; f = f && !trip1;
+    }
+    if (cfg.vfd) {
+      els.push(<rect key={`u${k}`} x={x - 22} y={yy} width={44} height={34} rx={4} className={`e-block ${f ? 'energ' : ''}`} />, <text key={`ut${k}`} x={x} y={yy + 21} textAnchor="middle" className="e-tag">U1.{k}</text>);
+      if (tripV) els.push(<text key={`ux${k}`} x={x + 26} y={yy + 21} className="e-trip">défaut</text>);
+      yy += 34; f = f && on && !tripV;
+    } else {
+      const closed = on || (isF && !!L?.faults.includes('contacteur_colle') && !!L?.on);
+      els.push(<VContact key={`km${k}`} x={x} y={yy} closed={closed} live={f} />, <text key={`kmt${k}`} x={x + 14} y={yy + 24} className="e-tag">KM1.{k}</text>);
+      yy += 44; f = f && closed;
+    }
+    els.push(<path key={`c${k}`} d={`M${x} ${yy} V${yy + 30}`} className={f ? 'w live' : 'w'} />, ticks(x, yy + 8));
+    yy += 30;
+    els.push(<circle key={`m${k}`} cx={x} cy={yy + 24} r={24} className={`e-motor ${f && !(isF && L?.hum) ? 'run' : ''} ${isF && L?.hum ? 'hum' : ''}`} />, <text key={`mt${k}`} x={x} y={yy + 24} textAnchor="middle" className="e-tag">M{k}</text>, <text key={`ms${k}`} x={x} y={yy + 37} textAnchor="middle" className="e-sub">{cfg.mono ? '1~' : '3~'}</text>);
+    els.push(<text key={`ml${k}`} x={x} y={yy + 64} textAnchor="middle" className="e-sub">{sb ? 'secours' : 'service'}</text>);
+  });
+  const H = busY + 14 + (cfg.solar ? 0 : 48) + (cfg.vfd ? 34 : 44) + 30 + 80;
+  els.push(<text key="leg" x={20} y={H - 6} className="e-sub">Unifilaire : un trait = {cfg.mono ? '2' : '3'} conducteurs · chaque départ : câble {ev.elec.cores} {String(i.elec.cableSec).replace('.', ',')} mm², moteur {fmt(i.pump.motorKw, 1)} kW / {fmt(ev.elec.inom, 1)} A</text>);
+  return <svg viewBox={`0 0 560 ${H + 4}`} className="elec-svg" role="img" aria-label="Schéma unifilaire de puissance">{els}</svg>;
+}
+
 function PowerCircuit({ i, ev, cfg, L }: { i: Installation; ev: Evaluation; cfg: ECfg; L?: ELive }) {
+  if (cfg.pumps > 1) return <PowerMulti i={i} ev={ev} cfg={cfg} L={L} />;
   const n = cfg.solar ? 2 : cfg.mono ? 2 : 3;
   const xs = Array.from({ length: n }, (_, k) => 150 + k * 46);
   const names = cfg.solar ? ['+', '−'] : cfg.mono ? ['L', 'N'] : ['L1', 'L2', 'L3'];
@@ -382,7 +472,7 @@ function PowerCircuit({ i, ev, cfg, L }: { i: Installation; ev: Evaluation; cfg:
 
 function ControlCircuit({ i, cfg, L }: { i: Installation; cfg: ECfg; L?: ELive }) {
   const powered = L ? L.powered : false;
-  const trip = !!L?.trip;
+  const trip = !!L?.trip || !!L?.isolated;
   const coil = !!L?.coilOn;
   const dryOk = L?.tripKind !== 'decl_manque_eau';
   const phOk = !(L?.faults.includes('perte_phase') || L?.faults.includes('rotation'));
@@ -439,8 +529,20 @@ function ControlCircuit({ i, cfg, L }: { i: Installation; cfg: ECfg; L?: ELive }
   // branche Manu
   els.push(<path key="mb" d={`M${bx - 6} ${r1} V${r1 + 46} H${bx}`} className="w" />, <HContact key="sm" x={bx} y={r1 + 46} closed={false} live={false} label="S1 Manu" />, <path key="mbw" d={`M${bx + 44} ${r1 + 46} H${bx + 150} V${r1}`} className="w" />);
   if (cfg.auto === 'flotteurs') els.push(<g key="sh"><path d={`M${bx + 54} ${r1} V${r1 - 40} H${bx + 60}`} className="w" /><HContact x={bx + 60} y={r1 - 40} closed={coil} live={lv && coil} label="KM1 (auto-maintien)" /><path d={`M${bx + 104} ${r1 - 40} H${bx + 116} V${r1}`} className="w" /></g>);
-  els.push(<path key="toc" d={`M${bx + 150} ${r1} H${right - 50}`} className={lv2 ? 'w live' : 'w'} />);
-  els.push(<Coil key="km1" x={right - 50} y={r1} on={coil} label="KM1" sub="bobine" />, <path key="kmr" d={`M${right - 16} ${r1} H${right}`} className="w" />);
+  if (cfg.pumps > 1) {
+    // Relais d'alternance / cascade : il répartit l'ordre de marche entre les pompes
+    const run = L?.running ?? [];
+    els.push(<path key="toc" d={`M${bx + 150} ${r1} H${bx + 170}`} className={lv2 ? 'w live' : 'w'} />, <rect key="ka3" x={bx + 170} y={r1 - 16} width={58} height={32} rx={3} className={`e-block ${lv2 ? 'energ' : ''}`} />, <text key="ka3t" x={bx + 199} y={r1 + 4} textAnchor="middle" className="e-tag">KA3</text>, <text key="ka3s" x={bx + 199} y={r1 + 30} textAnchor="middle" className="e-sub">{i.pump.alternate ? 'alternance' : 'cascade'}</text>);
+    const n = Math.min(cfg.pumps, 4);
+    for (let k = 1; k <= n; k++) {
+      const yk = r1 - 24 + (k - 1) * 22;
+      const onk = lv2 && run.includes(k);
+      els.push(<path key={`o${k}`} d={`M${bx + 228} ${r1} L${right - 70} ${yk} H${right - 50}`} className={onk ? 'w live' : 'w'} />, <rect key={`cl${k}`} x={right - 50} y={yk - 7} width={30} height={14} className={`e-coil ${onk ? 'on' : ''}`} />, <text key={`ct${k}`} x={right - 54} y={yk + 4} textAnchor="end" className="e-sub">KM1.{k}</text>, <path key={`cr${k}`} d={`M${right - 20} ${yk} H${right}`} className="w" />);
+    }
+  } else {
+    els.push(<path key="toc" d={`M${bx + 150} ${r1} H${right - 50}`} className={lv2 ? 'w live' : 'w'} />);
+    els.push(<Coil key="km1" x={right - 50} y={r1} on={coil} label="KM1" sub="bobine" />, <path key="kmr" d={`M${right - 16} ${r1} H${right}`} className="w" />);
+  }
   if (L?.faults.includes('contacteur_colle')) els.push(<text key="kmc" x={right - 33} y={r1 + 40} textAnchor="middle" className="e-trip">contacts soudés</text>);
   // Voyants
   const lr = (yy: number, lab: string, on: boolean, cls: string, sub: string, contact?: { lab: string; ok: boolean; nc?: boolean }) => {
@@ -461,7 +563,7 @@ export function WiringView({ i, ev, live }: { i: Installation; ev: Evaluation; l
   const startTxt = cfg.solar ? 'pompage solaire' : { direct: 'démarrage direct', etoile: 'démarrage étoile-triangle', progressif: 'démarreur progressif', variateur: 'variateur de fréquence' }[cfg.start];
   return (
     <div className="wiring">
-      <p className="small muted">Schéma de principe ({cfg.mono ? 'monophasé' : cfg.solar ? 'solaire' : 'triphasé'}, {startTxt}{cfg.pumps > 1 ? ` · un départ identique par pompe, ${cfg.pumps} pompes` : ''}). {live ? 'En orange : conducteurs sous tension en ce moment.' : 'Lancez la simulation pour voir les conducteurs sous tension.'}</p>
+      <p className="small muted">Schéma de principe ({cfg.mono ? 'monophasé' : cfg.solar ? 'solaire' : 'triphasé'}, {startTxt}{cfg.pumps > 1 ? ` · ${cfg.pumps} pompes, un départ par pompe${cfg.standby ? `, dont ${cfg.standby} de secours` : ''}` : ''}). {live ? 'En orange : conducteurs sous tension en ce moment.' : 'Lancez la simulation pour voir les conducteurs sous tension.'}</p>
       <div className="wiring-grid">
         <figure><figcaption>Circuit de puissance</figcaption><PowerCircuit i={i} ev={ev} cfg={cfg} L={live} /></figure>
         <figure><figcaption>Circuit de commande</figcaption><ControlCircuit i={i} cfg={cfg} L={live} /></figure>
