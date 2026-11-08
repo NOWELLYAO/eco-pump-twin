@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { focusTarget, type Target } from './installer/goto';
 import { BookOpen, ClipboardCheck, Wand2, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
@@ -127,6 +128,18 @@ export default function App() {
     return () => window.removeEventListener('ecopump-new', onNew);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { window.history.replaceState(null, '', `#${page}`); window.scrollTo({ top: 0 }); }, [page]);
+  // Boutons « aller au champ » des alertes : ouvre la page Conception sur le champ à modifier
+  useEffect(() => {
+    const on = (e: Event) => {
+      const tg = (e as CustomEvent<Target>).detail;
+      setPage('design');
+      let n = 0;
+      const tryFocus = () => { if (focusTarget(tg)) return; if (++n < 30) window.setTimeout(tryFocus, 60); else say('Champ introuvable pour cette installation.'); };
+      window.setTimeout(tryFocus, 120);
+    };
+    window.addEventListener('ecopump-goto', on);
+    return () => window.removeEventListener('ecopump-goto', on);
+  }, []);
   // L'alerte sélectionnée disparaît si elle est corrigée
   useEffect(() => { if (activeIssue && !ev.issues.some((x) => x.id === activeIssue.id)) setActiveIssue(null); }, [ev, activeIssue]);
 

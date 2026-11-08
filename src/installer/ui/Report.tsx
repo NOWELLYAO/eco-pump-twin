@@ -1,11 +1,12 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Eye, ListChecks, PenLine, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
 import { MONTHS, START_LABEL, SUPPLY_LABEL, planLabel } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
 import type { Category, Installation, Issue, Sev } from '../types';
 import { LevelIcon } from '../../ui/Status';
+import { gotoTarget, targetsFor } from '../goto';
 import { fmt, money } from '../../ui/util';
 
 const LazyCurve = lazy(() => import('./Charts').then((m) => ({ default: m.InstCurve })));
@@ -95,7 +96,7 @@ function IssueCard({ x, onFix, open, onToggle, onSelect, active }: { x: Issue; o
           {x.consequences.length > 0 && (<><h5>Problèmes à prévoir</h5><ul>{x.consequences.map((c) => <li key={c}>{c}</li>)}</ul></>)}
           {x.parts.length > 0 && (<><h5>Pièces exposées</h5><div className="chips-s">{x.parts.map((p) => <span key={p} className="chip-s">{PARTS_LABEL(p)}</span>)}</div></>)}
           <h5>Solutions</h5>
-          <ul className="sol">{x.solutions.map((s) => <li key={s}><Wrench size={13} aria-hidden /> {s}</li>)}</ul>
+          <ul className="sol">{x.solutions.map((s) => <li key={s}><Wrench size={13} aria-hidden /> <span>{s}<GotoChips x={x} s={s} /></span></li>)}</ul>
           <div className="row">
             {onSelect && <button className="btn sm" onClick={() => onSelect(x)}><Eye size={14} aria-hidden /> Voir sur le schéma</button>}
             {x.fix && <button className="btn primary sm" onClick={() => onFix(x)}><Sparkles size={14} aria-hidden /> Corriger : {x.fix.label}</button>}
@@ -103,6 +104,20 @@ function IssueCard({ x, onFix, open, onToggle, onSelect, active }: { x: Issue; o
         </div>
       )}
     </li>
+  );
+}
+/** Petits boutons qui ouvrent le formulaire sur le champ à modifier */
+function GotoChips({ x, s }: { x: Issue; s: string }) {
+  const ts = targetsFor(x, s);
+  if (!ts.length) return null;
+  return (
+    <span className="goto">
+      {ts.map((t) => (
+        <button key={t.chip} type="button" className="goto-chip" onClick={() => gotoTarget(t)} title="Ouvrir ce champ dans la page Conception">
+          <PenLine size={12} aria-hidden /> {t.chip}
+        </button>
+      ))}
+    </span>
   );
 }
 const PARTS_LABEL = (p: string) => PARTS[p] ?? p;
@@ -174,13 +189,13 @@ export function PartsAtRisk({ ev }: { ev: Evaluation }) {
 
 export function Recommendations({ ev }: { ev: Evaluation }) {
   const seen = new Set<string>();
-  const list: { s: string; sev: Sev }[] = [];
-  for (const x of ev.issues) for (const s of x.solutions) if (!seen.has(s)) { seen.add(s); list.push({ s, sev: x.sev }); }
+  const list: { s: string; sev: Sev; x: Issue }[] = [];
+  for (const x of ev.issues) for (const s of x.solutions) if (!seen.has(s)) { seen.add(s); list.push({ s, sev: x.sev, x }); }
   return (
     <section className="card">
       <h3><ListChecks size={16} aria-hidden /> Préconisations, par priorité</h3>
       {list.length === 0 ? <p className="muted">Rien à corriger.</p> : (
-        <ol className="recos">{list.map((r) => <li key={r.s} className={`lv-${LV[r.sev]}`}><span className={`dot lv-${LV[r.sev] === 'info' ? 'ok' : LV[r.sev]}`} /> {r.s}</li>)}</ol>
+        <ol className="recos">{list.map((r) => <li key={r.s} className={`lv-${LV[r.sev]}`}><span className={`dot lv-${LV[r.sev] === 'info' ? 'ok' : LV[r.sev]}`} /> <span>{r.s}<GotoChips x={r.x} s={r.s} /></span></li>)}</ol>
       )}
     </section>
   );

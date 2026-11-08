@@ -1312,3 +1312,10 @@ html, body { overflow-x: clip; }
 .r-flame path { fill: #f08a1c; animation: flicker .35s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: bottom; }
 .r-flame path.in { fill: #ffd34a; }
 @keyframes flicker { from { transform: scaleY(.85); } to { transform: scaleY(1.12); } }
+/* Boutons « aller au champ » dans les solutions */
+.goto { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 6px; vertical-align: middle; }
+.goto-chip { display: inline-flex; align-items: center; gap: 4px; font: inherit; font-size: 12px; font-weight: 600; line-height: 1; padding: 4px 8px; border-radius: 999px; border: 1px solid #b9d3ea; background: #eef5fc; color: #0b5c99; cursor: pointer; white-space: nowrap; }
+.goto-chip:hover, .goto-chip:focus-visible { background: #0b6fb8; border-color: #0b6fb8; color: #fff; }
+.print-report .goto, .print-quote .goto { display: none !important; }
+.goto-flash { animation: gotoFlash 2.4s ease-out; border-radius: 10px; }
+@keyframes gotoFlash { 0%, 30% { box-shadow: 0 0 0 3px #0b6fb8, 0 0 0 9px rgba(11,111,184,.18); background: #eaf4fd; } 100% { box-shadow: 0 0 0 0 transparent; } }

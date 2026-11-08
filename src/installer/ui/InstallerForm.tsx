@@ -250,7 +250,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
                 const n = needs[a.id];
                 const setSt = (p: Partial<NonNullable<typeof st>>) => set((x) => ({ ...x, acc: { ...x.acc, [a.id]: { on: false, ...((x.acc[a.id] as typeof st | undefined) ?? { dn: defaultDn(x, a.id), qty: 1 }), ...p } } }));
                 return (
-                  <div key={a.id} className={`iacc ${on ? 'on' : ''} need-${n} ${n === 'required' && !on ? 'missing' : ''}`}>
+                  <div key={a.id} data-acc={a.id} className={`iacc ${on ? 'on' : ''} need-${n} ${n === 'required' && !on ? 'missing' : ''}`}>
                     <label className="iacc-main">
                       <input type="checkbox" checked={on} onChange={(e) => setSt({ on: e.target.checked })} />
                       <span><b>{a.label}</b><small>{a.desc}</small></span>
