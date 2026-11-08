@@ -97,6 +97,29 @@ export function evaluate(input: Installation): Evaluation {
       solutions: ['Choisir un type de pompe adapté au montage', 'Ou modifier le montage'] });
   }
 
+  // Avec un variateur (hors solaire) et une pompe qui donne plus que le besoin, la vitesse est réduite
+  // jusqu'au débit demandé : c'est ce point régulé qu'il faut juger (rendement, puissance moteur).
+  let vfdPt: { hz: number; x: number; pShaft: number; hzMax: number } | null = null;
+  if (h.ok && effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire' && h.q > i.duty.qReq * 1.03) {
+    const h0 = i.pump.hn * i.pump.shutoff;
+    const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
+    const etaP = Math.max(0.3, h.eta);
+    // Vitesse et puissance par pompe pour un débit total q réglé par le variateur
+    const at = (q: number) => {
+      const qe = q / h.n;
+      const hs = staticHead(i) + pressureHead(i) + losses(i, q).total;
+      const sp = Math.sqrt((hs + k * qe * qe) / h0);
+      return { sp, p: (i.fluid.rho * 9.81 * (qe / 3600) * hs) / etaP / 1000 };
+    };
+    const r = at(i.duty.qReq);
+    if (Number.isFinite(r.sp) && r.sp > 0.3 && r.sp < 1) {
+      // Fréquence maxi à régler pour que le moteur ne dépasse pas 95 % de sa puissance
+      let lo = i.duty.qReq, hi = h.q;
+      for (let n = 0; n < 40; n++) { const m = (lo + hi) / 2; if (at(m).p <= i.pump.motorKw * 0.95) lo = m; else hi = m; }
+      vfdPt = { hz: 50 * r.sp, x: (i.duty.qReq / h.n) / (i.pump.qn * r.sp), pShaft: r.p, hzMax: Math.min(50, 50 * at(lo).sp) };
+    }
+  }
+
   // ---------- Hydraulique : point de fonctionnement ----------
   if (!h.ok) {
     add({ id: 'nohead', sev: 'critical', cat: 'hydraulique', title: 'La pompe ne peut pas atteindre la hauteur demandée',
@@ -124,17 +147,6 @@ export function evaluate(input: Installation): Evaluation {
         fix: i.acc.variateur?.on ? undefined : { label: 'Ajouter un variateur', apply: setAcc('variateur') } });
     } else goods.push(`Débit conforme au besoin : ${f1(h.q)} m³/h pour ${f1(i.duty.qReq)} m³/h demandés`);
 
-    // Avec un variateur (hors solaire) et une pompe qui donne plus que le besoin, la vitesse est réduite
-    // jusqu'au débit demandé : c'est ce point régulé qu'il faut juger.
-    let vfdPt: { hz: number; x: number } | null = null;
-    if (effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire' && h.q > i.duty.qReq * 1.03) {
-      const qe = i.duty.qReq / h.n;
-      const hs = staticHead(i) + pressureHead(i) + losses(i, i.duty.qReq).total;
-      const h0 = i.pump.hn * i.pump.shutoff;
-      const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
-      const sp = Math.sqrt((hs + k * qe * qe) / h0);
-      if (Number.isFinite(sp) && sp > 0.3 && sp < 1) vfdPt = { hz: 50 * sp, x: qe / (i.pump.qn * sp) };
-    }
     const xr = vfdPt ? vfdPt.x : h.x;
     const at = vfdPt ? ` avec le variateur réglé sur le besoin (≈ ${f0(vfdPt.hz)} Hz)` : '';
     if (vfdPt && h.x > 1.2 && xr >= 0.7 && xr <= 1.2) {
@@ -482,7 +494,12 @@ export function evaluate(input: Installation): Evaluation {
         solutions: ['Ballon anti-bélier dimensionné ou soupape anti-bélier', 'Clapet à fermeture rapide (ressort)', 'Démarrage/arrêt progressif par variateur ou démarreur'],
         fix: prot ? undefined : { label: 'Ajouter un anti-bélier', apply: setAcc('anti_belier') } });
     }
-    if (h.pShaft > i.pump.motorKw) {
+    if (h.pShaft > i.pump.motorKw * 0.95 && vfdPt && vfdPt.pShaft <= i.pump.motorKw * 0.95) {
+      add({ id: 'motor', sev: 'warning', cat: 'securite', title: 'Moteur trop juste à 50 Hz : limiter le variateur',
+        detail: `Réglée sur le besoin (≈ ${f0(vfdPt.hz)} Hz), la pompe absorbe ${f1(vfdPt.pShaft, 2)} kW : le moteur de ${f1(i.pump.motorKw)} kW suffit. Mais si le variateur monte à 50 Hz (consigne perdue, capteur en défaut, mode manuel), elle absorberait ${f1(h.pShaft, 2)} kW.`,
+        consequences: ['Surcharge et déclenchement si le variateur passe à pleine vitesse'], parts: ['moteur'],
+        solutions: [`Régler la fréquence maxi du variateur à ${f0(Math.floor(vfdPt.hzMax))} Hz et sa limite de courant au courant nominal du moteur`, `Ou moteur d'au moins ${f1(h.pShaft * 1.15)} kW pour pouvoir tourner à 50 Hz`] });
+    } else if (h.pShaft > i.pump.motorKw) {
       add({ id: 'motor', sev: 'critical', cat: 'securite', title: 'Moteur sous-dimensionné',
         detail: `La pompe absorbe ${f1(h.pShaft, 2)} kW sur l'arbre pour un moteur de ${f1(i.pump.motorKw)} kW${i.fluid.rho > 1050 ? ` (liquide de densité ${f1(i.fluid.rho / 1000, 2)})` : ''}.`,
         consequences: ['Déclenchements du disjoncteur', 'Bobinage qui chauffe et grille'], parts: ['moteur', 'coffret', 'cable'],
