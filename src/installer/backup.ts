@@ -1,7 +1,8 @@
 /** Réservoir de secours en by-pass (forage avec pressostat ou variateur).
  *  En marche normale, la pompe alimente la maison et remplit le réservoir surélevé par un robinet à flotteur.
- *  Si la pompe s'arrête (panne, coupure, manque d'eau), la pression du réseau tombe sous la charge du réservoir :
- *  le clapet de sortie s'ouvre et le réservoir alimente la maison par gravité. */
+ *  La sortie vers la maison passe par une électrovanne NORMALEMENT OUVERTE (tenue fermée par le coffret) et un clapet :
+ *  en cas de coupure (plus de courant = vanne ouverte), de disjonction, de manque d'eau ou de pression restée basse,
+ *  elle s'ouvre et le réservoir alimente la maison par gravité. La hauteur du réservoir ne gêne donc pas le pressostat. */
 import type { Installation } from './types';
 
 export interface Backup { on: boolean; volume: number; height: number; autonomyH: number }
@@ -25,11 +26,13 @@ export interface BackupCalc {
   pHouse: number; // pression aux robinets alimentés par le réservoir (bar, réservoir à moitié plein)
   headBar: number; // pression créée par le réservoir au niveau de la maison (bar)
   headV: number; // la même, ramenée au niveau du pressostat / réservoir à vessie (tête de forage) : le clapet s'ouvre sous cette pression
+  headTop: number; // pression nécessaire en tête de forage pour remplir la cuve par le haut (robinet à flotteur)
   autonomyH: number; // autonomie réelle à la consommation moyenne (h)
   fillM3h: number; // débit de remplissage par le robinet à flotteur (m³/h)
   fillH: number; // temps de remplissage complet (h)
   fillDn: number; // DN du robinet à flotteur / by-pass
   outDn: number; // DN de la sortie vers la maison
+  tankH: number; // hauteur d'eau dans la cuve (m)
 }
 
 /** Dimensionnement : volume selon l'autonomie voulue, hauteur selon la pression voulue aux robinets. */
@@ -46,11 +49,12 @@ export function backupCalc(i: Installation, b: Backup = i.backup ?? { on: true, 
   const pHouse = Math.max(0, ((b.height + tankH / 2 - 2) * rhoG) / 1e5);
   const headBar = ((b.height + tankH / 2) * rhoG) / 1e5;
   const headV = headBar + (Math.max(0, i.geo.hRef) * rhoG) / 1e5;
+  const headTop = ((b.height + tankH + 0.3 + Math.max(0, i.geo.hRef)) * rhoG) / 1e5;
   const fillM3h = Math.max(0.3, Math.min(i.duty.qReq * 0.5, 6));
   const fillDn = fillM3h <= 1.5 ? 20 : fillM3h <= 3 ? 25 : 32;
   const outDn = i.duty.qReq <= 3 ? 32 : i.duty.qReq <= 8 ? 40 : 50;
   return {
-    dailyM3, avgM3h, volRec, hMin, hRec, pHouse, headBar, headV,
+    dailyM3, avgM3h, volRec, hMin, hRec, pHouse, headBar, headV, headTop, tankH,
     autonomyH: b.volume / 1000 / Math.max(0.01, avgM3h),
     fillM3h, fillH: b.volume / 1000 / fillM3h, fillDn, outDn,
   };

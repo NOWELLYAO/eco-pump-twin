@@ -1,7 +1,7 @@
 import { PIPE_MATS, refStatic } from './catalog';
 import { backupCalc, backupOf } from './backup';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
-import { isForage, losses, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
+import { isForage, losses, pressZ, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
 import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
 
@@ -15,6 +15,12 @@ export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 
 /** Installation telle qu'elle fonctionne avec les réglages de simulation. */
 export function applyMods(i: Installation, m: Mods): Installation {
   const x: Installation = { ...i, pump: { ...i.pump }, geo: { ...i.geo }, acc: { ...i.acc } };
+  // Les réglages du pressostat / de la vessie sont ceux posés à l'installation : une panne ou un réglage en direct ne les change pas
+  const ves = i.acc.vessie;
+  if (ves?.on && (ves.pOn == null || ves.pOff == null || ves.pre == null || ves.vol == null)) {
+    const v0 = electrical(i, solve(i)).r.vessel;
+    if (v0) x.acc.vessie = { ...ves, pOn: ves.pOn ?? v0.pOn, pOff: ves.pOff ?? v0.pOff, pre: ves.pre ?? v0.pre, vol: ves.vol ?? v0.vol };
+  }
   const s = m.speed / 100;
   if (s !== 1) { x.pump.qn *= s; x.pump.hn *= s * s; x.pump.npshr *= s * s; }
   if (m.wear > 0) { const w = m.wear / 100; x.pump.hn *= 1 - 0.3 * w; x.pump.qn *= 1 - 0.12 * w; x.pump.eta *= 1 - 0.2 * w; }
@@ -128,6 +134,9 @@ export interface SimState {
   bk?: number; // réservoir de secours : remplissage (0 à 1)
   bkFeed?: boolean; // le réservoir de secours alimente la maison (pompe arrêtée)
   bkFill?: boolean; // le réservoir de secours se remplit par le robinet à flotteur
+  bkOpen?: boolean; // électrovanne (normalement ouverte) de sortie du réservoir de secours : ouverte
+  bkLatch?: string | null; // défaut de pression mémorisé par le coffret (électrovanne maintenue ouverte jusqu'au réarmement)
+  bkLowT?: number; // durée passée sous le seuil de pression basse (s)
   lowLevel?: boolean; // forage : électrodes / sonde hors de l'eau, pompe arrêtée en attendant que le niveau remonte
   faultT?: Record<string, number>; // instant d'apparition de chaque panne (pour les pannes qui s'aggravent)
   flags?: Record<string, boolean>; // événements déjà signalés
@@ -376,7 +385,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (fx.pswitch === 'stuck') { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte mais le pressostat ne coupe pas`, target: 'acc:pressostat' }); st.runaway = true; }
         else stop(`pressostat (${f1(v.pOff)} bar)`);
       }
-      const hNeed = (st.x * 1e5) / rhoG - suctionZ(i);
+      const hNeed = (st.x * 1e5) / rhoG - pressZ(i);
       const h0 = pumpHead(i, 0);
       // Débit de la pompe face à la pression du réservoir + pertes (vannes, filtres…) : bissection
       let qq = 0;
@@ -388,7 +397,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       st.q = qq;
       if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
       vw += ((st.q - qd) / 3600) * sub;
-      const pMax = (h0 + Math.max(0, suctionZ(i))) * rhoG / 1e5;
+      const pMax = Math.max(0, (h0 + (isForage(i) ? pressZ(i) : Math.max(0, suctionZ(i)))) * rhoG / 1e5);
       // Vessie vide : robinets ouverts, la pression du réseau s'effondre aussitôt (lentement si personne ne puise)
       if (vw <= 0) st.x = st.on && st.q > 0.05 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - (qd > 0.02 * i.duty.qReq ? 1.5 : 0.08));
       else st.x = Math.min(pMax, (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1);
@@ -402,19 +411,19 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         start();
         if (st.on && !st.hum && !st.noFlow) {
           st.s = 1; st.q = qd;
-          st.x = Math.max(0, (pumpHead(i, qd) + suctionZ(i)) * rhoG / 1e5);
+          st.x = Math.max(0, (pumpHead(i, qd) + pressZ(i)) * rhoG / 1e5);
           if (qd < 0.06 * i.duty.qReq) { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: 'Consommation nulle mais le variateur reste à 50 Hz (capteur lu à 0 bar)', target: 'acc:capteur_p' }); st.runaway = true; }
         } else { st.q = 0; }
       } else {
         if (qd > 0.06 * i.duty.qReq) start();
         if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
-        const hs = (set * 1e5) / rhoG - suctionZ(i);
+        const hs = (set * 1e5) / rhoG - pressZ(i);
         const sNeed = speedFor(i, qd, hs);
         if (st.on && (st.hum || st.noFlow)) { st.q = 0; st.s = 1; st.x = Math.max(0, st.x - 0.05); }
         else if (st.on && sNeed > 1) {
           st.s = 1;
           const hAt = Math.max(0, pumpHead(i, qd));
-          st.x = Math.max(0, (hAt + suctionZ(i)) * rhoG / 1e5);
+          st.x = Math.max(0, (hAt + pressZ(i)) * rhoG / 1e5);
           st.q = qd;
           if (!st.cav) { st.cav = true; newEv.push({ t: st.t, sev: 'warning', text: `Variateur à 50 Hz : consigne ${f1(set)} bar non tenue (${f1(st.x)} bar) — pompe trop faible pour cette consommation`, target: 'pump' }); }
         } else if (st.on) {
@@ -489,20 +498,30 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     }
 
     // ----- Réservoir de secours : remplissage, puis alimentation de la maison si la pompe ne suit plus -----
+    // Sortie par électrovanne NORMALEMENT OUVERTE + clapet : le coffret la tient fermée tant que tout va bien.
+    // Elle s'ouvre (sans courant) en cas de coupure, de disjonction, de manque d'eau, ou de pression restée basse
+    // 2 min alors que la pompe est censée tourner (défaut mémorisé jusqu'au réarmement).
     if (bc) {
       const qHouse = use(ctx, hr) * i.duty.qReq + leakQ;
-      const wasFeed = !!st.bkFeed, wasFull = (st.bk ?? 1) >= 0.999;
-      if (fillQ > 0 && st.x > bc.headV) { st.bk = Math.min(1, (st.bk ?? 1) + (fillQ * sub) / 3600 / bkVol); st.bkFill = true; } else st.bkFill = false;
-      if (st.x <= bc.headV && (st.bk ?? 0) > 0.002) {
-        // La pression du réseau est tombée sous la charge du réservoir : le clapet de sortie s'ouvre
+      const wasFeed = !!st.bkFeed, wasFull = (st.bk ?? 1) >= 0.999, wasOpen = !!st.bkOpen;
+      const pLow = Math.max(0.3, (kind === 'vfd' ? (v0?.pOn ?? 3) + 0.5 : v?.pOn ?? 3) - 0.6);
+      const power = st.t >= st.outageUntil;
+      if (power && !st.trip && !st.lowLevel && st.x < pLow && !st.bkFeed) st.bkLowT = (st.bkLowT ?? 0) + sub; else if (!st.bkFeed) st.bkLowT = 0;
+      if (!st.bkLatch && (st.bkLowT ?? 0) >= 120) { st.bkLatch = `pression restée sous ${f1(pLow)} bar`; newEv.push({ t: st.t, sev: 'critical', text: `Défaut pompe (pression restée sous ${f1(pLow)} bar pendant 2 min) : le coffret ouvre l'électrovanne du réservoir de secours`, target: 'dest' }); }
+      const why = !power ? 'coupure de courant' : st.trip ? 'disjonction' : st.lowLevel ? 'manque d\'eau au forage' : st.bkLatch ?? null;
+      st.bkOpen = !!why;
+      if (fillQ > 0 && st.x > bc.headTop) { st.bk = Math.min(1, (st.bk ?? 1) + (fillQ * sub) / 3600 / bkVol); st.bkFill = true; } else st.bkFill = false;
+      if (st.bkOpen && st.x <= bc.headV && (st.bk ?? 0) > 0.002) {
+        // Électrovanne ouverte et pression du réseau sous la charge du réservoir : le clapet s'ouvre, la cuve alimente la maison
         st.x = bc.headV; st.bkFeed = true;
         st.bk = Math.max(0, (st.bk ?? 0) - (qHouse * sub) / 3600 / bkVol);
-        if (!wasFeed) newEv.push({ t: st.t, sev: 'warning', text: `La pompe ne suit plus : le réservoir de secours alimente la maison (${f1(bc.pHouse)} bar, ${Math.round((st.bk ?? 0) * 100)} % plein, ≈ ${f1(((st.bk ?? 0) * bkVol) / Math.max(0.05, bc.avgM3h), 0)} h d'autonomie)`, target: 'dest' });
+        if (!wasFeed) newEv.push({ t: st.t, sev: 'warning', text: `${why ? why.charAt(0).toUpperCase() + why.slice(1) : 'Pompe arrêtée'} : le réservoir de secours alimente la maison (${f1(bc.pHouse)} bar, ${Math.round((st.bk ?? 0) * 100)} % plein, ≈ ${f1(((st.bk ?? 0) * bkVol) / Math.max(0.05, bc.avgM3h), 0)} h d'autonomie)`, target: 'dest' });
         if ((st.bk ?? 0) <= 0.002) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir de secours vide : plus d\'eau à la maison', target: 'dest' });
       } else {
-        if (wasFeed) newEv.push({ t: st.t, sev: 'ok', text: `La pompe a repris : le clapet du réservoir de secours se referme (${Math.round((st.bk ?? 0) * 100)} % plein), il se remplit à nouveau`, target: 'dest' });
+        if (wasFeed) newEv.push({ t: st.t, sev: 'ok', text: `La pompe a repris : l'électrovanne du réservoir de secours se referme (${Math.round((st.bk ?? 0) * 100)} % plein), il se remplit à nouveau`, target: 'dest' });
         st.bkFeed = false;
       }
+      if (wasOpen && !st.bkOpen && !wasFeed) newEv.push({ t: st.t, sev: 'ok', text: 'Électrovanne du réservoir de secours refermée', target: 'dest' });
       if (!wasFull && (st.bk ?? 0) >= 0.999) newEv.push({ t: st.t, sev: 'ok', text: 'Réservoir de secours plein : le robinet à flotteur se ferme', target: 'dest' });
     }
 

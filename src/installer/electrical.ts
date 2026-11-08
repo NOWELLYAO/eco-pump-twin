@@ -1,4 +1,4 @@
-import { losses, pumpEta, pumpHead, speedFor, staticHead, pressureHead, suctionZ, type Hydro } from './hydraulics';
+import { losses, pumpEta, pumpHead, speedFor, staticHead, pressureHead, suctionZ, pressZ, isForage, type Hydro } from './hydraulics';
 import { refStatic } from './catalog';
 import type { Elec, Installation, Issue, StartId } from './types';
 
@@ -107,13 +107,18 @@ export const planLabel = (p: { n: number; size: number }) => (p.n > 1 ? `${p.n} 
 /** Réservoir à vessie : pressions de réglage, volume (loi de Boyle) et démarrages par heure. */
 export function vessel(i: Installation, h: Hydro): VesselResult | null {
   const st = i.acc.vessie;
-  if (!st?.on || !h.ok) return null;
+  // Pompe incapable de servir le réseau (panne simulée) : on garde les réglages posés pour que la vessie se vide
+  if (!st?.on || (!h.ok && (st.pOn == null || st.pOff == null))) return null;
   const rhoG = i.fluid.rho * 9.81;
-  const z = suctionZ(i);
+  // Pressions lues au pressostat / à la vessie : au refoulement de la pompe, ou en surface pour un forage
+  const forage = isForage(i);
+  const z = pressZ(i);
   // Pression nécessaire au refoulement pour servir le point le plus haut au débit demandé
-  const lossRef = losses(i, i.duty.qReq).ref;
-  const pReq = Math.max(0.5, ((refStatic(i) + pressureHead(i) + lossRef) * rhoG) / 1e5);
-  const pMax = ((pumpHead(i, 0) + Math.max(0, z)) * rhoG) / 1e5;
+  // (forage : seules la hauteur au-dessus du sol et les pertes de la conduite de surface restent à vaincre)
+  const lossAll = losses(i, i.duty.qReq).ref;
+  const lossRef = forage ? lossAll * (i.ref.length / Math.max(1, i.ref.length + i.geo.pumpDepth)) : lossAll;
+  const pReq = Math.max(0.5, (((forage ? Math.max(0, i.geo.hRef) : refStatic(i)) + pressureHead(i) + lossRef) * rhoG) / 1e5);
+  const pMax = Math.max(0, ((pumpHead(i, 0) + (forage ? z : Math.max(0, suctionZ(i)))) * rhoG) / 1e5);
   const r1 = (v: number) => Math.round(v * 10) / 10;
   // Débit de la pompe à une pression de refoulement donnée (inverse de la courbe)
   const flowAt = (pBar: number) => {

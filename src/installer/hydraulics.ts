@@ -69,6 +69,12 @@ export function staticHead(i: Installation) {
 }
 
 /** Niveau du liquide au-dessus (+) ou au-dessous (−) de l'entrée de la pompe (m). */
+/** Cote de référence des pressions du réseau (pressostat, réservoir à vessie, capteur) : en forage, ils sont
+ *  en surface, au-dessus du niveau dynamique ; ailleurs ils sont au refoulement de la pompe. H = p/ρg − pressZ. */
+export function pressZ(i: Installation) {
+  return isForage(i) ? -i.geo.dynamicLevel : suctionZ(i);
+}
+
 export function suctionZ(i: Installation) {
   if (isForage(i)) return i.geo.pumpDepth - i.geo.dynamicLevel;
   if (i.mode === 'aspiration') return -i.geo.suctionLift;

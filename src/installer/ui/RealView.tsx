@@ -102,7 +102,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; // réservoir de secours
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; // réservoir de secours
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -357,7 +357,8 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const destEls: ReactNode[] = [];
   const qr = live ? Math.max(0, Math.min(1.6, live.r.q / Math.max(0.1, i.duty.qReq))) : flow ? 1 : 0; // débit relatif
   // Eau disponible aux robinets : la pompe débite, ou le réservoir à vessie contient encore de l'eau sous pression
-  const fromVessel = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && (live.vesFill ?? 0) > 0.02 && (live.x ?? 0) > 0.3;
+  // (le réservoir de secours, lui, se raccorde en aval, juste avant la maison : la vessie ne débite plus quand il alimente)
+  const fromVessel = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && !live.bkFeed && (live.vesFill ?? 0) > 0.02 && (live.x ?? 0) > 0.3;
   const netFlow = live ? flow || fromVessel || !!live.bkFeed : flow;
   const dryTaps = !!live && !netFlow;
   const use = live ? (dryTaps ? 0 : Math.max(0, live.use ?? 0)) : 0.6; // consommation relative (robinets, réseau aval)
@@ -398,7 +399,14 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
           {/* robinet à flotteur : bras + boule qui suit le niveau */}
           <path d={`M${tx + 10} ${ty + 12} L${tx + 34} ${Math.max(ty + 12, yWb - 3)}`} className="r-arm" />
           <circle cx={tx + 36} cy={Math.max(ty + 12, yWb - 3)} r={5} className="g-float" />
-          <g className="r-obst" transform={`translate(${teeOut},${(ty + th + ay) / 2}) rotate(90)`}><RealGlyph kind="check" /></g>
+          {/* électrovanne normalement ouverte (tenue fermée par le coffret) puis clapet */}
+          <g className={`r-obst r-ev${live ? (live.bkOpen ? ' open' : ' shut') : ''}`} transform={`translate(${teeOut},${ty + th + 9})`}>
+            <path d="M-6 -7 L6 -7 L-6 7 L6 7 Z" />
+            <path d="M0 0 H10" className="r-ev-stem" />
+            <rect x={10} y={-6} width={11} height={12} rx={2} />
+            <path d="M12.5 -3 h6 M12.5 0 h6 M12.5 3 h6" className="r-ev-coil" />
+          </g>
+          <g className="r-obst" transform={`translate(${teeOut},${Math.max(ty + th + 26, (ty + th + ay) / 2 + 6)}) rotate(90) scale(0.8)`}><RealGlyph kind="check" /></g>
           {live && (() => {
             const msg = feeding ? `Secours · ${bc.pHouse.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} bar` : filling ? 'En remplissage' : 'Plein, en attente';
             const w = msg.length * 5.6 + 14;
@@ -410,7 +418,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
         </g>,
         <text key="bkl" x={tx + tw / 2} y={ty - 22} textAnchor="middle" className="r-label">Réservoir de secours {bkp.volume.toLocaleString('fr-FR')} L{live ? ` · ${Math.round(fillB * 100)} %` : ` · ${bkp.height} m · ${Math.round(bc.autonomyH)} h`}</text>,
         <text key="bkf" x={teeIn - 6} y={ty + 30} textAnchor="end" className="r-label small">Robinet à flotteur</text>,
-        <text key="bkc" x={teeOut + 16} y={(ty + th + ay) / 2 + 4} className="r-label small">Clapet</text>,
+        <text key="bkc" x={tx - 8} y={ty + th + 13} textAnchor="end" className="r-label small">{live ? (live.bkOpen ? 'Électrovanne ouverte' : 'Électrovanne fermée') : 'Électrovanne NO + clapet'}</text>,
       );
     }
     destEls.push(
@@ -722,8 +730,14 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   if (live) {
     const r = live.r;
     const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
+    // Surpression : le compteur est posé après le réservoir à vessie, il mesure ce que la maison consomme
+    // (pompe en marche ou non). Pompe arrêtée, le manomètre (entre la pompe et le clapet) suit la pression du
+    // réseau : la colonne reste pleine (clapet de la pompe) et se détend à travers le clapet quand la pression baisse.
+    const surp = live.kind === 'vessel' || live.kind === 'vfd';
+    const qMeter = surp ? ((flow || fromVessel) ? Math.max(0, live.use ?? 0) * i.duty.qReq : 0) : r.q;
+    const pMano = surp && !r.on ? Math.max(0, live.x ?? 0) : r.pRef;
     const val: Record<string, string> = {
-      'acc:manometre': `${fx(r.pRef)} bar`, 'acc:vacuometre': `${fx(r.pAsp, 2)} bar`, 'acc:debitmetre': `${fx(r.q)} m³/h`,
+      'acc:manometre': `${fx(pMano)} bar`, 'acc:vacuometre': `${fx(r.pAsp, 2)} bar`, 'acc:debitmetre': `${fx(qMeter)} m³/h`,
       'acc:capteur_p': `${fx(r.pRef)} bar`, 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar${live.vesFill != null ? ` · ${Math.round(Math.max(0, Math.min(1, live.vesFill)) * 100)} % eau` : ''}` : '',
       cable: `${fx(r.amps)} A`, pv: live.pv != null ? `${fx(live.pv, 2)} kW` : '',
     };

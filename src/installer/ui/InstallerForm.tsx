@@ -308,7 +308,7 @@ function BackupSection({ i, set, n }: { i: Installation; set: (fn: (i: Installat
         <p className="ihint">Sans pressostat ni variateur, le forage remplit déjà un réservoir qui alimente le réseau par gravité : pas besoin de by-pass. Le réservoir de secours sert quand le forage alimente directement la maison sous pression.</p>
       ) : (
         <>
-          <p className="ihint">En marche normale, la pompe alimente la maison et remplit un réservoir surélevé par un robinet à flotteur. Si la pompe s'arrête (panne, coupure, manque d'eau), la pression tombe : le clapet de sortie du réservoir s'ouvre et la maison est alimentée par gravité.</p>
+          <p className="ihint">En marche normale, la pompe alimente la maison et remplit un réservoir surélevé par un robinet à flotteur. La sortie du réservoir passe par une électrovanne normalement ouverte, tenue fermée par le coffret : en cas de coupure (plus de courant, elle s'ouvre seule), de disjonction, de manque d'eau au forage ou de pression restée basse, elle s'ouvre et la maison est alimentée par gravité. La hauteur du réservoir ne gêne donc pas le pressostat.</p>
           <Toggle label="Installer un réservoir de secours en by-pass" checked={on} onChange={(v) => set((x) => ({ ...x, backup: v ? { ...(x.backup ?? backupProposal(x)), on: true } : { ...(x.backup ?? backupProposal(x)), on: false } }))} />
           {on && b && (
             <div className="igrid">
@@ -318,7 +318,7 @@ function BackupSection({ i, set, n }: { i: Installation; set: (fn: (i: Installat
               <div className="vrec wide2">
                 <b>Résultat</b>
                 <span>Autonomie {f1(c.autonomyH, 1)} h · {f1(c.pHouse, 1)} bar aux robinets en secours · remplissage complet ≈ {f1(c.fillH, 1)} h</span>
-                <small>Robinet à flotteur DN{c.fillDn} sur le by-pass ({f1(c.fillM3h, 1)} m³/h) · sortie DN{c.outDn} avec clapet anti-retour vers la maison · trop-plein et vidange</small>
+                <small>Robinet à flotteur DN{c.fillDn} sur le by-pass ({f1(c.fillM3h, 1)} m³/h) · sortie DN{c.outDn} par électrovanne normalement ouverte + clapet anti-retour · remplissage dès {f1(c.headTop)} bar en tête de forage · trop-plein et vidange</small>
                 {(b.volume !== c.volRec || b.height < c.hMin) && <button type="button" className="btn primary sm" onClick={() => upd({ volume: c.volRec, height: Math.max(b.height, c.hRec) })}>Appliquer le dimensionnement conseillé</button>}
               </div>
             </div>

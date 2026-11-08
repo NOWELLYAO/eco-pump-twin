@@ -1426,3 +1426,11 @@ html, body { overflow-x: clip; }
 .r-bk-badge.fill rect{stroke:#2b7fd6}.r-bk-badge.fill text{fill:#1d5fa8}
 .r-bk-badge.on rect{fill:#fff4e0;stroke:#e08a00;animation:bkpulse 1.4s ease-in-out infinite}.r-bk-badge.on text{fill:#a85d00}
 @keyframes bkpulse{50%{stroke-width:2.5}}
+
+.r-ev path:first-child{fill:#cfd6dd;stroke:#4a5560;stroke-width:1.2}
+.r-ev rect{fill:#e9edf1;stroke:#4a5560;stroke-width:1.2}
+.r-ev-stem{stroke:#4a5560;stroke-width:1.5}
+.r-ev-coil{stroke:#b45309;stroke-width:1}
+.r-ev.open path:first-child{fill:#7cc4f2}
+.r-ev.open rect{fill:#fde7c4;stroke:#b45309}
+.r-ev.shut path:first-child{fill:#9aa5b0}

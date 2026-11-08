@@ -17,6 +17,7 @@ export interface ELive {
   clock?: string; starts?: number; startsH?: number; vol?: number; kwh?: number; runTot?: number; pv?: number;
   syms?: string[]; floatPit?: 'high' | 'low' | 'tangle'; floatRes?: boolean; noFlow?: boolean; sandy?: boolean; unbalance?: boolean; relayK?: number;
   lowLevel?: boolean;
+  bk?: { open: boolean; feed: boolean; level: number; latch?: string | null };
   phys?: { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean };
 }
 
@@ -245,6 +246,8 @@ function activeAlarms(i: Installation, ev: Evaluation, L: ELive): Alarm[] {
   if ((L.startsH ?? 0) > i.pump.maxStarts) add('cycles_courts', `Démarrages trop fréquents : ${L.startsH} dans l'heure (maxi ${i.pump.maxStarts})`);
   if (L.on && e.dropRun > 5) add('drop', `Chute de tension en marche : ${fmt(e.dropRun, 1)} % (maxi 5 %)`);
   if (L.lowLevel) add('lowlevel', 'Manque d\'eau dans le forage : électrodes hors de l\'eau, la pompe attend que le niveau remonte');
+  if (L.bk?.latch) add('bk_latch', `Défaut pompe (${L.bk.latch}) : électrovanne de secours maintenue ouverte, réarmer après réparation`, true);
+  if (L.bk?.feed) add('bk_feed', `Maison alimentée par le réservoir de secours (${Math.round(L.bk.level * 100)} %)`, L.bk.level < 0.2);
   const P = L.phys;
   if (P) {
     if (P.burnt) add('burnt', 'Moteur grillé : bobinage à remplacer ou rebobiner', true);

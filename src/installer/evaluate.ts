@@ -575,15 +575,21 @@ export function evaluate(input: Installation): Evaluation {
         fix: { label: `Ajouter ${pr.volume.toLocaleString('fr-FR')} L de secours`, apply: (x) => ({ ...x, backup: backupProposal(x) }) } });
     } else {
       const c = backupCalc(i, b);
-      // Pression de redémarrage de la pompe (au pressostat / au capteur), comparée à la pression créée par le réservoir au même endroit
-      const pOn = i.acc.variateur?.on && i.acc.capteur_p?.on ? (el.r.vessel?.pOn ?? 3) + 0.5 : el.r.vessel?.pOn ?? 3;
-      const hMax = Math.max(c.hMin, ((pOn - 0.3) * 1e5) / rhoG - Math.max(0, i.geo.hRef) - 1);
-      if (c.headV >= pOn - 0.2) {
-        add({ id: 'bk_pon', sev: 'critical', cat: 'securite', title: 'Le réservoir de secours se vide en marche normale',
-          detail: `Posé à ${f0(b.height)} m, le réservoir pousse à ${f1(c.headV)} bar au niveau du pressostat, alors que la pompe ne redémarre qu'à ${f1(pOn)} bar : son clapet s'ouvre avant le redémarrage de la pompe et la réserve se vide tous les jours.`,
-          consequences: ['Réserve vide le jour d\'une panne', 'Pompe qui tourne longtemps pour remplir'], parts: [],
-          solutions: [`Baisser le réservoir à ${f0(hMax)} m`, 'Ou relever la pression de marche du pressostat'],
-          fix: { label: `Réservoir à ${f0(hMax)} m`, apply: (x) => ({ ...x, backup: { ...b, height: Math.round(hMax) } }) } });
+      // La cuve se remplit par le haut (robinet à flotteur) : la pompe doit pouvoir y monter, au-dessus de la pression
+      // d'arrêt moins une marge, sinon elle ne se remplit qu'en fin de cycle, ou jamais.
+      const vr = el.r.vessel;
+      const vfd = !!(i.acc.variateur?.on && i.acc.capteur_p?.on);
+      const pHi = vr ? (vfd ? vr.pOn + 0.5 : vr.pOff) : 3;
+      const hMax = Math.floor(((pHi - 0.4) * 1e5) / rhoG - Math.max(0, i.geo.hRef) - c.tankH - 0.3);
+      if (c.headTop >= pHi - 0.2) {
+        const canRaise = !!vr && !vfd && c.headTop + 0.4 <= vr.pMax - 0.2;
+        const pOn2 = vr ? Math.ceil((c.headTop - 0.3) * 10) / 10 : 0, pOff2 = vr ? Math.min(Math.floor((vr.pMax - 0.2) * 10) / 10, Math.ceil((c.headTop + 0.6) * 10) / 10) : 0;
+        add({ id: 'bk_pon', sev: 'critical', cat: 'hydraulique', title: 'Le réservoir de secours ne peut pas se remplir',
+          detail: `Pour remplir une cuve posée à ${f0(b.height)} m (${f0(Math.max(0, i.geo.hRef))} m plus haut que la tête de forage), il faut ${f1(c.headTop)} bar en tête de forage, alors que ${vfd ? 'la consigne du variateur' : 'le pressostat coupe'} à ${f1(pHi)} bar : le robinet à flotteur ne reçoit presque rien.`,
+          consequences: ['Réserve vide le jour d\'une panne'], parts: [],
+          solutions: [hMax >= c.hMin ? `Baisser le réservoir à ${hMax} m` : `Hauteur maxi ${Math.max(0, hMax)} m : trop bas pour une bonne pression`, canRaise ? `Ou régler le pressostat à ${f1(pOn2)} / ${f1(pOff2)} bar (la pompe monte à ${f1(vr!.pMax)} bar)` : 'Ou une pompe plus haute en pression'],
+          fix: canRaise && hMax < c.hMin ? { label: `Pressostat ${f1(pOn2)} / ${f1(pOff2)} bar`, apply: (x) => ({ ...x, acc: { ...x.acc, vessie: { ...x.acc.vessie, on: true, pOn: pOn2, pOff: pOff2, pre: Math.round((pOn2 - 0.2) * 10) / 10 } } }) }
+            : hMax >= c.hMin ? { label: `Réservoir à ${hMax} m`, apply: (x) => ({ ...x, backup: { ...b, height: hMax } }) } : undefined });
       }
       if (b.height < c.hMin) add({ id: 'bk_low', sev: 'warning', cat: 'hydraulique', title: 'Réservoir de secours trop bas',
         detail: `Posé à ${f0(b.height)} m, il ne donnerait que ${f1(c.pHouse)} bar aux robinets : un filet d'eau.`,
@@ -596,7 +602,7 @@ export function evaluate(input: Installation): Evaluation {
       if (h.ok && h.q < i.duty.qReq + c.fillM3h * 0.5) add({ id: 'bk_fill', sev: 'info', cat: 'hydraulique', title: 'Remplissage du réservoir de secours lent',
         detail: `La pompe donne ${f1(h.q)} m³/h : en pointe, il reste peu de débit pour remplir le réservoir (${f1(c.fillH)} h pour un remplissage complet hors pointe).`,
         consequences: ['Réserve incomplète après une longue panne'], parts: [], solutions: ['Robinet à flotteur réglé pour un remplissage hors pointe, ou pompe un peu plus forte'] });
-      if (b.height >= c.hMin && b.volume >= c.volRec * 0.7 && c.headV < pOn - 0.2)
+      if (b.height >= c.hMin && b.volume >= c.volRec * 0.7 && c.headTop < pHi - 0.2)
         goods.push(`Réservoir de secours ${b.volume.toLocaleString('fr-FR')} L à ${f0(b.height)} m : ${f1(c.autonomyH)} h d'autonomie, ${f1(c.pHouse)} bar aux robinets en cas de panne`);
     }
   }
