@@ -96,6 +96,7 @@ export interface Elec {
   cableSec: number; // mm²
   cableMat: 'cu' | 'al';
   genKva: number; // groupe électrogène installé (kVA)
+  feedLen?: number; // câble d'alimentation du coffret : compteur / TGBT → coffret (m)
   solar: Solar;
 }
 
@@ -113,6 +114,8 @@ export interface Installation {
   acc: Record<string, AccState>;
   elec: Elec;
   commissioning?: import('./commissioning').Commissioning;
+  quote?: import('./quote').QuoteMeta;
+  touched?: string[]; // champs saisis par l'utilisateur (les autres sont des valeurs par défaut)
 }
 
 export type Need = 'required' | 'recommended' | 'optional' | 'avoid' | 'na';

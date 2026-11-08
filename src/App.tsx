@@ -77,7 +77,7 @@ export default function App() {
     try {
       // Le rapport n'est monté qu'au moment de l'export : on laisse les schémas et graphiques se dessiner
       await new Promise((r) => window.setTimeout(r, 900));
-      const el = document.querySelector<HTMLElement>('.print-report');
+      const el = document.querySelector<HTMLElement>('.print-report.main');
       if (!el) throw new Error('rapport introuvable');
       const blob = await buildReportPdf(el, inst.name);
       const safe = inst.name.normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'installation';

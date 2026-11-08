@@ -6,6 +6,7 @@ import { evaluate } from '../evaluate';
 import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadings, makeCtx, observe, simKind, stepSim, type Mods, type SimState } from '../sim';
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
+import { QuoteRequest } from './Quote';
 import type { Installation, Issue } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
@@ -362,7 +363,7 @@ export function MaterialPage({ s }: { s: Shared }) {
     <div className="page-mat">
       <KeyFigures i={s.inst} ev={s.ev} />
       <div className="mat-cols">
-        <div className="stack"><MountOrder i={s.inst} ev={s.ev} onFix={s.fix} /><Bom i={s.inst} ev={s.ev} onFix={s.fix} /><LossTable ev={s.ev} /></div>
+        <div className="stack"><QuoteRequest i={s.inst} ev={s.ev} set={s.set} /><MountOrder i={s.inst} ev={s.ev} onFix={s.fix} /><Bom i={s.inst} ev={s.ev} onFix={s.fix} /><LossTable ev={s.ev} /></div>
         <div className="stack"><ElecCard i={s.inst} ev={s.ev} /><section className="card"><InstCurve i={s.inst} ev={s.ev} /></section></div>
       </div>
     </div>

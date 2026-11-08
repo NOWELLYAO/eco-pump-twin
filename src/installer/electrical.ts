@@ -63,6 +63,7 @@ export interface ElecResult {
   vfdSpeed: { s: number; hz: number; pNow: number; pNew: number; saving: number } | null;
   vessel: VesselResult | null;
   solar: SolarResult | null;
+  feed: { iTot: number; rating: number; sec: number; drop: number; len: number } | null; // arrivée générale du coffret
 }
 
 export interface VesselResult {
@@ -408,5 +409,17 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
     }
   }
 
-  return { r: { inom, irun, istart, start, dropRun, dropStart, amp, secRec, cores, cableType, breaker, vfdKw, vfdA, filter, genKva, vfdSpeed: vs, vessel: ves, solar: sol }, issues, goods };
+  // ----- Arrivée générale du coffret (toutes les pompes en service + auxiliaires) -----
+  let feed: ElecResult['feed'] = null;
+  if (e.supply !== 'solaire') {
+    const flen = e.feedLen ?? 15;
+    const iTot = inom * h.n + 2;
+    const RATINGS = [6, 10, 16, 20, 25, 32, 40, 50, 63, 80, 100, 125, 160, 200, 250];
+    const rating = RATINGS.find((x) => x >= iTot * 1.15) ?? 250;
+    // démarrage de la dernière pompe pendant que les autres tournent
+    const iStartTot = istart + inom * (h.n - 1);
+    const fsec = SECTIONS.find((sec) => ampacity(sec, 'cu') >= rating && dropPct(flen, iTot, sec, { ...e, cableMat: 'cu' }) <= 3 && dropPct(flen, iStartTot, sec, { ...e, cableMat: 'cu' }, 0.35) <= 8) ?? 120;
+    feed = { iTot, rating, sec: fsec, drop: dropPct(flen, iTot, fsec, { ...e, cableMat: 'cu' }), len: flen };
+  }
+  return { r: { inom, irun, istart, start, dropRun, dropStart, amp, secRec, cores, cableType, breaker, vfdKw, vfdA, filter, genKva, vfdSpeed: vs, vessel: ves, solar: sol, feed }, issues, goods };
 }

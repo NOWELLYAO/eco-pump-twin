@@ -7,6 +7,7 @@ import { CommissionResults } from '../installer/ui/CommissionPage';
 import { CabinetView, WiringView } from '../installer/ui/Electrical';
 import { PidView } from '../installer/ui/PidView';
 import { RealView } from '../installer/ui/RealView';
+import { QuoteTable } from '../installer/ui/Quote';
 import { Alerts, Bom, ElecCard, Goods, InstCurve, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from '../installer/ui/Report';
 
 function Part({ n, title, children }: { n: number; title: string; children: ReactNode }) {
@@ -39,7 +40,7 @@ export function PrintReport({ inst, ev, extra }: { inst: Installation; ev: Evalu
   const date = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
   let n = 0;
   return (
-    <div className="print-report" aria-hidden>
+    <div className="print-report main" aria-hidden>
       <h1>Rapport d'installation — {inst.name}</h1>
       <p className="muted small">Établi le {date} avec le configurateur ECO PUMP AFRIK.</p>
       <Part n={++n} title="Synthèse"><ScoreCard ev={ev} /><KeyFigures i={inst} ev={ev} /></Part>
@@ -52,6 +53,7 @@ export function PrintReport({ inst, ev, extra }: { inst: Installation; ev: Evalu
       <Part n={++n} title="Schéma électrique"><section className="card rp-fig"><WiringView i={inst} ev={ev} /></section></Part>
       <Part n={++n} title="Pertes de charge et montage"><LossTable ev={ev} /><MountOrder i={inst} ev={ev} onFix={() => undefined} /></Part>
       <Part n={++n} title="Liste du matériel"><Bom i={inst} ev={ev} onFix={() => undefined} />{extra}</Part>
+      <Part n={++n} title="Liste détaillée pour demande de devis"><section className="card"><QuoteTable i={inst} ev={ev} /></section></Part>
       <Part n={++n} title="Guide de dépannage"><section className="card"><p className="small muted">Pannes possibles sur ce type d'installation, à garder avec le coffret.</p><FaultGuide i={inst} /></section></Part>
       {inst.commissioning && <Part n={++n} title="Mise en service"><CommissionResults i={inst} ev={ev} /></Part>}
     </div>

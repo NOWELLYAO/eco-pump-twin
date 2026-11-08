@@ -1247,3 +1247,24 @@ html, body { overflow-x: clip; }
 .rp-faults { font-size: .78rem; }
 .rp-faults td, .rp-faults th { vertical-align: top; padding: 5px 6px; }
 .cab-table { margin-top: 8px; font-size: .82rem; }
+/* ===== Demande de devis ===== */
+@media print { .print-quote { display: none !important; } }
+.quote-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 6px; }
+.quote-actions .btn { min-height: 46px; }
+.qh { margin: 14px 0 6px; font-size: .9rem; color: var(--brand-ink); text-transform: uppercase; letter-spacing: .04em; }
+.qrow { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.qrow input[type=checkbox] { width: 20px; height: 20px; margin-top: 2px; }
+.qrow.off { opacity: .45; }
+.qrow.off .qtxt b { text-decoration: line-through; }
+.qtxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.qtxt small { color: var(--muted); font-size: .8rem; line-height: 1.35; }
+.qq { display: flex; align-items: center; gap: 4px; }
+.qq small { color: var(--muted); font-size: .76rem; max-width: 70px; }
+.qqty { width: 58px; text-align: right; background: var(--input); border: 1px solid var(--input-bd); border-radius: 7px; padding: 7px 6px; font-size: .92rem; }
+.qadd { display: grid; grid-template-columns: 1fr; gap: 6px; }
+@media (min-width: 760px) { .qadd { grid-template-columns: 2fr 2fr 70px 80px auto; } }
+.qadd input { background: var(--input); border: 1px solid var(--input-bd); border-radius: 8px; padding: 9px 10px; font-size: .92rem; min-width: 0; }
+.qtable { font-size: .8rem; }
+.qtable td, .qtable th { vertical-align: top; padding: 5px 6px; }
+.qtable .qcat td { background: #e3f1fa; color: #0d6699; font-weight: 800; text-transform: uppercase; font-size: .74rem; letter-spacing: .04em; }
+.qtable .nowrap { white-space: nowrap; }

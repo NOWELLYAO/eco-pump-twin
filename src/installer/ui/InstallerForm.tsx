@@ -199,6 +199,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           <NumField label="Cos φ moteur" value={i.elec.cosphi} onChange={(v) => v > 0.3 && v <= 1 && elec({ cosphi: v })} />
           {!solar && <SelField label="Mode de démarrage" value={i.acc.variateur?.on ? 'variateur' : i.elec.start === 'variateur' ? 'direct' : i.elec.start} wide options={(Object.keys(START_LABEL) as StartId[]).map((k) => ({ v: k, l: START_LABEL[k] }))} onChange={setStart} />}
           <NumField label="Longueur câble coffret → moteur" unit="m" value={i.elec.cableLen} onChange={(v) => elec({ cableLen: v })} wide />
+          {!solar && <NumField label="Longueur câble d'arrivée (compteur → coffret)" unit="m" value={i.elec.feedLen ?? 15} onChange={(v) => elec({ feedLen: v })} wide hint={er.feed ? `Arrivée conseillée : ${i.elec.supply === 'mono' ? '3G' : '5G'} ${String(er.feed.sec).replace('.', ',')} mm², protection ${er.feed.rating} A (${fx(er.feed.iTot)} A au total)` : undefined} />}
           <SelField label="Section du câble" value={i.elec.cableSec} options={SECTIONS.map((x) => ({ v: x, l: `${String(x).replace('.', ',')} mm²` }))} onChange={(v) => elec({ cableSec: v })} />
           <SelField label="Conducteur" value={i.elec.cableMat} options={[{ v: 'cu', l: 'Cuivre' }, { v: 'al', l: 'Aluminium' }]} onChange={(v) => elec({ cableMat: v })} />
           <p className="ihint wide elec-hint">

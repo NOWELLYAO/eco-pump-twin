@@ -432,6 +432,7 @@ export function ElecCard({ i, ev }: { i: Installation; ev: Evaluation }) {
     ['Chute de tension', `${fmt(r.dropRun, 1)} % en marche`, `${fmt(r.dropStart, 1)} % au démarrage`],
     ['Protection', r.breaker],
   ];
+  if (r.feed) rows.push(['Arrivée du coffret', `${e.supply === 'mono' ? '3G' : '5G'} ${sec(r.feed.sec)} mm² cuivre · ${fmt(r.feed.len, 0)} m`, `courant total ${fmt(r.feed.iTot, 1)} A · protection de tête ${r.feed.rating} A · chute ${fmt(r.feed.drop, 1)} %`]);
   if (r.start === 'variateur' && e.supply !== 'solaire') rows.push(['Variateur', `≥ ${fmt(r.vfdKw, 1)} kW / ${fmt(r.vfdA, 1)} A`, r.filter ? `+ ${r.filter}` : 'sans filtre (câble court)']);
   if (r.vfdSpeed) rows.push(['Consigne variateur', `${fmt(r.vfdSpeed.s * 100, 0)} % · ${fmt(r.vfdSpeed.hz, 1)} Hz`, `−${fmt(r.vfdSpeed.saving * 100, 0)} % d'énergie par m³`]);
   if (e.supply === 'groupe') rows.push(['Groupe électrogène', `${fmt(r.genKva, 0)} kVA conseillés`, e.genKva ? `installé ${e.genKva} kVA` : '']);
