@@ -349,10 +349,11 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const destG = G;
   const destEls: ReactNode[] = [];
   const qr = live ? Math.max(0, Math.min(1.6, live.r.q / Math.max(0.1, i.duty.qReq))) : flow ? 1 : 0; // débit relatif
-  // Plus d'eau au réseau : réservoir vide et pompe qui ne débite pas → les robinets ne coulent plus
-  const noSupply = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && (live.vesFill ?? 1) < 0.02 && live.r.q < 0.05 && (live.x ?? 0) < 0.3;
-  const dryTaps = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && live.r.q < 0.05 && (live.vesFill ?? 1) < 0.02;
-  const use = live ? (dryTaps || noSupply ? 0 : Math.max(0, live.use ?? 0)) : 0.6; // consommation relative (robinets, réseau aval)
+  // Eau disponible aux robinets : la pompe débite, ou le réservoir à vessie contient encore de l'eau sous pression
+  const fromVessel = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && (live.vesFill ?? 0) > 0.02 && (live.x ?? 0) > 0.3;
+  const netFlow = live ? flow || fromVessel : flow;
+  const dryTaps = !!live && !netFlow;
+  const use = live ? (dryTaps ? 0 : Math.max(0, live.use ?? 0)) : 0.6; // consommation relative (robinets, réseau aval)
   const stream = (k: string, x: number, y1: number, y2: number, w = 6) => (
     <g key={k}><path d={`M${x} ${y1} V${y2}`} className="r-stream-body" strokeWidth={w} /><path d={`M${x} ${y1} V${y2}`} className="r-stream" strokeWidth={Math.max(2, w * 0.45)} /></g>
   );
@@ -362,14 +363,14 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const hx = ax + 20, hy = destG - 90;
     destEls.push(
       <path key="hp" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} stroke="#8a96a3" strokeWidth={8} className="r-pipe" />,
-      flow ? <path key="hpf" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
+      netFlow && (use > 0.05 || flow) ? <path key="hpf" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
       <path key="roof" d={`M${hx - 10} ${hy} L${hx + 70} ${hy - 50} L${hx + 150} ${hy} Z`} className="r-roof" />,
       <rect key="house" x={hx} y={hy} width={140} height={90} className="r-building" />,
       <rect key="door" x={hx + 98} y={hy + 40} width={24} height={50} rx={2} className="r-door" />,
       <rect key="sink" x={hx + 18} y={hy + 56} width={50} height={12} rx={3} className="r-sink" />,
       <path key="tap" d={`M${hx + 30} ${hy + 40} V${hy + 32} H${hx + 46} V${hy + 40}`} className="r-tap" />,
       use > 0.08 ? stream('ts', hx + 46, hy + 41, hy + 56, 3 + 3 * Math.min(1, use)) : null,
-      <text key="hl" x={hx + 70} y={hy + 106} textAnchor="middle" className="r-label">Points d'eau{live ? ` · ${Math.round(use * 100)} %` : ''}</text>,
+      <text key="hl" x={hx + 70} y={hy + 106} textAnchor="middle" className="r-label">{dryTaps ? 'Plus d\'eau aux robinets' : `Points d'eau${live ? ` · ${Math.round(use * 100)} %${!flow ? ' (réservoir)' : ''}` : ''}`}</text>,
     );
   } else if (dest === 'reservoir') {
     // Château d'eau / grande bâche : arrivée par le haut, niveau, flotteur, départ vers le réseau
@@ -442,7 +443,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const rx = bx + 18;
     destEls.push(
       <path key="col" d={`M${ax} ${ay} H${rx} V${top + 18}`} stroke="#a9b4bd" strokeWidth={7} className="r-pipe" />,
-      flow ? <path key="colf" d={`M${ax} ${ay} H${rx} V${top + 18}`} className="r-flow" strokeWidth={3} /> : null,
+      netFlow && (use > 0.05 || flow) ? <path key="colf" d={`M${ax} ${ay} H${rx} V${top + 18}`} className="r-flow" strokeWidth={3} /> : null,
     );
     if (dest === 'batiment') {
       // un robinet par étage : ouverts selon la consommation du moment
@@ -452,11 +453,11 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
         const open = (floors - 1 - r) < nOpen; // les étages du bas d'abord
         destEls.push(
           <path key={`tp${r}`} d={`M${rx} ${fy} H${rx + 16} V${fy + 4}`} className="r-tap" />,
-          open && (flow || !live) ? stream(`ts${r}`, rx + 16, fy + 5, fy + 18, 3) : null,
+          open && (netFlow || !live) ? stream(`ts${r}`, rx + 16, fy + 5, fy + 18, 3) : null,
           <rect key={`sk${r}`} x={rx + 8} y={fy + 18} width={18} height={4} rx={1} className="r-sink" />,
         );
       }
-      destEls.push(<text key="bl" x={bx + 85} y={top - 8} textAnchor="middle" className="r-label">{live ? (dryTaps ? 'Plus d\'eau aux robinets : réseau vide' : `${nOpen} étage(s) consomment · ${Math.round(use * 100)} %`) : 'Robinets aux étages'}</text>);
+      destEls.push(<text key="bl" x={bx + 85} y={top - 8} textAnchor="middle" className="r-label">{live ? (dryTaps ? 'Plus d\'eau aux robinets : réseau vide' : `${nOpen} étage(s) consomment · ${Math.round(use * 100)} %${!flow ? ' (réservoir)' : ''}`) : 'Robinets aux étages'}</text>);
     } else {
       // Incendie : RIA devant l'immeuble, tuyau déroulé et lance dirigée vers la façade
       const rx2 = ax + 8, ry = destG - 52;
@@ -682,6 +683,12 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       const y = k === 'acc:vessie' ? an.y + 6 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
       const cx = side ? an.x + (k === 'acc:vessie' ? 22 : 16) + w / 2 : an.x;
       lcd.push(<g key={`lcd-${k}`} className="lcd"><rect x={cx - w / 2} y={y - 13} width={w} height={19} rx={4} /><text x={cx} y={y + 1} textAnchor="middle">{t}</text></g>);
+    }
+    // Pompe arrêtée : le réservoir à vessie alimente seul le réseau (écoulement après le réservoir uniquement)
+    const vesA = anchors['acc:vessie'];
+    if (vesA && !flow && fromVessel && use > 0.05) {
+      const yL = ref[ref.length - 1][1], xE = ref[ref.length - 1][0];
+      lcd.push(<path key="vesflow" d={`M${vesA.x} ${yL} H${xE}`} className="r-flow slow" strokeWidth={3} />);
     }
     const ves = anchors['acc:vessie'];
     if (ves && live.vesFill != null) {
