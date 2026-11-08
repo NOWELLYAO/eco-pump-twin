@@ -3,7 +3,7 @@ import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Timer, Za
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Evaluation } from '../evaluate';
 import { evaluate } from '../evaluate';
-import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, makeCtx, readings, stepSim, type Mods, type SimState } from '../sim';
+import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, makeCtx, readings, simKind, stepSim, type Mods, type SimState } from '../sim';
 import type { Installation, Issue } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
@@ -88,9 +88,13 @@ function Slider({ label, value, min, max, step = 1, unit, onChange, disabled, hi
 
 export function SimPage({ s }: { s: Shared }) {
   const c = useChartColors();
-  const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100 }));
+  // Variateur à fréquence fixe : la simulation démarre à la consigne calculée. En régulation automatique
+  // (capteur de pression, solaire), c'est la régulation qui fixe la vitesse : on part de 100 %.
+  const autoReg = ['vfd', 'solar'].includes(simKind(s.inst));
+  const baseSpeed = !autoReg && s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100;
+  const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: baseSpeed }));
   const iSim = useMemo(() => applyMods(s.inst, mods), [s.inst, mods]);
-  const ctx = useMemo(() => makeCtx(iSim), [iSim]);
+  const ctx = useMemo(() => makeCtx(iSim, mods.draw), [iSim, mods.draw]);
   const evSim = useMemo(() => evaluate(iSim), [iSim]);
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
@@ -99,7 +103,6 @@ export function SimPage({ s }: { s: Shared }) {
   const [rate, setRate] = useState(600);
 
   // Avec un variateur réglé sur le besoin, la simulation démarre à sa fréquence de consigne, pas à 50 Hz.
-  const baseSpeed = s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100;
   const base: Mods = { ...NO_MODS, speed: baseSpeed };
   useEffect(() => { setSim(initSim(makeCtx(applyMods(s.inst, base)))); setMods(base); }, [s.inst]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -143,6 +146,17 @@ export function SimPage({ s }: { s: Shared }) {
 
         <section className="card">
           <h3>Réglages en direct</h3>
+          {(kind === 'vessel' || kind === 'vfd' || kind === 'tank' || kind === 'pit') && (
+            <div className="drawctl">
+              <Slider label={kind === 'pit' ? 'Arrivée d\'effluents' : 'Consommation (robinets ouverts)'} value={mods.draw < 0 ? Math.round((sim.series.at(-1)?.c ?? 0) / Math.max(0.01, kind === 'pit' ? ctx.h.q * 0.55 : kind === 'tank' ? s.inst.duty.qReq * 0.55 : s.inst.duty.qReq) * 100) : mods.draw} min={0} max={150} unit="%"
+                onChange={(x) => setMods({ ...mods, draw: x })}
+                hint={mods.draw < 0
+                  ? `Automatique : suit l'heure de la journée (pointes à 7 h et 19 h30, très faible la nuit)${kind === 'vessel' || kind === 'vfd' ? ` — ${fmt(sim.series.at(-1)?.c ?? 0, 1)} m³/h en ce moment` : ''}`
+                  : `Imposée : ${fmt((mods.draw / 100) * s.inst.duty.qReq, 1)} m³/h (${mods.draw} % du besoin)`} />
+              <button type="button" className={`chip ${mods.draw < 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: -1 })}>Profil automatique</button>
+            </div>
+          )}
+          {(kind === 'vessel' || kind === 'vfd') && <p className="small muted simnote">En surpression, c'est la <b>consommation</b> qui fixe le débit, pas la vanne : la pompe ne fournit que ce que les robinets prélèvent. Ouvrir la vanne ne fait pas couler plus d'eau.</p>}
           <Slider label="Ouverture vanne de refoulement" value={mods.valve} min={5} max={100} unit="%" onChange={(x) => setMods({ ...mods, valve: x })} />
           {kind === 'vfd' || kind === 'solar'
             ? <Slider label="Vitesse (variateur)" value={sim.on ? Math.round(sim.s * 100) : 0} min={0} max={100} unit="%" disabled onChange={() => undefined}

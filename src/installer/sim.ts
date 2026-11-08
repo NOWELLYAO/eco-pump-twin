@@ -6,8 +6,9 @@ import type { Installation } from './types';
 const G = 9.81;
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
 
-export interface Mods { valve: number; speed: number; level: number; clog: number; wear: number }
-export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 0 };
+/** draw : consommation imposée en % du besoin ; -1 = profil journalier automatique. */
+export interface Mods { valve: number; speed: number; level: number; clog: number; wear: number; draw: number }
+export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 0, draw: -1 };
 
 /** Installation telle qu'elle fonctionne avec les réglages de simulation. */
 export function applyMods(i: Installation, m: Mods): Installation {
@@ -111,12 +112,14 @@ const hourOf = (t: number) => (t % 86400) / 3600;
 /** Profil de consommation domestique (fraction du débit de pointe). */
 const demand = (hr: number) => Math.min(1, 0.08 + 0.85 * Math.exp(-(((hr - 7) / 1.3) ** 2)) + 0.65 * Math.exp(-(((hr - 19.5) / 1.6) ** 2)) + 0.3 * Math.exp(-(((hr - 12.5) / 1.5) ** 2)));
 
-export interface SimCtx { i: Installation; h: Hydro; er: ElecResult; kind: SimKind }
+export interface SimCtx { i: Installation; h: Hydro; er: ElecResult; kind: SimKind; draw: number }
 
-export function makeCtx(i: Installation): SimCtx {
+export function makeCtx(i: Installation, draw = -1): SimCtx {
   const h = solve(i);
-  return { i, h, er: electrical(i, h).r, kind: simKind(i) };
+  return { i, h, er: electrical(i, h).r, kind: simKind(i), draw };
 }
+/** Fraction du besoin consommée à cette heure (profil journalier, ou valeur imposée). */
+const use = (ctx: SimCtx, hr: number) => (ctx.draw >= 0 ? ctx.draw / 100 : demand(hr));
 
 export function initSim(ctx: SimCtx): SimState {
   const { kind, er } = ctx;
@@ -178,7 +181,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
 
     if (kind === 'vessel' && v) {
       const vt = v.vol / 1000; // m³
-      const qd = demand(hr) * i.duty.qReq; // m³/h
+      const qd = use(ctx, hr) * i.duty.qReq; // m³/h
       // Pression → volume d'eau stocké (loi de Boyle)
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
       if (st.master && st.x <= v.pOn) start();
@@ -195,7 +198,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       st.s = 1;
     } else if (kind === 'vfd') {
       const set = (v?.pOn ?? 3) + 0.5;
-      const qd = demand(hr) * i.duty.qReq;
+      const qd = use(ctx, hr) * i.duty.qReq;
       if (st.master && qd > 0.06 * i.duty.qReq) start();
       if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
       const hs = (set * 1e5) / rhoG - suctionZ(i);
@@ -218,7 +221,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       }
     } else if (kind === 'pit') {
       const area = (i.geo.tankVolume / 1000) / 0.5; // m², 0,5 m entre flotteurs
-      const qin = (0.15 + 0.75 * demand(hr)) * h.q * 0.55;
+      const qin = (0.15 + 0.75 * use(ctx, hr)) * h.q * 0.55;
       const hasStart = !!i.acc.flotteur_marche?.on, hasStop = !!i.acc.flotteur_arret?.on;
       if (st.master && hasStart && st.x >= 0.5) start();
       if (st.master && !hasStart && st.x >= 0.5 && !st.overflow && st.x >= 1.2) { st.overflow = true; newEv.push({ t: st.t, sev: 'critical', text: 'Débordement de la fosse : aucun flotteur de marche', target: 'acc:flotteur_marche' }); }
@@ -250,12 +253,12 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (hr < 0.01) st.x = 0;
     } else if (kind === 'tank') {
       const cap = Math.max(5, i.duty.qReq * 4); // m³
-      const use = demand(hr) * i.duty.qReq * 0.55;
+      const out = use(ctx, hr) * i.duty.qReq * 0.55;
       const hasFloat = !!i.acc.flotteur_res?.on;
       if (st.master && (!hasFloat || st.x < 0.7)) start();
       if (st.on && hasFloat && st.x >= 1) stop('réservoir plein (flotteur)');
       st.q = st.on && h.ok ? h.q : 0;
-      st.x += ((st.q - use) / 3600 / cap) * sub;
+      st.x += ((st.q - out) / 3600 / cap) * sub;
       if (st.x > 1.02 && !st.overflow) { st.overflow = true; newEv.push({ t: st.t, sev: 'warning', text: 'Réservoir plein : il déborde (pas de flotteur d\'arrêt)', target: 'acc:flotteur_res' }); }
       if (st.x < 0.95) st.overflow = false;
       st.x = Math.max(0, Math.min(1.05, st.x));
@@ -274,7 +277,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
 
   const hr = hourOf(st.t);
   const a = kind === 'vessel' || kind === 'vfd' ? st.x : kind === 'pit' ? st.x * 100 : kind === 'solar' ? st.pv : kind === 'tank' ? st.x * 100 : readings(i, h, st.on, er).pRef;
-  const c = kind === 'vessel' || kind === 'vfd' ? demand(hr) * i.duty.qReq : kind === 'pit' ? (0.15 + 0.75 * demand(hr)) * h.q * 0.55 : kind === 'tank' ? demand(hr) * i.duty.qReq * 0.55 : null;
+  const c = kind === 'vessel' || kind === 'vfd' ? use(ctx, hr) * i.duty.qReq : kind === 'pit' ? (0.15 + 0.75 * use(ctx, hr)) * h.q * 0.55 : kind === 'tank' ? use(ctx, hr) * i.duty.qReq * 0.55 : null;
   st.series = [...prev.series, { t: st.t, a, b: st.q, c }].slice(-240);
   if (newEv.length) st.events = [...newEv.reverse(), ...prev.events].slice(0, 80);
   return st;

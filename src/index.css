@@ -1007,3 +1007,7 @@ html, body { overflow-x: clip; }
 .vfdtbl thead th small { font-weight: 500; color: var(--muted); }
 .vfdtbl td.good { color: var(--good-ink); }
 .vfdtbl td.bad { color: var(--crit-ink); }
+.drawctl { display: flex; flex-direction: column; gap: 6px; }
+.drawctl .chip { align-self: flex-start; }
+.chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+.simnote { margin: 2px 0 8px; line-height: 1.4; }
