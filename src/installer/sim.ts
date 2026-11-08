@@ -16,7 +16,7 @@ export function applyMods(i: Installation, m: Mods): Installation {
   const x: Installation = { ...i, pump: { ...i.pump }, geo: { ...i.geo }, acc: { ...i.acc } };
   const s = m.speed / 100;
   if (s !== 1) { x.pump.qn *= s; x.pump.hn *= s * s; x.pump.npshr *= s * s; }
-  if (m.wear > 0) { const w = m.wear / 100; x.pump.hn *= 1 - 0.18 * w; x.pump.eta *= 1 - 0.15 * w; }
+  if (m.wear > 0) { const w = m.wear / 100; x.pump.hn *= 1 - 0.3 * w; x.pump.qn *= 1 - 0.12 * w; x.pump.eta *= 1 - 0.2 * w; }
   if (m.valve < 100) {
     const v = Math.max(0.05, m.valve / 100);
     const k = 0.2 + 25 * ((1 - v) / v) ** 2;
@@ -123,6 +123,7 @@ export interface SimState {
   sealGone?: boolean; // garniture détruite (vaporisation, marche à sec)
   cavT?: number; // temps de marche en cavitation (s)
   dryRun?: number; // durée de marche à sec en cours (s)
+  faultT?: Record<string, number>; // instant d'apparition de chaque panne (pour les pannes qui s'aggravent)
   flags?: Record<string, boolean>; // événements déjà signalés
   outageUntil: number; // coupure secteur jusqu'à t
   dd: number; // rabattement supplémentaire du niveau (m)
@@ -208,6 +209,26 @@ export function surgePeak(i: Installation, h: Hydro, q: number, soft: boolean): 
   const dH = (c * v) / G * (prot ? 0.35 : 1) * (soft ? 0.3 : 1);
   return { p: ((refStatic(i) + dH) * i.fluid.rho * G) / 1e5, dH };
 }
+/** Réglage du relais thermique du disjoncteur moteur (A). */
+export function relaySetting(ctx: SimCtx, fx: FaultEffect = ctx.fx): number {
+  const { i, h, er } = ctx;
+  if (fx.relayRun) {
+    const run = h.ok ? readings(i, h, true, er).amps : er.inom;
+    return Math.round(run * fx.relayRun * 10) / 10;
+  }
+  return er.inom * (fx.relayK ?? 1);
+}
+/** Usure supplémentaire (%) des pannes qui s'aggravent avec le temps. */
+export function progressiveWear(ids: string[], faultT: Record<string, number> | undefined, t: number): number {
+  let w = 0;
+  for (const id of ids) {
+    const p = faultById(id)?.effect.progressive;
+    if (!p) continue;
+    const t0 = faultT?.[id] ?? t;
+    w += Math.min(p.max, ((t - t0) / 3600) * p.rate);
+  }
+  return Math.min(85, w);
+}
 /** Température de vaporisation de l'eau à la pression absolue p (bar), approchée. */
 export const tSat = (pAbsBar: number) => 100 * Math.max(0.3, pAbsBar) ** 0.25;
 
@@ -257,6 +278,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const hammer = (sudden: boolean) => {
     if (st.q < 0.1 || !h.ok) return;
     const sp = surgePeak(i, h, st.q, soft && !sudden);
+    if ((sp.dH * rhoG) / 1e5 > 2 && sp.p > pn * 0.8) seen('coups_belier');
     if (sp.p > pn * 0.8) hit(sp.p, `Coup de bélier à l'arrêt${sudden ? ' brutal' : ''} (${i.acc.anti_belier?.on || i.acc.vessie?.on ? 'atténué par l\'anti-bélier' : 'sans anti-bélier'}) :`);
     else { st.pPeak = sp.p; st.pPeakT = st.t; }
   };
@@ -269,7 +291,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       st.isolated = msg; st.tripKind = kind; seen(kind);
       st.hum = false; st.noFlow = false; st.runT = 0;
       fx = combined(ctx.fx.ids.filter((x) => !LOCAL_FAULTS.has(x)));
-      newEv.push({ t: st.t, sev: 'critical', text: `${msg} — pompe 1 isolée, ${sb ? 'basculement automatique sur la pompe de secours' : 'les autres pompes continuent (débit réduit)'}`, target: 'cable' });
+      newEv.push({ t: st.t, sev: 'critical', text: `${msg} — la pompe en défaut est isolée, ${sb ? 'basculement automatique sur la pompe de secours' : 'les autres pompes continuent (débit réduit)'}`, target: 'cable' });
       return;
     }
     if (st.on) hammer(true);
@@ -288,6 +310,13 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // Chaque démarrage chauffe le bobinage (courant de démarrage pendant ~1 à 3 s)
     st.tm = (st.tm ?? tAmb) + 2.5 * Math.min(4, (er.istart / Math.max(0.1, er.inom) / 6) ** 2) * (soft ? 0.5 : 1);
     st.hum = !!fx.noStart;
+    // Groupe trop faible : la tension s'effondre, le moteur ne décolle pas
+    if (fx.startFail) { st.hum = true; seen('tension_basse'); newEv.push({ t: st.t, sev: 'critical', text: 'La tension s\'effondre au démarrage : le moteur ne décolle pas', target: 'cable' }); }
+    // Pompe de secours grippée : quand la permutation la fait démarrer, son rotor reste bloqué
+    if (fx.altJam && i.pump.alternate && st.starts % 2 === 0) { st.hum = true; st.flags = { ...(st.flags ?? {}), jam: true }; }
+    // Pompe ensablée : le sable déposé pendant l'arrêt bloque la roue au redémarrage
+    const pw = fx.progressive?.jamAt != null ? progressiveWear(fx.ids, st.faultT, st.t) : 0;
+    if (fx.progressive?.jamAt != null && pw >= fx.progressive.jamAt && st.starts % 2 === 0) { st.hum = true; st.flags = { ...(st.flags ?? {}), jam: true }; }
     st.noFlow = !st.hum && !st.primed;
     newEv.push(...startEvent(ctx, st));
     if (st.hum) seen('ronfle', 'ne_demarre_pas', 'courant_haut');
@@ -381,14 +410,14 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     } else if (kind === 'pit') {
       const area = (i.geo.tankVolume / 1000) / 0.5; // m², 0,5 m entre flotteurs
       const qin = (0.15 + 0.75 * use(ctx, hr)) * i.duty.qReq * 0.55;
-      const hasStart = !!i.acc.flotteur_marche?.on && fx.floatPit !== 'low';
-      const hasStop = !!i.acc.flotteur_arret?.on && fx.floatPit !== 'high';
+      const hasStart = !!i.acc.flotteur_marche?.on && fx.floatPit !== 'low' && fx.floatPit !== 'tangle';
+      const hasStop = !!i.acc.flotteur_arret?.on && fx.floatPit !== 'high' && fx.floatPit !== 'tangle';
       if (hasStart && st.x >= 0.5) start();
-      if (fx.floatPit === 'low' && st.x >= 0.5 && !st.on) st.blocked = true;
+      if ((fx.floatPit === 'low' || fx.floatPit === 'tangle') && st.x >= 0.5 && !st.on) st.blocked = true;
       if (!i.acc.flotteur_marche?.on && st.x >= 0.5 && !st.overflow && st.x >= 1.2) { st.overflow = true; newEv.push({ t: st.t, sev: 'critical', text: 'Débordement de la fosse : aucun flotteur de marche', target: 'acc:flotteur_marche' }); }
       if (st.on && st.x <= 0) {
         if (hasStop) stop('flotteur bas');
-        else if (fx.floatPit === 'high' && !st.runaway) { st.runaway = true; newEv.push({ t: st.t, sev: 'critical', text: 'Fosse vide mais le flotteur d\'arrêt ne coupe pas', target: 'acc:flotteur_arret' }); }
+        else if ((fx.floatPit === 'high' || fx.floatPit === 'tangle') && !st.runaway) { st.runaway = true; newEv.push({ t: st.t, sev: 'critical', text: 'Fosse vide mais le flotteur d\'arrêt ne coupe pas', target: 'acc:flotteur_arret' }); }
       }
       st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
       st.x += ((qin - st.q) / 3600 / area) * sub;
@@ -458,8 +487,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const spd = kind === 'vfd' || kind === 'solar' ? st.s : 1;
       const closedNow = st.on && !st.hum && !st.noFlow && st.q < 0.05 && (kind !== 'solar' || spd > 0.85);
       if (st.on && st.dry) seen('marche_a_sec');
-      const iR = !st.on ? 0 : st.hum ? (i.elec.supply === 'mono' ? 4.5 : 3.2) : st.noFlow ? 0.42 : closedNow ? 0.5 * (fx.ampsK ?? 1)
-        : iBase * (fx.ampsK ?? 1) * (kind === 'vfd' || kind === 'solar' ? Math.max(0.35, st.s ** 2) : 1);
+      const iR = !st.on ? 0 : st.hum ? (i.elec.supply === 'mono' ? 4.5 : 3.2) : fx.decoupled ? 0.3 : st.noFlow ? 0.42 : closedNow ? 0.5 * (fx.ampsK ?? 1)
+        : Math.max(fx.overload ?? 0, iBase * (fx.ampsK ?? 1) * (kind === 'vfd' || kind === 'solar' ? Math.max(0.35, st.s ** 2) : 1));
       // Refroidissement : moteur immergé = liquide qui le longe ; moteur de surface = ventilateur (arrêté avec le moteur)
       let cool = 1;
       if (st.on && imm) {
@@ -471,9 +500,10 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
           if (vc < 0.08) cool = 1.35; // vitesse de refroidissement insuffisante
         }
       }
-      const tEq = tAmb + 80 * iR * iR * cool;
+      const tEq = tAmb + 80 * iR * iR * cool * (st.on ? fx.heatK ?? 1 : 1);
       const tau = st.hum ? tauM / 3 : !st.on && !imm ? tauM * 2.5 : tauM;
       st.tm = (st.tm ?? tAmb) + ((tEq - (st.tm ?? tAmb)) * sub) / tau;
+      if (st.tm > 120) seen('moteur_chaud');
       if (st.tm > 130) once('tm130', { t: st.t, sev: 'warning', text: `Moteur chaud : bobinage à ${f1(st.tm, 0)} °C`, target: 'pump' });
       if (st.tm > 155) { once('tm155', { t: st.t, sev: 'critical', text: `Bobinage à ${f1(st.tm, 0)} °C : au-delà de la classe d'isolation F (155 °C), le vernis se dégrade`, target: 'pump' }); seen('bruit'); }
       if (st.tm > 180 && !st.burnt) {
@@ -483,12 +513,13 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (st.tm < 100) { delete st.flags!.tm130; }
       // Relais thermique du disjoncteur moteur (classe 10, réglé au courant nominal)
       if (i.elec.supply !== 'solaire') {
-        st.relay = (st.relay ?? 0) + ((iR * iR - (st.relay ?? 0)) * sub) / 250;
-        if (st.on && st.relay >= 1.44) trip(`Disjoncteur moteur Q1 déclenché (relais thermique) : ${f1(iR * er.inom)} A pour un réglage de ${f1(er.inom)} A`, 'decl_thermique');
+        const rk = relaySetting(ctx, fx) / Math.max(0.1, er.inom); // réglage du relais / In
+        st.relay = (st.relay ?? 0) + (((iR / rk) ** 2 - (st.relay ?? 0)) * sub) / 250;
+        if (st.on && st.relay >= 1.44) trip(`Disjoncteur moteur Q1 déclenché (relais thermique) : ${f1(iR * er.inom)} A pour un réglage de ${f1(er.inom * rk)} A`, 'decl_thermique');
       }
       // Liquide dans le corps de pompe : à débit nul, toute la puissance chauffe le liquide
       const tf = i.fluid.temp;
-      if (closedNow) st.tl = (st.tl ?? tf) + ((kwM * 0.35 * spd ** 3 * 1000) / (mCase * 4186)) * sub;
+      if (closedNow && !fx.decoupled) st.tl = (st.tl ?? tf) + ((kwM * 0.35 * spd ** 3 * 1000) / (mCase * 4186)) * sub;
       else if (st.on && !st.noFlow && !st.hum) st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 30;
       else st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 900;
       const ts = tSat(pShut + 1);
@@ -531,13 +562,17 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (st.on && st.noFlow) seen('debit_nul', 'marche_a_sec');
     if (st.blocked && !st.on && !st.trip) seen('ne_demarre_pas'); // après un déclenchement, c'est la protection qui empêche le démarrage
     // ----- Déclenchement thermique / défaut -----
+    if (st.on && st.hum && st.flags?.jam && st.runT >= 10) {
+      st.flags = { ...st.flags, jam: false };
+      trip(fx.altJam ? 'Pompe de secours grippée : rotor bloqué, son disjoncteur déclenche' : 'Roue bloquée par le sable : rotor bloqué, disjoncteur déclenché', 'decl_thermique');
+    }
     if (st.on) {
       st.runT += sub; st.runTot = (st.runTot ?? 0) + sub;
       if (fx.tripAfter != null && st.runT >= fx.tripAfter) trip(fx.tripMsg ?? 'Protection déclenchée', fx.tripKind ?? 'decl_thermique');
     }
 
     // Pompe qui tourne contre une vanne fermée : pas de débit, l'eau s'échauffe dans le corps
-    if (st.on && !st.hum && !st.noFlow && h.ok && h.q < 0.05) {
+    if (st.on && !st.hum && !st.noFlow && h.ok && h.q < 0.05 && !fx.decoupled) {
       seen('debit_nul', 'pression_haute', 'courant_bas');
       if (st.runT >= 120 && st.runT - sub < 120) newEv.push({ t: st.t, sev: 'critical', text: 'La pompe tourne contre une vanne fermée depuis 2 min : aucun débit, l\'eau chauffe dans la pompe (garniture en danger)', target: 'acc:vanne_ref' });
     }
@@ -568,6 +603,11 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
     const h0 = sp * sp * pumpHead(i, 0);
     const z = suctionZ(i);
     const pRef = isForage(i) ? bar(Math.max(0, h0 - i.geo.dynamicLevel)) : bar(Math.max(0, z + h0));
+    if (fx.decoupled) {
+      // Accouplement cassé : moteur à vide, la pompe ne crée aucune pression (seule la colonne retenue par le clapet)
+      const off = readings(i, h, false, er);
+      return { ...off, on: true, amps: er.inom * 0.3, kw: (i.pump.motorKw / 0.88) * 0.08 * h.n };
+    }
     const kw = (i.pump.motorKw / 0.88) * 0.4 * h.n * sp ** 3;
     return { q: 0, pRef, pAsp: bar(z), amps: er.inom * 0.5 * Math.max(0.5, sp ** 2) * (fx.ampsK ?? 1), kw, hmt: h0, margin: h.margin, on: true };
   }
@@ -578,6 +618,7 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
   if (st.on && !running && kind === 'vessel' && st.runaway) return { ...r, on: true, kw: h.pElec * 0.45, amps: er.inom * 0.5 * (fx.ampsK ?? 1) };
   const out = { ...r };
   if (running && fx.ampsK) out.amps = out.amps * fx.ampsK;
+  if (running && fx.overload) { out.amps = Math.max(out.amps, er.inom * fx.overload); out.kw = Math.max(out.kw, (i.pump.motorKw / 0.88) * fx.overload * 0.95); }
   if (running && st.dd > 0 && i.mode === 'aspiration') out.pAsp = r.pAsp - bar(st.dd);
   return out;
 }
@@ -595,6 +636,8 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const ref = (st.trip || st.isolated) && st.tripKind && st.recent[st.tripKind as Sym] != null ? st.recent[st.tripKind as Sym]! : st.t;
   for (const [k, t] of Object.entries(st.recent)) if (t != null && t > ref - 3 * 3600) o.add(k as Sym);
   if (fx.ids.includes('sous_tension') && st.t >= st.outageUntil) o.add('tension_basse');
+  if (fx.heatK && st.on) o.add('courants_desequilibres'); // se mesure à la pince sur les 3 phases
+  if (fx.sandy && (st.vol > 0.05)) o.add('eau_sableuse'); // sable visible dans l'eau pompée
   if (st.overflow) o.add('debordement');
   if (st.on && st.noFlow) { o.add('debit_nul'); o.add('marche_a_sec'); o.add('courant_bas'); }
   if (st.dry && st.on) o.add('marche_a_sec');
@@ -609,6 +652,7 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
       if (kind !== 'solar' && r.pRef > rn.pRef * 1.15 + 0.1) o.add('pression_haute');
     }
     if (kind === 'vessel' && r.pRef > rn.pRef * 1.15 + 0.2) o.add('pression_haute');
+    if (kind === 'pit' && st.q < normal.h.q * 0.85) o.add(st.q < 0.05 ? 'debit_nul' : 'debit_bas');
     if (r.amps > rn.amps * 1.12 + 0.1 || r.amps > er.inom * 1.05) o.add('courant_haut');
     if (r.amps < rn.amps * 0.86) o.add('courant_bas');
     if (r.pAsp < rn.pAsp - 0.12) o.add('depression_forte');

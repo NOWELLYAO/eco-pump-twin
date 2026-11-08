@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
-import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadings, makeCtx, observe, simKind, stepSim, type Mods, type SimState } from '../sim';
+import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadings, makeCtx, observe, progressiveWear, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
 import { LevelIcon } from '../../ui/Status';
@@ -33,7 +33,11 @@ export function SimPage({ s }: { s: Shared }) {
   const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: baseSpeed, draw: fire ? 0 : -1 }));
   // Pompe isolée après un défaut : la secours prend le relais, ou l'installation tourne avec une pompe de moins
   const [iso, setIso] = useState(false);
-  const iView = useMemo(() => applyMods(s.inst, mods), [s.inst, mods]); // affichage : toutes les pompes
+  // Pannes qui s'aggravent (usure, ensablement) : usure ajoutée par paliers de 5 %
+  const [faultT, setFaultT] = useState<Record<string, number>>({});
+  const [simT, setSimT] = useState(0);
+  const prog = Math.round(progressiveWear(mods.faults, faultT, simT) / 5) * 5;
+  const iView = useMemo(() => applyMods(s.inst, prog ? { ...mods, wear: Math.min(90, mods.wear + prog) } : mods), [s.inst, mods, prog]); // affichage : toutes les pompes
   const iSim = useMemo(() => {
     const x = iView;
     if (!iso) return x;
@@ -48,6 +52,8 @@ export function SimPage({ s }: { s: Shared }) {
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
   const [sim, setSim] = useState<SimState>(() => initSim(ctx));
+  const simHour = Math.floor(sim.t / 900);
+  useEffect(() => { setSimT(simHour * 900); }, [simHour]);
   const [playing, setPlaying] = useState(true);
   const [rate, setRate] = useState(600);
   useEffect(() => { setIso(!!sim.isolated); }, [sim.isolated]);
@@ -79,16 +85,19 @@ export function SimPage({ s }: { s: Shared }) {
     if (!f) return;
     if (mods.faults.includes(id)) { repair(id); return; }
     setMods((m) => ({ ...m, faults: [...m.faults, id] }));
-    setSim((st) => note('warning', `Panne provoquée : ${f.label}`, f.target)(inject(st, f.effect)));
+    setFaultT((ft) => ({ ...ft, [id]: sim.t }));
+    setSim((st) => note('warning', `Panne provoquée : ${f.label}`, f.target)(inject({ ...st, faultT: { ...(st.faultT ?? {}), [id]: st.t } }, f.effect)));
   };
   const repair = (id: string) => {
     const f = faultById(id);
     setMods((m) => ({ ...m, faults: m.faults.filter((x) => x !== id) }));
+    setFaultT((ft) => { const n = { ...ft }; delete n[id]; return n; });
     setSim((st) => note('ok', `Réparé : ${f?.label ?? id} — installation réarmée`)(cleared({ ...st, outageUntil: f?.effect.outage ? 0 : st.outageUntil })));
   };
   const repairAll = () => {
     setMods((m) => ({ ...m, faults: [] }));
     setMystery(null);
+    setFaultT({});
     setSim((st) => note('ok', 'Toutes les pannes réparées, protections réarmées')(cleared({ ...st, outageUntil: 0 })));
   };
   const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_variateur: undefined } }));
@@ -101,7 +110,8 @@ export function SimPage({ s }: { s: Shared }) {
     const options = [f.id, ...others].sort(() => Math.random() - 0.5);
     setMystery({ id: f.id, answer: null, options });
     setMods((m) => ({ ...m, faults: [...m.faults, f.id] }));
-    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject(st, f.effect)));
+    setFaultT((ft) => ({ ...ft, [f.id]: sim.t }));
+    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject({ ...st, faultT: { ...(st.faultT ?? {}), [f.id]: st.t } }, f.effect)));
     setPlaying(true);
   };
   const hasVfd = s.inst.acc.variateur?.on || s.inst.elec.supply === 'solaire';
@@ -110,10 +120,10 @@ export function SimPage({ s }: { s: Shared }) {
   const vesFill = vf == null ? undefined : ctx.fx.vesselK ? 1 - (1 - vf) * ctx.fx.vesselK : vf;
   const cNow = sim.series.at(-1)?.c ?? 0;
   const useRel = kind === 'vessel' || kind === 'vfd' ? cNow / Math.max(0.1, s.inst.duty.qReq) : kind === 'tank' ? cNow / Math.max(0.1, s.inst.duty.qReq * 0.55) : sim.on ? 0.6 : 0;
-  const phys = { tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
+  const phys = { relaySet: relaySetting(ctx), tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
   const live = { phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
-  const reset = () => { setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
+  const reset = () => { setFaultT({}); setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
   const sl = SERIES_LABEL[kind];
   const data = sim.series.map((p) => ({ ...p, label: clock(p.t).slice(3) }));

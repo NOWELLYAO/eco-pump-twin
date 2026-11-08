@@ -93,7 +93,7 @@ function VerticalPump({ x, y, atex }: { x: number; y: number; atex: boolean }) {
 export interface Live {
   on: boolean; r: Readings; kind: SimKind; x: number; pv?: number;
   dd?: number; trip?: string | null; hum?: boolean; noFlow?: boolean; vesFill?: number;
-  floatPit?: 'high' | 'low'; floatRes?: boolean; tripKind?: string | null;
+  floatPit?: 'high' | 'low' | 'tangle'; floatRes?: boolean; tripKind?: string | null;
   faults?: string[]; powered?: boolean; runaway?: boolean; isolated?: boolean;
   use?: number; // consommation relative (robinets, réseau aval)
   inflow?: number; // arrivée dans la fosse (m³/h)
@@ -102,7 +102,7 @@ export interface Live {
   overflow?: boolean; backDrop?: boolean;
 }
 /** Grandeurs physiques simulées */
-export interface Phys { tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
+export interface Phys { relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
 
 /** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */
 function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: number; waterY: number; L?: number; stuck?: 'up' | 'down'; title: string }) {
@@ -258,12 +258,14 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     floats.forEach(([id, y], n) => {
       if (!on(id)) return;
       const px = 132 + n * 20;
-      const stuck = live?.floatPit === 'high' && id === 'flotteur_arret' ? 'up' : live?.floatPit === 'low' && id === 'flotteur_marche' ? 'down' : undefined;
+      const tangle = live?.floatPit === 'tangle' && (id === 'flotteur_arret' || id === 'flotteur_marche');
+      const stuck = (live?.floatPit === 'high' || tangle) && id === 'flotteur_arret' ? 'up' : (live?.floatPit === 'low' || tangle) && id === 'flotteur_marche' ? 'down' : undefined;
       front.push(
         <g key={id}>
           <path d={`M${px - 12} ${G} C ${px - 12} ${G + 30}, ${px} ${y - 30}, ${px} ${y}`} className="r-cablepath" />
           <FloatSw px={px} py={y} waterY={yWater} stuck={stuck} title={id === 'flotteur_arret' ? 'Flotteur d\'arrêt' : id === 'flotteur_marche' ? 'Flotteur de marche' : 'Flotteur d\'alarme'} />
-          {stuck && <text x={px + 16} y={y - 14} className="r-stuck">bloqué</text>}
+          {stuck && !tangle && <text x={px + 16} y={y - 14} className="r-stuck">bloqué</text>}
+          {tangle && id === 'flotteur_marche' && <g><path d={`M${px - 26} ${y - 46} c 8 -10 18 10 26 0 c 6 -8 14 6 18 -2`} className="r-tangle" /><text x={px + 16} y={y - 40} className="r-stuck">emmêlés</text></g>}
         </g>,
       );
     });
@@ -553,7 +555,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
         <rect x={p.x - 24} y={p.y - 30} width={48} height={60} className="hit" />
         <g transform={`translate(${p.x},${p.y}) rotate(${vertical ? 0 : p.a})`}><RealGlyph kind={a.glyph} /></g>
         {id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <g className="r-closed"><path d={`M${p.x - 10} ${p.y - 10} L${p.x + 10} ${p.y + 10} M${p.x + 10} ${p.y - 10} L${p.x - 10} ${p.y + 10}`} /></g>}
-        <text x={vertical ? p.x + 22 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 88 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) - (upN % 2) * 15 : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : 'middle'} className="r-label">
+        <text x={vertical ? p.x + 22 : a.glyph === 'vessel' ? p.x - 20 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 50 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) - (upN % 2) * 15 : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : a.glyph === 'vessel' && !vertical ? 'end' : 'middle'} className="r-label">
           <title>{a.label}</title>{SHORT[id] ?? a.label}{dnTxt}{id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <tspan className="r-closed-t"> FERMÉE</tspan>}
         </text>
       </g>,
@@ -657,7 +659,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
     const val: Record<string, string> = {
       'acc:manometre': `${fx(r.pRef)} bar`, 'acc:vacuometre': `${fx(r.pAsp, 2)} bar`, 'acc:debitmetre': `${fx(r.q)} m³/h`,
-      'acc:capteur_p': `${fx(r.pRef)} bar`, 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar` : '',
+      'acc:capteur_p': `${fx(r.pRef)} bar`, 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar${live.vesFill != null ? ` · ${Math.round(Math.max(0, Math.min(1, live.vesFill)) * 100)} % eau` : ''}` : '',
       cable: `${fx(r.amps)} A`, pv: live.pv != null ? `${fx(live.pv, 2)} kW` : '',
     };
     for (const [k, t] of Object.entries(val)) {
@@ -665,7 +667,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       if (!an || !t) continue;
       const w = t.length * 7.6 + 12;
       const side = ['acc:manometre', 'acc:vacuometre', 'acc:capteur_p', 'acc:vessie'].includes(k);
-      const y = k === 'acc:vessie' ? an.y - 14 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
+      const y = k === 'acc:vessie' ? an.y + 6 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
       const cx = side ? an.x + (k === 'acc:vessie' ? 22 : 16) + w / 2 : an.x;
       lcd.push(<g key={`lcd-${k}`} className="lcd"><rect x={cx - w / 2} y={y - 13} width={w} height={19} rx={4} /><text x={cx} y={y + 1} textAnchor="middle">{t}</text></g>);
     }
@@ -679,7 +681,6 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
             <rect x={ves.x - 14} y={top} width={28} height={hgt} className="r-air" />
             <g className="r-anim-level" style={{ transform: `translateY(${hgt * (1 - f)}px)` }}><rect x={ves.x - 14} y={top} width={28} height={hgt} className="r-water" /></g>
           </g>
-          <text x={ves.x + 20} y={top + hgt - 4} className="r-label">{Math.round(f * 100)} % eau</text>
         </g>,
       );
     }
@@ -767,7 +768,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68 }} className="realview" role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68 }} className={`realview${live?.faults?.includes('ensablement') ? ' sandy' : ''}`} role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
       <rect x={0} y={0} width={W} height={G} className="r-sky" />
       <g {...pick('source')}>{scene}</g>
       <g {...pick('dest')}>{destEls}</g>

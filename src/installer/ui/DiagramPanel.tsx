@@ -171,6 +171,7 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
   const elive: ELive | undefined = live ? {
     q: live.r.q, pRef: live.r.pRef, pAsp: live.r.pAsp, kw: live.r.kw, hz: live.hz, x: live.x, kind: live.kind, clock: live.clock, starts: live.starts,
     startsH: (live.startLog ?? []).filter((t) => t > (live.simT ?? 0) - 3600).length, vol: live.vol, kwh: live.kwh, runTot: live.runTot, pv: live.pv,
+    sandy: (live.faults ?? []).includes('ensablement'), unbalance: (live.faults ?? []).includes('desequilibre'), relayK: (live.faults ?? []).includes('thermique_bas') ? 0.6 : (live.faults ?? []).includes('thermique_haut') ? 1.6 : 1,
     phys: live.phys, syms: live.syms, floatPit: live.floatPit, floatRes: live.floatRes, noFlow: live.noFlow,
     isolated: !!live.isolated, powered: live.powered ?? true, on: live.on, trip: live.trip ?? null, tripKind: live.tripKind ?? null, hum: !!live.hum, amps: live.r.amps, faults: live.faults ?? [],
     coilOn: live.on && !(live.runaway && (live.faults ?? []).includes('contacteur_colle')),

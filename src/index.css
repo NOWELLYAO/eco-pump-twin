@@ -1396,3 +1396,6 @@ html, body { overflow-x: clip; }
 .r-led.g.lit { fill: #22c55e; filter: drop-shadow(0 0 3px #22c55e); }
 .r-led.r.lit { fill: #ef4444; filter: drop-shadow(0 0 3px #ef4444); animation: blink 1s steps(2) infinite; }
 .r-scr-off { fill: #1f2937; }
+.realview.sandy .r-flow, .realview.sandy .r-stream, .realview.sandy .r-sprayjet { stroke: #c9a063; }
+.realview.sandy .r-water { fill: #b9a27a; }
+.r-tangle { fill: none; stroke: #2d3748; stroke-width: 2.5; stroke-linecap: round; }

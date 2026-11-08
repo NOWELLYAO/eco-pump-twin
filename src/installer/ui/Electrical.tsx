@@ -15,8 +15,8 @@ export interface ELive {
   // Mesures pour l'afficheur du coffret
   q?: number; pRef?: number; pAsp?: number; kw?: number; hz?: number; x?: number; kind?: string;
   clock?: string; starts?: number; startsH?: number; vol?: number; kwh?: number; runTot?: number; pv?: number;
-  syms?: string[]; floatPit?: 'high' | 'low'; floatRes?: boolean; noFlow?: boolean;
-  phys?: { tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean };
+  syms?: string[]; floatPit?: 'high' | 'low' | 'tangle'; floatRes?: boolean; noFlow?: boolean; sandy?: boolean; unbalance?: boolean; relayK?: number;
+  phys?: { relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean };
 }
 
 type Kind = 'switch' | 'spd' | 'rcd' | 'mcb' | 'mpcb' | 'contactor' | 'timer' | 'soft' | 'vfd' | 'mppt' | 'relay' | 'transfo' | 'fuse' | 'cap' | 'terminal' | 'filter' | 'dcswitch' | 'psu';
@@ -237,7 +237,7 @@ function activeAlarms(i: Installation, ev: Evaluation, L: ELive): Alarm[] {
   if (!L.powered) add('pas_de_tension', 'Absence de tension réseau', true);
   if (L.trip) add('trip', L.trip, true);
   if (L.isolated) add('isolated', 'Pompe 1 en défaut, isolée : la pompe de secours a pris le relais', true);
-  for (const y of L.syms ?? []) if (!(L.trip && y.startsWith('decl_'))) add(y, SYM_LABEL[y as Sym] ?? y, CRIT_SYMS.has(y));
+  for (const y of L.syms ?? []) if (!(L.trip && y.startsWith('decl_')) && !(y === 'courant_haut' && L.on && L.amps > ev.elec.inom * 1.05)) add(y, SYM_LABEL[y as Sym] ?? y, CRIT_SYMS.has(y));
   const e = ev.elec;
   if (L.on && L.amps > e.inom * 1.05) add('i_high', `Surintensité : ${fmt(L.amps, 1)} A pour ${fmt(e.inom, 1)} A nominal`, L.amps > e.inom * 1.2);
   if (L.on && L.noFlow) add('debit_nul', 'Pompe en marche sans débit', true);
@@ -343,7 +343,8 @@ export function CabinetHmi({ i, ev, cfg, L }: { i: Installation; ev: Evaluation;
         {uNow != null && <Tile l={i.elec.supply === 'mono' ? 'Tension (L-N)' : 'Tension (entre phases)'} v={fmt(uNow, 0)} u=" V" lvl={!L.powered ? 'crit' : uNow < U! * 0.92 ? 'warn' : 'ok'} sub={`${fmt(U!, 0)} V nominal`} />}
         {Array.from({ length: nP }, (_, k) => k + 1).map((p) => {
           const a = run.includes(p) ? L.amps : 0;
-          return <Tile key={p} l={nP > 1 ? `Courant pompe ${p}` : 'Courant moteur'} v={fmt(a, 1)} u=" A" bar={a / iMax} lvl={a ? iLvl : undefined} sub={`In ${fmt(e.inom, 1)} A${nP > 1 ? (run.includes(p) ? ' · en marche' : L.isolated && p === 1 ? ' · isolée' : ' · à l\'arrêt') : ''}`} />;
+          const ph = L.unbalance && a ? ` · L1 ${fmt(a * 1.12, 1)} / L2 ${fmt(a * 0.97, 1)} / L3 ${fmt(a * 0.86, 1)} A` : '';
+          return <Tile key={p} l={nP > 1 ? `Courant pompe ${p}` : 'Courant moteur'} v={fmt(a, 1)} u=" A" bar={a / iMax} lvl={a ? (L.unbalance ? 'warn' : iLvl) : undefined} sub={`In ${fmt(e.inom, 1)} A · Q1 réglé ${fmt(L.phys?.relaySet ?? e.inom * (L.relayK ?? 1), 1)} A${ph}${nP > 1 ? (run.includes(p) ? ' · en marche' : L.isolated && p === 1 ? ' · isolée' : ' · à l\'arrêt') : ''}`} />;
         })}
         <Tile l="Puissance absorbée" v={fmt(L.kw ?? 0, 2)} u=" kW" sub={L.on ? `cos φ ${fmt(i.elec.cosphi, 2)}` : 'moteur arrêté'} />
         {L.hz != null && <Tile l="Fréquence" v={fmt(L.on ? L.hz : 0, 1)} u=" Hz" bar={L.on ? L.hz / 50 : 0} sub="sortie variateur" />}
