@@ -132,7 +132,7 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
   onPick: (t: string | null) => void; onIssue: (x: Issue) => void; onSet: (fn: (x: Installation) => Installation) => void;
   live?: Live & Partial<TermLive>; banner?: Issue | null; onCloseBanner?: () => void;
 }) {
-  const term = termLines(i, ev, live ? { on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh } : undefined);
+  const term = termLines(i, ev, live ? { on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz } : undefined);
   const [view, setView] = useState<View>('real');
   return (
     <div className="diagram" id="diagram">

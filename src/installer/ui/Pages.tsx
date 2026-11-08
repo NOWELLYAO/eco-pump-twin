@@ -113,13 +113,13 @@ export function SimPage({ s }: { s: Shared }) {
 
   const kind = ctx.kind;
   const r = readings(iSim, ctx.h, sim.on, ctx.er, sim.on ? sim.q : undefined, kind === 'vfd' && sim.on ? sim.s : 1);
-  const live = { on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh };
+  const hasVfd = s.inst.acc.variateur?.on || s.inst.elec.supply === 'solaire';
+  const live = { on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
   const reset = () => { setMods(base); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
   const sl = SERIES_LABEL[kind];
   const data = sim.series.map((p) => ({ ...p, label: clock(p.t).slice(3) }));
-  const hasVfd = s.inst.acc.variateur?.on || s.inst.elec.supply === 'solaire';
   const hasFilter = ['clapet_pied', 'crepine', 'filtre_asp', 'prefiltre'].some((k) => s.inst.acc[k]?.on);
   const v = ctx.er.vessel;
   const liveIssues = evSim.issues.filter((x) => x.sev !== 'info');
