@@ -1,5 +1,5 @@
 import { MapPin, Wand2 } from 'lucide-react';
-import { BACKUP_SIZES, backupApplies, backupCalc, backupProposal } from '../backup';
+import { BACKUP_SIZES, backupApplies, backupCalc, backupMode, backupProposal, floatKind } from '../backup';
 import { posAdvice } from '../positions';
 import { SolarSite } from './SolarSite';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES } from '../catalog';
@@ -303,22 +303,29 @@ function BackupSection({ i, set, n }: { i: Installation; set: (fn: (i: Installat
   const upd = (p: Partial<NonNullable<Installation['backup']>>) => set((x) => ({ ...x, backup: { ...(x.backup ?? backupProposal(x)), ...p } }));
   const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
   return (
-    <Section n={n} title="Réservoir de secours (by-pass)" summary={on ? `${b!.volume.toLocaleString('fr-FR')} L à ${b!.height} m · ${f1(c.autonomyH, 0)} h d'autonomie` : ok ? 'Non installé' : 'Sans objet ici'}>
+    <Section n={n} title="Réservoir surélevé (château d'eau)" summary={on ? `${backupMode(b) === 'serie' ? 'En série' : 'Secours'} · ${b!.volume.toLocaleString('fr-FR')} L à ${b!.height} m · ${f1(c.autonomyH, 0)} h de réserve` : ok ? 'Non installé' : 'Sans objet ici'}>
       {!ok ? (
         <p className="ihint">Sans pressostat ni variateur, le forage remplit déjà un réservoir qui alimente le réseau par gravité : pas besoin de by-pass. Le réservoir de secours sert quand le forage alimente directement la maison sous pression.</p>
       ) : (
         <>
-          <p className="ihint">En marche normale, la pompe alimente la maison et remplit un réservoir surélevé par un robinet à flotteur. La sortie du réservoir passe par une électrovanne normalement ouverte, tenue fermée par le coffret : en cas de coupure (plus de courant, elle s'ouvre seule), de disjonction, de manque d'eau au forage ou de pression restée basse, elle s'ouvre et la maison est alimentée par gravité. La hauteur du réservoir ne gêne donc pas le pressostat.</p>
-          <Toggle label="Installer un réservoir de secours en by-pass" checked={on} onChange={(v) => set((x) => ({ ...x, backup: v ? { ...(x.backup ?? backupProposal(x)), on: true } : { ...(x.backup ?? backupProposal(x)), on: false } }))} />
+          <p className="ihint">{!on || backupMode(b) === 'serie'
+            ? <>La pompe remplit le réservoir par un robinet à flotteur, la maison est <b>toujours servie par le réservoir</b> (gravité). Réservoir plein, le flotteur ferme : la pression monte et le pressostat arrête la pompe. Le niveau baisse, le flotteur s'ouvre : la pression tombe et le pressostat relance la pompe. En cas de panne ou de coupure, la maison continue d'être servie tant qu'il reste de l'eau.</>
+            : <>La pompe alimente la maison sous pression et remplit le réservoir en by-pass. Sa sortie passe par une électrovanne normalement ouverte tenue fermée par le coffret : en cas de coupure, de disjonction, de manque d'eau ou de pression restée basse, elle s'ouvre et le réservoir sert la maison par gravité.</>}</p>
+          <Toggle label="Installer un réservoir surélevé" checked={on} onChange={(v) => set((x) => ({ ...x, backup: v ? { ...(x.backup ?? backupProposal(x)), on: true } : { ...(x.backup ?? backupProposal(x)), on: false } }))} />
           {on && b && (
             <div className="igrid">
+              <SelField label="Fonctionnement" value={backupMode(b)} options={[{ v: 'serie', l: 'En série : la maison est servie par le réservoir' }, { v: 'secours', l: 'Secours : la pompe sert la maison, réservoir en by-pass' }]} onChange={(v) => upd({ mode: v as 'serie' | 'secours' })} />
+              {backupMode(b) === 'serie' && <SelField label="Robinet à flotteur" value={floatKind(b)} options={[{ v: 'differentiel', l: 'À niveau différentiel (conseillé : longs cycles)' }, { v: 'modulant', l: 'Classique (s\'entrouvre au moindre puisage)' }]} onChange={(v) => upd({ float: v as 'differentiel' | 'modulant' })} />}
+              {backupMode(b) === 'serie' && floatKind(b) === 'differentiel' && <NumField label="Réouverture du flotteur" unit="%" value={b.low ?? 80} onChange={(v) => v >= 30 && v <= 95 && upd({ low: v })} hint="niveau auquel le remplissage reprend (la pompe redémarre)" />}
               <NumField label="Autonomie souhaitée" unit="h" value={b.autonomyH} onChange={(v) => v > 0 && upd({ autonomyH: Math.min(96, v) })} hint={`consommation moyenne ≈ ${f1(c.avgM3h, 2)} m³/h (${f1(c.dailyM3, 0)} m³/jour)`} />
               <SelField label="Volume du réservoir" value={b.volume} options={[...new Set([...BACKUP_SIZES, b.volume])].sort((p, q) => p - q).map((v) => ({ v, l: `${v.toLocaleString('fr-FR')} L${v === c.volRec ? ' (conseillé)' : ''}` }))} onChange={(v) => upd({ volume: v })} />
               <NumField label="Hauteur sous le réservoir" unit="m" value={b.height} onChange={(v) => v >= 0 && upd({ height: Math.min(30, v) })} hint={`mini ${c.hMin} m · conseillé ${c.hRec} m (château d'eau, tour ou toit)`} />
               <div className="vrec wide2">
                 <b>Résultat</b>
-                <span>Autonomie {f1(c.autonomyH, 1)} h · {f1(c.pHouse, 1)} bar aux robinets en secours · remplissage complet ≈ {f1(c.fillH, 1)} h</span>
-                <small>Robinet à flotteur DN{c.fillDn} sur le by-pass ({f1(c.fillM3h, 1)} m³/h) · sortie DN{c.outDn} par électrovanne normalement ouverte + clapet anti-retour · remplissage dès {f1(c.headTop)} bar en tête de forage · trop-plein et vidange</small>
+                <span>Réserve {f1(c.autonomyH, 1)} h · {f1(c.pHouse, 1)} bar aux robinets{backupMode(b) === 'serie' ? '' : ' en secours'} · remplissage complet ≈ {f1(c.fillH, 1)} h</span>
+                {backupMode(b) === 'serie'
+                  ? <small>Robinet à flotteur DN{c.fillDn} ({f1(c.fillM3h, 1)} m³/h) · descente DN{c.outDn} vers la maison · charge du réservoir en tête de forage {f1(c.headTop)} bar : le pressostat doit relancer au-dessus ({f1(c.headTop + 0.3)} bar mini) · by-pass direct (fermé) pour l'entretien · trop-plein et vidange</small>
+                  : <small>Robinet à flotteur DN{c.fillDn} sur le by-pass ({f1(c.fillM3h, 1)} m³/h) · sortie DN{c.outDn} par électrovanne normalement ouverte + clapet anti-retour · remplissage dès {f1(c.headTop)} bar en tête de forage · trop-plein et vidange</small>}
                 {(b.volume !== c.volRec || b.height < c.hMin) && <button type="button" className="btn primary sm" onClick={() => upd({ volume: c.volRec, height: Math.max(b.height, c.hRec) })}>Appliquer le dimensionnement conseillé</button>}
               </div>
             </div>

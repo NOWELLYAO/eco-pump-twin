@@ -1,4 +1,4 @@
-import { backupCalc, backupOf } from './backup';
+import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { ACCESSORIES, FLUIDS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from './catalog';
 import type { Evaluation } from './evaluate';
 import { elecConfig } from './ui/Electrical';
@@ -154,15 +154,23 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
   if (bk) {
     const bc = backupCalc(i, bk);
     const vol = bk.volume.toLocaleString('fr-FR');
-    add({ id: 'bk_cuve', cat: 'robinetterie', desig: 'Réservoir de secours (cuve)', spec: `${vol} L, PEHD traité anti-UV, qualité eau potable, avec trou d'homme`, qty: 1, unit: 'u' });
-    add({ id: 'bk_support', cat: 'divers', desig: 'Support / château d\'eau du réservoir de secours', spec: `hauteur ${f(bk.height, 0)} m sous la cuve, dimensionné pour ${f((bk.volume / 1000) * 1.1, 1)} t en charge`, qty: 1, unit: 'u', note: 'métallique galvanisé ou béton' });
-    add({ id: 'bk_flotteur', cat: 'robinetterie', desig: 'Robinet à flotteur (remplissage du réservoir)', spec: `DN${bc.fillDn}, laiton, flotteur inox, ≈ ${f(bc.fillM3h, 1)} m³/h`, qty: 1, unit: 'u' });
-    add({ id: 'bk_ev', cat: 'electricite', desig: 'Électrovanne de secours normalement ouverte (sortie réservoir)', spec: `DN${bc.outDn}, 2/2 voies NO, bobine 230 V, à membrane fonctionnant dès 0 bar`, qty: 1, unit: 'u', note: 'fermée par le coffret tant que tout va bien' });
-    add({ id: 'bk_cmd', cat: 'electricite', desig: 'Commande de l\'électrovanne de secours dans le coffret', spec: 'relais temporisé + contact pression basse (2 min), report défaut, câble 3G1,5 jusqu\'au réservoir', qty: 1, unit: 'lot' });
-    add({ id: 'bk_clapet', cat: 'robinetterie', desig: 'Clapet anti-retour sortie réservoir (vers la maison)', spec: `DN${bc.outDn}, battant à faible pression d'ouverture`, qty: 1, unit: 'u' });
-    add({ id: 'bk_vannes', cat: 'robinetterie', desig: 'Vannes d\'isolement du by-pass (arrivée et sortie)', spec: `DN${bc.fillDn} et DN${bc.outDn}, à boisseau sphérique`, qty: 2, unit: 'u' });
-    add({ id: 'bk_trop', cat: 'robinetterie', desig: 'Trop-plein et vidange du réservoir', spec: `trop-plein DN${bc.outDn} avec grille anti-insectes, vanne de vidange DN32`, qty: 1, unit: 'lot' });
-    add({ id: 'bk_tubes', cat: 'tuyauterie', desig: 'Tuyauterie du by-pass (montée et descente)', spec: `PEHD PN10 DN${bc.fillDn} (montée) et DN${bc.outDn} (descente)`, qty: up((bk.height + 4) * 2 * 1.1), unit: 'm' });
+    const serie = backupMode(bk) === 'serie';
+    add({ id: 'bk_cuve', cat: 'robinetterie', desig: serie ? 'Réservoir surélevé (château d\'eau)' : 'Réservoir de secours (cuve)', spec: `${vol} L, PEHD traité anti-UV, qualité eau potable, avec trou d'homme`, qty: 1, unit: 'u' });
+    add({ id: 'bk_support', cat: 'divers', desig: 'Support / château d\'eau du réservoir', spec: `hauteur ${f(bk.height, 0)} m sous la cuve, dimensionné pour ${f((bk.volume / 1000) * 1.1, 1)} t en charge`, qty: 1, unit: 'u', note: 'métallique galvanisé ou béton' });
+    if (serie) {
+      const dif = floatKind(bk) === 'differentiel';
+      add({ id: 'bk_flotteur', cat: 'robinetterie', desig: dif ? 'Robinet à flotteur à niveau différentiel (vanne altimétrique)' : 'Robinet à flotteur (remplissage du réservoir)', spec: `DN${bc.fillDn}, ${dif ? `ouverture à ${Math.round(floatLow(bk) * 100)} %, fermeture à 100 %, ` : ''}≈ ${f(bc.fillM3h, 1)} m³/h (tout le débit de la pompe)`, qty: 1, unit: 'u', note: 'sa fermeture fait monter la pression : le pressostat arrête la pompe' });
+      add({ id: 'bk_vannes', cat: 'robinetterie', desig: 'Vannes d\'isolement (arrivée et départ maison)', spec: `DN${bc.fillDn} et DN${bc.outDn}, à boisseau sphérique`, qty: 2, unit: 'u' });
+      add({ id: 'bk_bypass', cat: 'robinetterie', desig: 'Vanne de by-pass direct pompe → maison (normalement fermée)', spec: `DN${bc.outDn}, pour servir la maison pendant le nettoyage de la cuve`, qty: 1, unit: 'u' });
+    } else {
+      add({ id: 'bk_flotteur', cat: 'robinetterie', desig: 'Robinet à flotteur (remplissage du réservoir)', spec: `DN${bc.fillDn}, laiton, flotteur inox, ≈ ${f(bc.fillM3h, 1)} m³/h`, qty: 1, unit: 'u' });
+      add({ id: 'bk_ev', cat: 'electricite', desig: 'Électrovanne de secours normalement ouverte (sortie réservoir)', spec: `DN${bc.outDn}, 2/2 voies NO, bobine 230 V, à membrane fonctionnant dès 0 bar`, qty: 1, unit: 'u', note: 'fermée par le coffret tant que tout va bien' });
+      add({ id: 'bk_cmd', cat: 'electricite', desig: 'Commande de l\'électrovanne de secours dans le coffret', spec: 'relais temporisé + contact pression basse (2 min), report défaut, câble 3G1,5 jusqu\'au réservoir', qty: 1, unit: 'lot' });
+      add({ id: 'bk_clapet', cat: 'robinetterie', desig: 'Clapet anti-retour sortie réservoir (vers la maison)', spec: `DN${bc.outDn}, battant à faible pression d'ouverture`, qty: 1, unit: 'u' });
+      add({ id: 'bk_vannes', cat: 'robinetterie', desig: 'Vannes d\'isolement du by-pass (arrivée et sortie)', spec: `DN${bc.fillDn} et DN${bc.outDn}, à boisseau sphérique`, qty: 2, unit: 'u' });
+    }
+    add({ id: 'bk_trop', cat: 'robinetterie', desig: 'Trop-plein et vidange du réservoir', spec: `trop-plein DN${Math.max(bc.outDn, bc.fillDn)} avec grille anti-insectes, vanne de vidange DN32`, qty: 1, unit: 'lot' });
+    add({ id: 'bk_tubes', cat: 'tuyauterie', desig: serie ? 'Tuyauterie montée (pompe → cuve) et descente (cuve → maison)' : 'Tuyauterie du by-pass (montée et descente)', spec: `PEHD PN10 DN${bc.fillDn} (montée) et DN${bc.outDn} (descente)`, qty: up((bk.height + 4) * 2 * 1.1), unit: 'm' });
     add({ id: 'bk_tes', cat: 'raccords', desig: 'Tés de piquage sur la conduite de la maison', spec: `DN${i.ref.dn} × DN${bc.fillDn} et DN${i.ref.dn} × DN${bc.outDn}`, qty: 2, unit: 'u' });
     add({ id: 'bk_pose', cat: 'prestations', desig: 'Montage du réservoir de secours et du by-pass', spec: `levage de la cuve à ${f(bk.height, 0)} m, raccordements, essai`, qty: 1, unit: 'forfait' });
   }

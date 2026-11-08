@@ -3,7 +3,7 @@ import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
 import { proposePump } from './sizing';
-import { backupApplies, backupCalc, backupOf, backupProposal } from './backup';
+import { backupApplies, backupCalc, backupMode, backupOf, backupProposal, floatKind, floatLow } from './backup';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -568,11 +568,11 @@ export function evaluate(input: Installation): Evaluation {
     const b = backupOf(i);
     if (!b) {
       const pr = backupProposal(i);
-      add({ id: 'rec_backup', sev: 'info', cat: 'accessoires', title: 'Réservoir de secours en by-pass conseillé',
-        detail: `La maison dépend uniquement de la pompe : en cas de panne, de coupure ou de manque d'eau dans le forage, plus une goutte. Un réservoir surélevé de ${pr.volume.toLocaleString('fr-FR')} L, rempli par la pompe en marche normale, donnerait environ ${pr.autonomyH} h d'autonomie.`,
+      add({ id: 'rec_backup', sev: 'info', cat: 'accessoires', title: 'Réservoir surélevé (château d\'eau) conseillé',
+        detail: `La maison dépend uniquement de la pompe : en cas de panne, de coupure ou de manque d'eau dans le forage, plus une goutte. Un réservoir surélevé de ${pr.volume.toLocaleString('fr-FR')} L rempli par la pompe (robinet à flotteur, pressostat) servirait la maison par gravité et donnerait environ ${pr.autonomyH} h de réserve ; la pompe ne tournerait que pour le remplir, en longs cycles.`,
         consequences: ['Aucune réserve en cas de panne ou de coupure'], parts: [],
-        solutions: [`Ajouter un réservoir de secours de ${pr.volume.toLocaleString('fr-FR')} L sur un support de ${pr.height} m`],
-        fix: { label: `Ajouter ${pr.volume.toLocaleString('fr-FR')} L de secours`, apply: (x) => ({ ...x, backup: backupProposal(x) }) } });
+        solutions: [`Ajouter un réservoir de ${pr.volume.toLocaleString('fr-FR')} L sur un support de ${pr.height} m`],
+        fix: { label: `Ajouter un château d'eau de ${pr.volume.toLocaleString('fr-FR')} L`, apply: (x) => ({ ...x, backup: backupProposal(x) }) } });
     } else {
       const c = backupCalc(i, b);
       // La cuve se remplit par le haut (robinet à flotteur) : la pompe doit pouvoir y monter, au-dessus de la pression
@@ -584,7 +584,7 @@ export function evaluate(input: Installation): Evaluation {
       if (c.headTop >= pHi - 0.2) {
         const canRaise = !!vr && !vfd && c.headTop + 0.4 <= vr.pMax - 0.2;
         const pOn2 = vr ? Math.ceil((c.headTop - 0.3) * 10) / 10 : 0, pOff2 = vr ? Math.min(Math.floor((vr.pMax - 0.2) * 10) / 10, Math.ceil((c.headTop + 0.6) * 10) / 10) : 0;
-        add({ id: 'bk_pon', sev: 'critical', cat: 'hydraulique', title: 'Le réservoir de secours ne peut pas se remplir',
+        add({ id: 'bk_pon', sev: 'critical', cat: 'hydraulique', title: 'Le réservoir ne peut pas se remplir',
           detail: `Pour remplir une cuve posée à ${f0(b.height)} m (${f0(Math.max(0, i.geo.hRef))} m plus haut que la tête de forage), il faut ${f1(c.headTop)} bar en tête de forage, alors que ${vfd ? 'la consigne du variateur' : 'le pressostat coupe'} à ${f1(pHi)} bar : le robinet à flotteur ne reçoit presque rien.`,
           consequences: ['Réserve vide le jour d\'une panne'], parts: [],
           solutions: [hMax >= c.hMin ? `Baisser le réservoir à ${hMax} m` : `Hauteur maxi ${Math.max(0, hMax)} m : trop bas pour une bonne pression`, canRaise ? `Ou régler le pressostat à ${f1(pOn2)} / ${f1(pOff2)} bar (la pompe monte à ${f1(vr!.pMax)} bar)` : 'Ou une pompe plus haute en pression'],
@@ -599,10 +599,24 @@ export function evaluate(input: Installation): Evaluation {
         detail: `${b.volume.toLocaleString('fr-FR')} L tiennent environ ${f1(c.autonomyH)} h à la consommation moyenne (${f1(c.avgM3h, 2)} m³/h), pour ${b.autonomyH} h souhaitées.`,
         consequences: ['Autonomie insuffisante en cas de panne'], parts: [],
         solutions: [`Réservoir de ${c.volRec.toLocaleString('fr-FR')} L`], fix: { label: `${c.volRec.toLocaleString('fr-FR')} L`, apply: (x) => ({ ...x, backup: { ...b, volume: c.volRec } }) } });
-      if (h.ok && h.q < i.duty.qReq + c.fillM3h * 0.5) add({ id: 'bk_fill', sev: 'info', cat: 'hydraulique', title: 'Remplissage du réservoir de secours lent',
+      const serie = backupMode(b) === 'serie';
+      // Château d'eau en série : flotteur ouvert, la pression en tête de forage tombe à la charge du réservoir.
+      // Le pressostat doit relancer AU-DESSUS de cette charge, sinon la pompe ne repart jamais.
+      if (serie && vr && !vfd && vr.pOn < c.headTop + 0.1) {
+        const pOn2 = Math.ceil((c.headTop + 0.3) * 10) / 10, pOff2 = Math.min(Math.floor((vr.pMax - 0.2) * 10) / 10, Math.round((pOn2 + 1) * 10) / 10);
+        const ok2 = pOff2 >= pOn2 + 0.5;
+        add({ id: 'bk_restart', sev: 'critical', cat: 'hydraulique', title: 'La pompe ne redémarrera pas quand le réservoir baisse',
+          detail: `Flotteur ouvert, la pression en tête de forage descend jusqu'à la charge du réservoir (${f1(c.headTop)} bar) et s'y arrête, alors que le pressostat ne relance qu'à ${f1(vr.pOn)} bar : la cuve se vide et la pompe reste arrêtée.`,
+          consequences: ['Réservoir vide, plus d\'eau à la maison'], parts: [],
+          solutions: [ok2 ? `Régler le pressostat à ${f1(pOn2)} / ${f1(pOff2)} bar (précharge ${f1(pOn2 - 0.2)} bar)` : `Baisser le réservoir à ${hMax} m ou pompe plus haute en pression`],
+          fix: ok2 ? { label: `Pressostat ${f1(pOn2)} / ${f1(pOff2)} bar`, apply: (x) => ({ ...x, acc: { ...x.acc, vessie: { ...x.acc.vessie, on: true, pOn: pOn2, pOff: pOff2, pre: Math.round((pOn2 - 0.2) * 10) / 10 } } }) } : undefined });
+      }
+      if (!serie && h.ok && h.q < i.duty.qReq + c.fillM3h * 0.5) add({ id: 'bk_fill', sev: 'info', cat: 'hydraulique', title: 'Remplissage du réservoir de secours lent',
         detail: `La pompe donne ${f1(h.q)} m³/h : en pointe, il reste peu de débit pour remplir le réservoir (${f1(c.fillH)} h pour un remplissage complet hors pointe).`,
         consequences: ['Réserve incomplète après une longue panne'], parts: [], solutions: ['Robinet à flotteur réglé pour un remplissage hors pointe, ou pompe un peu plus forte'] });
-      if (b.height >= c.hMin && b.volume >= c.volRec * 0.7 && c.headTop < pHi - 0.2)
+      if (serie && b.height >= c.hMin && b.volume >= c.volRec * 0.7 && c.headTop < pHi - 0.2 && (!vr || vfd || vr.pOn >= c.headTop + 0.1))
+        goods.push(`Château d'eau ${b.volume.toLocaleString('fr-FR')} L à ${f0(b.height)} m en série : maison toujours servie par gravité (${f1(c.pHouse)} bar), ${f1(c.autonomyH)} h de réserve en cas de panne, la pompe ne tourne que pour le remplir${floatKind(b) === 'differentiel' ? ` (cycles longs de ${floatLow(b) * 100 | 0} à 100 %)` : ''}`);
+      else if (!serie && b.height >= c.hMin && b.volume >= c.volRec * 0.7 && c.headTop < pHi - 0.2)
         goods.push(`Réservoir de secours ${b.volume.toLocaleString('fr-FR')} L à ${f0(b.height)} m : ${f1(c.autonomyH)} h d'autonomie, ${f1(c.pHouse)} bar aux robinets en cas de panne`);
     }
   }

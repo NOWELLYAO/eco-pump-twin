@@ -1,5 +1,5 @@
 import { PIPE_MATS, refStatic } from './catalog';
-import { backupCalc, backupOf } from './backup';
+import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, pressZ, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
@@ -49,9 +49,14 @@ export interface Readings { q: number; pRef: number; pAsp: number; amps: number;
 
 /** Débit du robinet à flotteur du réservoir de secours (m³/h) : il s'ouvre quand le niveau baisse, et débite selon
  *  la pression disponible au-dessus de l'entrée de la cuve (orifice : Q ∝ √Δp). Bloqué ouvert, il ne ferme jamais. */
-export function floatFlow(bc: { headTop: number; fillM3h: number }, st: { x: number; bk?: number }, stuck = false) {
+export function floatFlow(bc: { headTop: number; fillM3h: number }, st: { x: number; bk?: number; bkVo?: boolean }, stuck = false, serie = false, diff = false) {
   const dp = st.x - bc.headTop;
   if (dp <= 0) return 0;
+  // En série : flotteur à niveau différentiel (ouvert en grand entre « bas » et plein) ou modulant (s'entrouvre sur les 4 derniers %)
+  if (serie) {
+    const o = stuck ? 1 : diff ? (st.bkVo ? 1 : 0) : Math.max(0, Math.min(1, (0.995 - (st.bk ?? 1)) / 0.04));
+    return o * bc.fillM3h * Math.min(2, Math.sqrt(dp / 0.5));
+  }
   const k = Math.min(1, Math.sqrt(dp / 0.5)); // débit nominal dès 0,5 bar au-dessus de l'entrée
   if (stuck) return bc.fillM3h * 3 * Math.sqrt(Math.max(0.05, dp) / 0.5);
   return (st.bk ?? 1) < 0.999 ? bc.fillM3h * k : 0;
@@ -66,14 +71,37 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   const rhoG = i.fluid.rho * G;
   const house = use(ctx, hourOf(st.t)) * i.duty.qReq;
   const bkp = backupOf(i); const bc = bkp ? backupCalc(i, bkp) : null;
-  const fill = bc ? floatFlow(bc, st, !!fx.bkFloatStuck) : 0;
+  const serie = !!bkp && backupMode(bkp) === 'serie';
+  const diff = serie && floatKind(bkp) === 'differentiel';
+  const fill = st.bkQ ?? (bc ? floatFlow(bc, st, !!fx.bkFloatStuck, serie, diff) : 0);
   const fillTxt = fill > 0.05 ? ` + ${f(fill)} m³/h pour le réservoir de secours${fx.bkFloatStuck && (st.bk ?? 0) >= 0.999 ? ' (déborde !)' : ''}` : '';
+  if ((st.trip || st.t < st.outageUntil || st.lowLevel) && serie && bc) {
+    const cause = st.t < st.outageUntil ? 'coupure de courant' : st.trip ? 'pompe en défaut' : 'manque d\'eau au forage';
+    return (st.bk ?? 0) <= 0.002 ? `${cause} et réservoir VIDE : plus d'eau à la maison` : `${cause} : la maison reste servie par le réservoir (${Math.round((st.bk ?? 0) * 100)} %, encore ≈ ${f(((st.bk ?? 0) * bkp!.volume / 1000) / Math.max(0.05, bc.avgM3h), 0)} h à la consommation moyenne)`;
+  }
   if (st.trip || st.t < st.outageUntil) return null;
   if (st.bkFeed) return `arrêtée : la maison est alimentée par le réservoir de secours (${Math.round((st.bk ?? 0) * 100)} %)`;
   if (st.lowLevel) return 'arrêtée : manque d\'eau au forage, attend que le niveau remonte';
   if (kind === 'vfd') return st.on ? `variateur à ${Math.round(st.s * 50)} Hz : la maison prend ${f(house)} m³/h${fillTxt}, pression tenue à ${f(st.x)} bar` : 'en veille : consommation trop faible';
   if (!v) return null;
   const vt = v.vol / 1000 * (fx.vesselK ?? 1);
+  if (serie && bc) {
+    const lvl = `${Math.round((st.bk ?? 0) * 100)} %`;
+    const vwS = (p: number) => vt * (1 - (v.pre + 1) / (Math.max(p, v.pre) + 1));
+    const durS = (h: number) => (h * 60 < 1 ? 'moins d\'1 min' : h * 60 < 90 ? `${Math.round(h * 60)} min` : `${f(h, 1)} h`);
+    if ((st.bk ?? 0) <= 0.002) return `réservoir VIDE : la maison n'a plus d'eau${st.on ? ', la pompe le remplit' : ''}`;
+    if (st.on && st.q > 0) {
+      if (fx.bkFloatStuck && (st.bk ?? 0) >= 0.999) return `marche continue ANORMALE : réservoir plein mais le robinet à flotteur ne ferme pas, ${f(fill)} m³/h partent au trop-plein`;
+      if (fill < 0.05) return `flotteur fermé (réservoir ${lvl}) : la pression monte ${f(st.x)} → ${f(v.pOff)} bar, le pressostat va arrêter la pompe`;
+      return `remplit le réservoir (${lvl}) : ${f(fill)} m³/h par le robinet à flotteur, la maison y prend ${f(house)} m³/h — la pompe s'arrêtera quand le flotteur fermera (pression → ${f(v.pOff)} bar)`;
+    }
+    if (st.on) return null;
+    if (fill < 0.02) {
+      if ((st.bk ?? 1) < 0.9 && st.x <= bc.headTop + 0.05 && v.pOn < bc.headTop) return `ANORMALE : flotteur ouvert mais la pression reste à ${f(bc.headTop)} bar (charge du réservoir), au-dessus du redémarrage ${f(v.pOn)} bar : la pompe ne repartira pas`;
+      return `réservoir ${lvl}, robinet à flotteur fermé : la pompe attend${diff ? ` que le niveau descende à ${Math.round(floatLow(bkp) * 100)} %` : ''} ; la maison est servie par le réservoir (${f(house)} m³/h, ${f(bc.pHouse)} bar)`;
+    }
+    return `le niveau baisse (${lvl}), le flotteur s'ouvre : la vessie se vide dans le réservoir (${f(fill)} m³/h), redémarrage à ${f(v.pOn)} bar dans ≈ ${durS(Math.max(0, vwS(st.x) - vwS(v.pOn)) / Math.max(0.05, fill))}`;
+  }
   const vw = (p: number) => vt * (1 - (v.pre + 1) / (Math.max(p, v.pre) + 1));
   // Débit de la pompe à la pression d'arrêt
   const hNeed = (v.pOff * 1e5) / rhoG - pressZ(i);
@@ -182,6 +210,8 @@ export interface SimState {
   bkFill?: boolean; // le réservoir de secours se remplit par le robinet à flotteur
   wd?: { on: number; house: number; q: number }; // moyennes glissantes (1 h) : part du temps en marche, consommation de la maison, débit pompé
   bkOver?: boolean; // réservoir de secours qui déborde par le trop-plein (robinet à flotteur bloqué ouvert)
+  bkQ?: number; // débit qui entre dans le réservoir par le robinet à flotteur (m³/h)
+  bkVo?: boolean; // robinet à flotteur différentiel ouvert (de « bas » jusqu'à plein)
   bkOpen?: boolean; // électrovanne (normalement ouverte) de sortie du réservoir de secours : ouverte
   bkLatch?: string | null; // défaut de pression mémorisé par le coffret (électrovanne maintenue ouverte jusqu'au réarmement)
   bkLowT?: number; // durée passée sous le seuil de pression basse (s)
@@ -423,10 +453,16 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     st.backDrop = false;
 
     // Robinet à flotteur : tant que le réseau est sous pression et le réservoir de secours pas plein, il se remplit
-    const fillQ = bc ? floatFlow(bc, st, !!fx.bkFloatStuck) : 0;
+    const serie = !!bkp && backupMode(bkp) === 'serie';
+    const diff = serie && floatKind(bkp) === 'differentiel';
+    if (diff) { if ((st.bk ?? 1) <= floatLow(bkp)) st.bkVo = true; else if ((st.bk ?? 1) >= 0.995) st.bkVo = false; }
+    const fillQ = bc ? floatFlow(bc, st, !!fx.bkFloatStuck, serie, diff) : 0;
+    let fillEff = fillQ; // débit qui entre réellement dans la cuve
+    // En série, la maison puise dans le réservoir : le réseau de la pompe ne sert que le robinet à flotteur
+    const houseNet = serie ? 0 : use(ctx, hr) * i.duty.qReq;
     if (kind === 'vessel' && v) {
       const vt = (v.vol / 1000) * (fx.vesselK ?? 1); // m³ utiles
-      const qd = use(ctx, hr) * i.duty.qReq + leakQ + fillQ;
+      const qd = houseNet + leakQ + fillQ;
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
       if (st.x <= v.pOn) start();
       if (st.on && st.x >= v.pOff) {
@@ -447,13 +483,17 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       vw += ((st.q - qd) / 3600) * sub;
       const pMax = Math.max(0, (h0 + (isForage(i) ? pressZ(i) : Math.max(0, suctionZ(i)))) * rhoG / 1e5);
       // Vessie vide : robinets ouverts, la pression du réseau s'effondre aussitôt (lentement si personne ne puise)
-      if (vw <= 0) st.x = st.on && st.q > 0.05 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - (qd > 0.02 * i.duty.qReq ? 1.5 : 0.08));
+      if (vw <= 0 && serie && bc && st.on && st.q > 0.05) {
+        // Vessie vide, pompe en marche : le flotteur ne reçoit que ce que donne la pompe ; la pression se cale où les deux débits s'égalent
+        fillEff = Math.min(fillQ, st.q);
+        st.x = fillQ > st.q + 0.05 ? Math.max(bc.headTop + 0.02, st.x - 0.1) : Math.min(v.pOff, st.x + 0.03);
+      } else if (vw <= 0) st.x = st.on && st.q > 0.05 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - (qd > 0.02 * i.duty.qReq ? 1.5 : 0.08));
       else st.x = Math.min(pMax, (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1);
       if (st.on && st.q < 0.05 * i.duty.qReq && st.x >= pMax - 0.05) st.x = pMax;
       st.s = 1;
     } else if (kind === 'vfd') {
       const set = (v0?.pOn ?? 3) + 0.5;
-      const qd = use(ctx, hr) * i.duty.qReq + leakQ + fillQ;
+      const qd = houseNet + leakQ + fillQ;
       if (fx.sensorZero) {
         // Le variateur croit la pression nulle : il reste à 50 Hz et ne se met jamais en veille
         start();
@@ -549,7 +589,23 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // Sortie par électrovanne NORMALEMENT OUVERTE + clapet : le coffret la tient fermée tant que tout va bien.
     // Elle s'ouvre (sans courant) en cas de coupure, de disjonction, de manque d'eau, ou de pression restée basse
     // 2 min alors que la pompe est censée tourner (défaut mémorisé jusqu'au réarmement).
-    if (bc) {
+    st.bkQ = fillEff;
+    if (bc && serie) {
+      // ----- Château d'eau en série : remplissage par le flotteur, la maison se sert dans la cuve -----
+      const wasFull = (st.bk ?? 1) >= 0.999, wasEmpty = (st.bk ?? 1) <= 0.002, wasOver = !!st.bkOver;
+      const qHouse = use(ctx, hr) * i.duty.qReq;
+      st.bk = Math.max(0, Math.min(1, (st.bk ?? 1) + ((fillEff - qHouse) * sub) / 3600 / bkVol));
+      st.bkFill = fillEff > 0.02; st.bkFeed = false; st.bkOpen = false;
+      st.bkOver = fillQ > 0.02 && (st.bk ?? 0) >= 0.999 && !!fx.bkFloatStuck;
+      st.overflow = !!st.bkOver;
+      if (st.bkOver && !wasOver) once('bkover', { t: st.t, sev: 'critical', text: `Réservoir plein mais le robinet à flotteur ne ferme pas : ${f1(fillQ)} m³/h partent au trop-plein, la pompe ne s'arrête plus`, target: 'dest' });
+      if (!wasEmpty && (st.bk ?? 0) <= 0.002) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir vide : plus d\'eau à la maison', target: 'dest' });
+      if (!wasFull && (st.bk ?? 0) >= 0.999 && !fx.bkFloatStuck) newEv.push({ t: st.t, sev: 'ok', text: 'Réservoir plein : le robinet à flotteur se ferme, la pression monte jusqu\'à l\'arrêt du pressostat', target: 'dest' });
+      // Pressostat réglé trop bas : flotteur ouvert, la pression s'arrête à la charge du réservoir et n'atteint jamais le redémarrage
+      const pOnNow = kind === 'vfd' ? (v0?.pOn ?? 3) + 0.5 : v?.pOn ?? 3;
+      if (!st.on && st.t >= st.outageUntil && !st.trip && (st.bk ?? 1) < 0.9 && st.x <= bc.headTop + 0.05 && pOnNow < bc.headTop)
+        once('bknostart', { t: st.t, sev: 'critical', text: `La pompe ne redémarre pas : flotteur ouvert, la pression reste à ${f1(bc.headTop)} bar (charge du réservoir), au-dessus du seuil de redémarrage ${f1(pOnNow)} bar`, target: 'acc:pressostat' });
+    } else if (bc) {
       const qHouse = use(ctx, hr) * i.duty.qReq + leakQ;
       const wasFeed = !!st.bkFeed, wasFull = (st.bk ?? 1) >= 0.999, wasOpen = !!st.bkOpen;
       const pLow = Math.max(0.3, (kind === 'vfd' ? (v0?.pOn ?? 3) + 0.5 : v?.pOn ?? 3) - 0.6);
@@ -703,7 +759,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // (moyennes glissantes sur 1 h : l'eau pompée part ailleurs — fuite, robinet à flotteur bloqué, trop-plein — ou le pressostat ne coupe pas)
     if (kind === 'vessel' || kind === 'vfd') {
       const a = Math.min(1, sub / 3600), w = st.wd ?? { on: 0, house: 0, q: 0 };
-      const house = use(ctx, hourOf(st.t)) * i.duty.qReq;
+      const bkS = backupOf(i);
+      const house = bkS && backupMode(bkS) === 'serie' ? (st.bkOver ? 0 : st.bkFill ? st.q : 0) : use(ctx, hourOf(st.t)) * i.duty.qReq;
       st.wd = { on: w.on + ((st.on && st.q > 0 ? 1 : 0) - w.on) * a, house: w.house + (house - w.house) * a, q: w.q + (st.q - w.q) * a };
       if (st.wd.on > 0.85 && st.wd.house < 0.4 * st.wd.q && !st.runaway && st.t >= st.outageUntil) {
         seen('ne_s_arrete_pas');

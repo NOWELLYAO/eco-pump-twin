@@ -1,5 +1,6 @@
 import { losses, pumpEta, pumpHead, speedFor, staticHead, pressureHead, suctionZ, pressZ, isForage, type Hydro } from './hydraulics';
 import { refStatic } from './catalog';
+import { backupCalc, backupMode, backupOf } from './backup';
 import type { Elec, Installation, Issue, StartId } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -117,7 +118,11 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
   // (forage : seules la hauteur au-dessus du sol et les pertes de la conduite de surface restent à vaincre)
   const lossAll = losses(i, i.duty.qReq).ref;
   const lossRef = forage ? lossAll * (i.ref.length / Math.max(1, i.ref.length + i.geo.pumpDepth)) : lossAll;
-  const pReq = Math.max(0.5, (((forage ? Math.max(0, i.geo.hRef) : refStatic(i)) + pressureHead(i) + lossRef) * rhoG) / 1e5);
+  // Réservoir en série (château d'eau) : le pressostat doit relancer la pompe AU-DESSUS de la charge du réservoir
+  // (sinon, flotteur ouvert, la pression ne descend jamais jusqu'au seuil de redémarrage)
+  const bkS = backupOf(i);
+  const pReq = bkS && backupMode(bkS) === 'serie' ? backupCalc(i, bkS).headTop + 0.3
+    : Math.max(0.5, (((forage ? Math.max(0, i.geo.hRef) : refStatic(i)) + pressureHead(i) + lossRef) * rhoG) / 1e5);
   const pMax = Math.max(0, ((pumpHead(i, 0) + (forage ? z : Math.max(0, suctionZ(i)))) * rhoG) / 1e5);
   const r1 = (v: number) => Math.round(v * 10) / 10;
   // Débit de la pompe à une pression de refoulement donnée (inverse de la courbe)
