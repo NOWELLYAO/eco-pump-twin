@@ -99,6 +99,7 @@ export interface Live {
   inflow?: number; // arrivée dans la fosse (m³/h)
   syms?: string[]; runTot?: number; startLog?: number[]; simT?: number; // pour le coffret en direct
   phys?: Phys;
+  hz?: number;
   overflow?: boolean; backDrop?: boolean;
 }
 /** Grandeurs physiques simulées */
@@ -125,7 +126,7 @@ function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: num
 
 export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
-  useDeclutter(svgRef, ['.r-note text', '.r-dim text', 'g.lcd', 'g.r-closed', 'g.r-tbadge', 'text.r-label', 'text.r-stuck', 'g.state'], '.r-legend, g.term');
+  useDeclutter(svgRef, ['.r-note text', '.r-dim text', 'g.lcd', 'g.r-closed', 'g.r-tbadge', 'text.r-label', 'text.r-stuck', 'g.state'], '.r-legend, g.term, .r-obst');
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const on = (id: string) => !!i.acc[id]?.on;
   const flow = live ? live.on && live.r.q > 0.05 : h.ok && h.q > 0.05;
@@ -161,6 +162,10 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const front: ReactNode[] = [];
   const dims: ReactNode[] = [];
   let pumpXY: Pt = [440, 290];
+  // Parties visibles du groupe : moteur (chaleur), roue et ventilateur (rotation)
+  let motorBox = { x: 0, y: 0, w: 0, h: 0 };
+  let impXY: Pt = [440, 290];
+  let fanXY: Pt | null = null;
 
   if (forage) {
     G = 200;
@@ -196,6 +201,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       </g>,
     );
     pumpXY = [195, pTop + 30];
+    motorBox = { x: 183, y: pTop + 56, w: 24, h: 40 }; impXY = [195, pTop + 28];
     ref = [[195, pTop], [195, G - 40], [REF_END, G - 40]];
     refStart = polyLen(ref.slice(0, 2)) + 40;
     if (on('marche_sec')) front.push(<g key="el" transform={`translate(170,${pTop - 20})`}><path d={`M0 ${-(pTop - 20 - G)} V0`} className="r-cablepath" /><RealGlyph kind="electrode" /></g>);
@@ -252,6 +258,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       </g>,
     );
     pumpXY = [205, floor - 40];
+    motorBox = { x: 172, y: floor - 98, w: 50, h: 58 }; impXY = [197, floor - 21];
     ref = [[270, floor - 20], [300, floor - 20], [300, G + 50], [REF_END, G + 50]];
     refStart = 50;
     const floats: [string, number][] = [['flotteur_arret', yStop], ['flotteur_marche', yStart], ['flotteur_alarme', yAlarm]];
@@ -321,6 +328,8 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       dims.push(<Dim key="d1" x={58} y1={wl} y2={axisY} label={`En charge ${fm(i.geo.chargeHead)}`} />);
     }
     front.push(vertical ? <VerticalPump key="vp" x={px} y={axisY} atex={on('atex')} /> : <SurfacePump key="sp" x={px} y={axisY} atex={on('atex')} />);
+    if (vertical) { motorBox = { x: px - 22, y: axisY - 180, w: 44, h: 70 }; impXY = [px, axisY]; fanXY = [px, axisY - 192]; }
+    else { motorBox = { x: px + 26, y: axisY - 20, w: 98, h: 40 }; impXY = [px, axisY]; fanXY = [px + 140, axisY]; }
     ref = vertical ? [[px + 30, axisY], [px + 80, axisY], [px + 80, 150], [REF_END, 150]] : [[px, axisY - 38], [px, 150], [REF_END, 150]];
     refStart = 26;
   }
@@ -340,7 +349,10 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const destG = G;
   const destEls: ReactNode[] = [];
   const qr = live ? Math.max(0, Math.min(1.6, live.r.q / Math.max(0.1, i.duty.qReq))) : flow ? 1 : 0; // débit relatif
-  const use = live ? Math.max(0, live.use ?? 0) : 0.6; // consommation relative (robinets, réseau aval)
+  // Plus d'eau au réseau : réservoir vide et pompe qui ne débite pas → les robinets ne coulent plus
+  const noSupply = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && (live.vesFill ?? 1) < 0.02 && live.r.q < 0.05 && (live.x ?? 0) < 0.3;
+  const dryTaps = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && live.r.q < 0.05 && (live.vesFill ?? 1) < 0.02;
+  const use = live ? (dryTaps || noSupply ? 0 : Math.max(0, live.use ?? 0)) : 0.6; // consommation relative (robinets, réseau aval)
   const stream = (k: string, x: number, y1: number, y2: number, w = 6) => (
     <g key={k}><path d={`M${x} ${y1} V${y2}`} className="r-stream-body" strokeWidth={w} /><path d={`M${x} ${y1} V${y2}`} className="r-stream" strokeWidth={Math.max(2, w * 0.45)} /></g>
   );
@@ -444,7 +456,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
           <rect key={`sk${r}`} x={rx + 8} y={fy + 18} width={18} height={4} rx={1} className="r-sink" />,
         );
       }
-      destEls.push(<text key="bl" x={bx + 85} y={top - 8} textAnchor="middle" className="r-label">{live ? `${nOpen} étage(s) consomment · ${Math.round(use * 100)} %` : 'Robinets aux étages'}</text>);
+      destEls.push(<text key="bl" x={bx + 85} y={top - 8} textAnchor="middle" className="r-label">{live ? (dryTaps ? 'Plus d\'eau aux robinets : réseau vide' : `${nOpen} étage(s) consomment · ${Math.round(use * 100)} %`) : 'Robinets aux étages'}</text>);
     } else {
       // Incendie : RIA devant l'immeuble, tuyau déroulé et lance dirigée vers la façade
       const rx2 = ax + 8, ry = destG - 52;
@@ -553,7 +565,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     items.push(
       <g key={id} {...pick(`acc:${id}`)}>
         <rect x={p.x - 24} y={p.y - 30} width={48} height={60} className="hit" />
-        <g transform={`translate(${p.x},${p.y}) rotate(${vertical ? 0 : p.a})`}><RealGlyph kind={a.glyph} /></g>
+        <g className="r-obst" transform={`translate(${p.x},${p.y}) rotate(${vertical ? 0 : p.a})`}><RealGlyph kind={a.glyph} /></g>
         {id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <g className="r-closed"><path d={`M${p.x - 10} ${p.y - 10} L${p.x + 10} ${p.y + 10} M${p.x + 10} ${p.y - 10} L${p.x - 10} ${p.y + 10}`} /></g>}
         <text x={vertical ? p.x + 22 : a.glyph === 'vessel' ? p.x - 20 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 50 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) - (upN % 2) * 15 : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : a.glyph === 'vessel' && !vertical ? 'end' : 'middle'} className="r-label">
           <title>{a.label}</title>{SHORT[id] ?? a.label}{dnTxt}{id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <tspan className="r-closed-t"> FERMÉE</tspan>}
@@ -612,7 +624,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const boxY = forage ? G - 34 : pit ? G - 52 : G - 34;
   if (on('coffret')) {
     anchors.cable = { x: boxX, y: boxY, r: 40 };
-    items.push(<g key="cof" {...pick('cable')}><path d={`M${boxX} ${boxY + 28} C ${boxX - 40} ${boxY + 60}, ${pxp + 60} ${pyp + 10}, ${pxp + (forage || pit ? 20 : 70)} ${pyp}`} className="r-cablepath" /><g transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
+    items.push(<g key="cof" {...pick('cable')}><path d={`M${boxX} ${boxY + 28} C ${boxX - 40} ${boxY + 60}, ${pxp + 60} ${pyp + 10}, ${pxp + (forage || pit ? 20 : 70)} ${pyp}`} className="r-cablepath" /><g className="r-obst" transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
   }
   const isSolar = i.elec?.supply === 'solaire';
   const st = i.elec ? effectiveStart(i) : 'direct';
@@ -638,7 +650,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       </g>,
     );
   }
-  if (on('variateur') || isSolar) items.push(<g key="vfd"><g transform={`translate(${boxX + 60},${boxY + 2})`}><RealGlyph kind="vfd" /></g><text x={boxX + 60} y={boxY - 36} textAnchor="middle" className="r-label">{isSolar ? 'MPPT' : 'Variateur'}</text></g>);
+  if (on('variateur') || isSolar) items.push(<g key="vfd"><g className="r-obst" transform={`translate(${boxX + 60},${boxY + 2})`}><RealGlyph kind="vfd" /></g><text x={boxX + 60} y={boxY - 36} textAnchor="middle" className="r-label">{isSolar ? 'MPPT' : 'Variateur'}</text></g>);
   if (on('marche_sec') && !forage && asp) {
     const [sx, sy] = asp[0];
     items.push(<g key="ms" transform={`translate(${sx + 30},${sy - 6})`}><path d="M0 -30 V0" className="r-cablepath" /><RealGlyph kind="electrode" /></g>);
@@ -687,11 +699,20 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     // Physique : moteur qui chauffe / grillé, garniture qui fuit, conduite en surpression / rompue
     const P = live.phys;
     if (P) {
-      const hot = Math.max(0, Math.min(1, (P.tm - 95) / 70));
-      if (hot > 0 || P.burnt) lcd.push(<g key="heat" className="r-heat"><circle cx={pxp} cy={pyp} r={30 + 10 * hot} style={{ opacity: P.burnt ? 0.25 : 0.15 + 0.5 * hot }} /><title>Moteur à {Math.round(P.tm)} °C</title></g>);
-      if (P.tm > 120 || P.burnt) lcd.push(<g key="tm" className={`r-tbadge ${P.burnt || P.tm > 140 ? 'crit' : 'warn'}`}><rect x={pxp - 42} y={pyp + 30} width={84} height={18} rx={9} /><text x={pxp} y={pyp + 43} textAnchor="middle">{P.burnt ? 'MOTEUR GRILLÉ' : `moteur ${Math.round(P.tm)} °C`}</text></g>);
-      if (P.burnt) lcd.push(<g key="smoke" className="r-smoke">{[0, 1, 2].map((k) => <circle key={k} cx={pxp - 8 + k * 8} cy={pyp - 20} r={6} style={{ animationDelay: `${k * 0.6}s` }} />)}</g>);
-      if (P.sealGone || P.tl > 90) lcd.push(<g key="seal" className="r-seal">{P.sealGone && [0, 1, 2].map((k) => <circle key={k} cx={pxp + 22} cy={pyp + 8} r={2.4} className="r-drop" style={{ animationDelay: `${k * 0.4}s` }} />)}{P.tl > 90 && [0, 1].map((k) => <path key={`v${k}`} d={`M${pxp + 14 + k * 10} ${pyp - 24} q -5 -8 0 -16 q 5 -8 0 -16`} className="r-vapor" style={{ animationDelay: `${k * 0.7}s` }} />)}</g>);
+      // Chaleur du moteur : sur le corps du moteur lui-même
+      const hot = Math.max(0, Math.min(1, (P.tm - 90) / 70));
+      const mb = motorBox, mcx = mb.x + mb.w / 2;
+      if ((hot > 0 || P.burnt) && mb.w) lcd.push(<g key="heat" className="r-heat"><rect x={mb.x - 3} y={mb.y - 3} width={mb.w + 6} height={mb.h + 6} rx={8} style={{ opacity: P.burnt ? 0.35 : 0.15 + 0.55 * hot }} /><title>Moteur à {Math.round(P.tm)} °C</title></g>);
+      const side = forage || (!!fanXY && fanXY[1] < mb.y); // ventilateur au-dessus du moteur, ou forage étroit : badge sur le côté
+      const bx2 = side ? mb.x + mb.w + 50 : mcx, by2 = side ? mb.y + mb.h / 2 - 9 : mb.y - 22;
+      if ((P.tm > 120 || P.burnt) && mb.w) lcd.push(<g key="tm" className={`r-tbadge ${P.burnt || P.tm > 140 ? 'crit' : 'warn'}`}><rect x={bx2 - 44} y={by2} width={88} height={18} rx={9} /><text x={bx2} y={by2 + 13} textAnchor="middle">{P.burnt ? 'MOTEUR GRILLÉ' : `moteur ${Math.round(P.tm)} °C`}</text></g>);
+      if (P.burnt && mb.w) lcd.push(<g key="smoke" className="r-smoke">{[0, 1, 2].map((k) => <circle key={k} cx={mcx - 8 + k * 8} cy={mb.y - 4} r={6} style={{ animationDelay: `${k * 0.6}s` }} />)}</g>);
+      // Liquide qui chauffe : sur le corps de pompe (partie hydraulique), vapeur et fuite à la garniture
+      const [hx, hy] = impXY;
+      const hotL = Math.max(0, Math.min(1, (P.tl - 45) / 90));
+      if (hotL > 0) lcd.push(<g key="lheat" className="r-lheat"><circle cx={hx} cy={hy} r={22} style={{ opacity: 0.15 + 0.5 * hotL }} /><title>Liquide à {Math.round(P.tl)} °C dans la pompe</title></g>);
+      if (P.tl > 60) lcd.push(<g key="tl" className={`r-tbadge ${P.sealGone || P.tl > 90 ? 'crit' : 'warn'}`}><rect x={hx - 44} y={hy + 26} width={88} height={18} rx={9} /><text x={hx} y={hy + 39} textAnchor="middle">{`eau ${Math.round(P.tl)} °C`}</text></g>);
+      if (P.sealGone || P.tl > 90) lcd.push(<g key="seal" className="r-seal">{P.sealGone && [0, 1, 2].map((k) => <circle key={k} cx={hx + 18} cy={hy + 10} r={2.4} className="r-drop" style={{ animationDelay: `${k * 0.4}s` }} />)}{P.tl > 90 && [0, 1].map((k) => <path key={`v${k}`} d={`M${hx - 6 + k * 12} ${hy - 22} q -5 -8 0 -16 q 5 -8 0 -16`} className="r-vapor" style={{ animationDelay: `${k * 0.7}s` }} />)}</g>);
       const mid = ref[Math.min(ref.length - 1, Math.max(1, Math.floor(ref.length / 2)))];
       const recent = P.pPeak != null && (P.peakAge ?? 1e9) < 600 && P.pPeak > i.ref.pn * 0.8;
       if (recent) lcd.push(<g key="ham"><path d={`M${ref.map((q) => q.join(' ')).join(' L')}`} className="r-overp" /><g className={`r-tbadge ${P.pPeak! > i.ref.pn ? 'crit' : 'warn'}`}><rect x={mid[0] - 70} y={mid[1] - 46} width={140} height={18} rx={9} /><text x={mid[0]} y={mid[1] - 33} textAnchor="middle">pointe {P.pPeak!.toFixed(1).replace('.', ',')} bar · PN{i.ref.pn}</text></g></g>);
@@ -715,6 +736,24 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     // Voyants du coffret : vert = marche, rouge = défaut, éteints = hors tension
     const cab = anchors.cable;
     if (cab) lcd.push(<g key="leds"><circle cx={cab.x + 12} cy={cab.y - 17} r={3.6} className={`r-led g ${live.powered !== false && live.on ? 'lit' : ''}`} /><circle cx={cab.x + 12} cy={cab.y - 6} r={3.6} className={`r-led r ${live.trip || live.isolated ? 'lit' : ''}`} />{live.powered === false && <rect x={cab.x - 16} y={cab.y - 22} width={20} height={10} rx={1} className="r-scr-off" />}</g>);
+    // Éléments tournants : roue (partie hydraulique) et ventilateur du moteur
+    {
+      const fl2 = live.faults ?? [];
+      const turning = live.on && !live.hum && live.powered !== false;
+      const rev = fl2.includes('rotation');
+      const impTurn = turning && !fl2.includes('arbre_casse');
+      const dur = Math.max(0.12, 0.35 * (50 / Math.max(10, live.hz ?? 50)));
+      const rotor = (key: string, [cx, cy]: Pt, r: number, spin: boolean, blades: number, cls: string) => (
+        <g key={key} className={`r-rotor r-obst ${cls}${spin ? ' spin' : ''}${rev ? ' rev' : ''}${live.hum ? ' shake' : ''}`} style={{ transformOrigin: `${cx}px ${cy}px`, animationDuration: `${dur}s` }}>
+          <circle cx={cx} cy={cy} r={r} className="r-rotor-bg" />
+          {Array.from({ length: blades }, (_, k) => { const a = (k * 2 * Math.PI) / blades; return <path key={k} d={`M${cx} ${cy} Q ${cx + Math.cos(a + 0.6) * r * 0.7} ${cy + Math.sin(a + 0.6) * r * 0.7} ${cx + Math.cos(a) * r * 0.92} ${cy + Math.sin(a) * r * 0.92}`} className="r-blade" />; })}
+          <circle cx={cx} cy={cy} r={r * 0.22} className="r-rotor-hub" />
+          <title>{cls === 'fan' ? 'Ventilateur du moteur' : 'Roue de la pompe'}{spin ? (rev ? ' — tourne à l\'envers' : ' — en rotation') : ' — à l\'arrêt'}</title>
+        </g>
+      );
+      lcd.push(rotor('imp', impXY, forage ? 8 : 12, impTurn, 5, 'imp'));
+      if (fanXY) lcd.push(rotor('fan', fanXY, 13, turning, 4, 'fan'));
+    }
     const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : 'ARRÊT';
     lcd.push(<g key="state" className={live.trip || live.hum || live.noFlow ? 'state fault' : live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{stTxt}</text></g>);
   }

@@ -19,7 +19,8 @@ export function declutter(svg: SVGSVGElement, movableSel: string[], fixedSel: st
   const movable = [...new Set(movableSel.flatMap((m) => [...svg.querySelectorAll<SVGGraphicsElement>(m)]))];
   // On repart des positions d'origine
   for (const el of movable) if (el.dataset.dc) { el.removeAttribute('transform'); delete el.dataset.dc; }
-  const placed: Box[] = [...svg.querySelectorAll(fixedSel)].map(box).filter((b) => b.w > 0 && b.h > 0);
+  // Blocs fixes (dessins, console) : légèrement réduits pour qu'une étiquette posée juste à côté ne soit pas déplacée
+  const placed: Box[] = [...svg.querySelectorAll(fixedSel)].map(box).filter((b) => b.w > 0 && b.h > 0).map((b) => ({ x: b.x + 4, y: b.y + 4, w: Math.max(1, b.w - 8), h: Math.max(1, b.h - 8) }));
   const W = vb.width, H = vb.height;
   for (const el of movable) {
     if (el.getAttribute('transform')) { placed.push(box(el)); continue; } // élément déjà transformé par le dessin : on n'y touche pas

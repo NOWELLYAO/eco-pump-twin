@@ -370,7 +370,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
       vw += ((st.q - qd) / 3600) * sub;
       const pMax = (h0 + Math.max(0, suctionZ(i))) * rhoG / 1e5;
-      if (vw <= 0) st.x = st.on && st.q > 0 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - 0.08);
+      if (vw <= 0) st.x = st.on && st.q > 0.05 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - 0.08);
       else st.x = Math.min(pMax, (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1);
       if (st.on && st.q < 0.05 * i.duty.qReq && st.x >= pMax - 0.05) st.x = pMax;
       st.s = 1;

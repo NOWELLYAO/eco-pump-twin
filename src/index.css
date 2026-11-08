@@ -1403,3 +1403,18 @@ html, body { overflow-x: clip; }
 @media (max-width: 1650px) and (min-width: 761px) { .brand span { display: none; } }
 @media (max-width: 1450px) and (min-width: 761px) { .newbtn span, .installbtn span { display: none; } .pagenav button { padding: 9px 10px; } .pagenav { margin-left: 4px; } }
 @media (max-width: 1280px) and (min-width: 761px) { .pagenav span { display: none; } }
+/* Éléments tournants (roue, ventilateur) */
+.r-rotor { pointer-events: none; }
+.r-rotor.spin { animation: rotorSpin .35s linear infinite; }
+.r-rotor.spin.rev { animation-direction: reverse; }
+.r-rotor.shake { animation: rotorShake .12s linear infinite; }
+@keyframes rotorSpin { to { transform: rotate(360deg); } }
+@keyframes rotorShake { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+.r-rotor-bg { fill: rgba(15, 40, 60, .55); stroke: #0d3c5c; stroke-width: 1.5; }
+.r-rotor.fan .r-rotor-bg { fill: #3e4a55; stroke: #26303a; }
+.r-blade { fill: none; stroke: #e2edf5; stroke-width: 2.6; stroke-linecap: round; }
+.r-rotor.fan .r-blade { stroke: #c7d2db; }
+.r-rotor-hub { fill: #e2edf5; }
+.r-heat rect { fill: #ef4444; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; transform-box: fill-box; transform-origin: center; }
+.r-lheat circle { fill: #f97316; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; transform-box: fill-box; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) { .r-rotor.spin, .r-rotor.shake { animation-duration: 2s !important; } }
