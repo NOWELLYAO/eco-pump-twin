@@ -8,7 +8,7 @@ import type { Installation } from '../types';
 export interface Mystery { id: string; answer: string | null; options: string[] }
 
 const SEV_SYM: Partial<Record<Sym, 'crit'>> = {
-  decl_thermique: 'crit', decl_diff: 'crit', decl_manque_eau: 'crit', decl_variateur: 'crit', marche_a_sec: 'crit', debordement: 'crit',
+  decl_thermique: 'crit', decl_diff: 'crit', decl_manque_eau: 'crit', decl_sous_charge: 'crit', decl_variateur: 'crit', marche_a_sec: 'crit', debordement: 'crit',
   ronfle: 'crit', debit_nul: 'crit', ne_s_arrete_pas: 'crit', pas_de_tension: 'crit',
 };
 

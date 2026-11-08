@@ -133,7 +133,7 @@ function partState(p0: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fa
   const p = { ...p0, id: p0.base ?? p0.id };
   if (p.id === 'q1' && tk === 'decl_thermique') return 'trip';
   if (p.id === 'q2' && tk === 'decl_diff') return 'trip';
-  if (p.id === 'ka2' && (tk === 'decl_manque_eau' || L.lowLevel)) return 'trip';
+  if (p.id === 'ka2' && (tk === 'decl_manque_eau' || tk === 'decl_sous_charge' || L.lowLevel)) return 'trip';
   if ((p.id === 'u1' || p.id === 'kp') && tk === 'decl_variateur') return 'trip';
   if (p.id === 'ka1' && (L.faults.includes('perte_phase') || L.faults.includes('rotation'))) return 'fault';
   if (p.id === 'km1' && L.faults.includes('contacteur_colle')) return 'fault';
@@ -228,7 +228,7 @@ function DoorItem({ p, x, y, st, L, sel, onPick, inom }: { p: EPart; x: number; 
 
 
 /* ===================== Afficheur de supervision (temps réel) ===================== */
-const CRIT_SYMS = new Set(['decl_thermique', 'decl_diff', 'decl_manque_eau', 'decl_variateur', 'pas_de_tension', 'ronfle', 'marche_a_sec', 'debordement', 'ne_demarre_pas', 'ne_s_arrete_pas']);
+const CRIT_SYMS = new Set(['decl_thermique', 'decl_diff', 'decl_manque_eau', 'decl_sous_charge', 'decl_variateur', 'pas_de_tension', 'ronfle', 'marche_a_sec', 'debordement', 'ne_demarre_pas', 'ne_s_arrete_pas']);
 interface Alarm { id: string; text: string; crit: boolean }
 interface AlarmRec extends Alarm { since: string; ack: boolean; active: boolean; end?: string }
 
@@ -685,7 +685,7 @@ function ControlCircuit({ i, cfg, L }: { i: Installation; cfg: ECfg; L?: ELive }
   const powered = L ? L.powered : false;
   const trip = !!L?.trip || !!L?.isolated;
   const coil = !!L?.coilOn;
-  const dryOk = L?.tripKind !== 'decl_manque_eau';
+  const dryOk = L?.tripKind !== 'decl_manque_eau' && L?.tripKind !== 'decl_sous_charge';
   const phOk = !(L?.faults.includes('perte_phase') || L?.faults.includes('rotation'));
   const left = 40, right = cfg.start === 'etoile' && cfg.pumps === 1 && !cfg.vfd ? 700 : 520;
   const els: ReactNode[] = [];

@@ -12,14 +12,14 @@ export type Sym =
   | 'debit_bas' | 'debit_nul' | 'pression_basse' | 'pression_haute' | 'courant_haut' | 'courant_bas'
   | 'depression_forte' | 'cycles_courts' | 'ronfle' | 'ne_demarre_pas' | 'ne_s_arrete_pas'
   | 'debordement' | 'pas_de_tension' | 'marche_a_sec' | 'pression_tombe_arret' | 'bruit' | 'fuite_visible'
-  | 'decl_thermique' | 'decl_diff' | 'decl_manque_eau' | 'decl_variateur' | 'tension_basse' | 'marche_sans_commande'
+  | 'decl_thermique' | 'decl_diff' | 'decl_manque_eau' | 'decl_sous_charge' | 'decl_variateur' | 'tension_basse' | 'marche_sans_commande'
   | 'moteur_chaud' | 'courants_desequilibres' | 'coups_belier' | 'eau_sableuse';
 
 export const SYM_LABEL: Record<Sym, string> = {
   debit_bas: 'Débit plus faible que prévu', debit_nul: 'Pompe en marche sans débit', pression_basse: 'Pression basse',
   pression_haute: 'Pression trop haute', courant_haut: 'Courant moteur élevé', courant_bas: 'Courant moteur faible',
   depression_forte: 'Forte dépression à l\'aspiration', cycles_courts: 'Démarrages trop fréquents',
-  decl_thermique: 'Disjoncteur moteur déclenché', decl_diff: 'Différentiel déclenché', decl_manque_eau: 'Relais manque d\'eau déclenché', decl_variateur: 'Variateur en défaut',
+  decl_thermique: 'Disjoncteur moteur déclenché', decl_diff: 'Différentiel déclenché', decl_manque_eau: 'Relais manque d\'eau déclenché', decl_sous_charge: 'Relais de sous-charge déclenché (pompe qui tourne sans débiter)', decl_variateur: 'Variateur en défaut',
   tension_basse: 'Tension mesurée trop basse', marche_sans_commande: 'Moteur en marche, voyant de commande éteint',
   ronfle: 'Moteur qui ronfle sans tourner', ne_demarre_pas: 'La pompe ne démarre pas', ne_s_arrete_pas: 'La pompe ne s\'arrête pas',
   debordement: 'Débordement', pas_de_tension: 'Pas de tension au coffret', marche_a_sec: 'Marche à sec',
@@ -119,7 +119,7 @@ export const FAULTS: FaultDef[] = [
     id: 'vanne_fermee', cat: 'hydraulique', label: 'Vanne de refoulement fermée par erreur', target: 'acc:vanne_ref',
     what: 'Quelqu\'un a refermé la vanne de refoulement : la pompe tourne contre une vanne fermée, sans débit.',
     applies: (i, k) => on(i, 'vanne_ref') && k !== 'vfd' && k !== 'solar', effect: { inst: (i) => ({ ...i, acc: { ...i.acc, vanne_ref: { ...i.acc.vanne_ref, on: true, qty: 1e12 } } }), ampsK: 0.7 },
-    sig: ['debit_nul', 'pression_haute', 'courant_bas'], field: ['Pompe qui chauffe', 'Pression maximale au manomètre, pas d\'eau en sortie'],
+    sig: ['debit_nul', 'pression_haute', 'courant_bas', 'decl_sous_charge', 'moteur_chaud', 'fuite_visible'], field: ['Pompe qui chauffe', 'Pression maximale au manomètre, pas d\'eau en sortie'],
     checks: ['Vérifier la position de toutes les vannes', 'Manomètre = pression à débit nul de la courbe'],
     fix: ['Ouvrir la vanne', 'Plomber / étiqueter la vanne en position ouverte'], parts: ['garniture', 'roulements'],
   },
@@ -293,7 +293,7 @@ export const FAULTS: FaultDef[] = [
     id: 'rotation', cat: 'equipement', label: 'Sens de rotation inversé', target: 'pump',
     what: 'Deux phases ont été inversées lors d\'une intervention : la pompe tourne à l\'envers.',
     applies: (i) => tri(i), effect: { inst: (i) => scale(i, 0.55, 0.45, 0.6) },
-    sig: ['debit_bas', 'pression_basse', 'courant_bas', 'bruit'], field: ['Le ventilateur tourne dans le mauvais sens (flèche)', 'Bruit inhabituel'],
+    sig: ['debit_bas', 'pression_basse', 'courant_bas', 'bruit', 'decl_sous_charge'], field: ['Le ventilateur tourne dans le mauvais sens (flèche)', 'Bruit inhabituel'],
     checks: ['Comparer le sens de rotation à la flèche du carter', 'Vérifier la pression vanne fermée'],
     fix: ['Inverser deux phases au bornier', 'Installer un relais d\'ordre des phases'], parts: ['roue'],
   },
@@ -446,7 +446,7 @@ export function combined(ids: string[]): FaultEffect & { ids: string[] } {
 /** Classe les pannes possibles selon les symptômes observés. */
 /** Poids des symptômes très spécifiques d'une panne. */
 const SPECIFIC: Partial<Record<Sym, number>> = {
-  courants_desequilibres: 3, eau_sableuse: 3, coups_belier: 2.5, decl_diff: 2.5, decl_variateur: 2.5, decl_manque_eau: 2,
+  courants_desequilibres: 3, eau_sableuse: 3, coups_belier: 2.5, decl_diff: 2.5, decl_variateur: 2.5, decl_manque_eau: 2, decl_sous_charge: 2.5,
   pression_tombe_arret: 2, marche_sans_commande: 2.5, tension_basse: 2, pas_de_tension: 2.5, moteur_chaud: 1.5, cycles_courts: 1.5,
   fuite_visible: 2, debordement: 1.5, ronfle: 1.5, bruit: 0.6, debit_bas: 0.8,
 };
@@ -469,7 +469,7 @@ export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; sco
 
 /** Gravité des symptômes, pour la note en service. */
 export const SYM_WEIGHT: Record<Sym, number> = {
-  decl_thermique: 25, decl_diff: 30, decl_manque_eau: 25, decl_variateur: 25, pas_de_tension: 25, marche_a_sec: 25, debit_nul: 20,
+  decl_thermique: 25, decl_diff: 30, decl_manque_eau: 25, decl_sous_charge: 25, decl_variateur: 25, pas_de_tension: 25, marche_a_sec: 25, debit_nul: 20,
   debordement: 20, ne_s_arrete_pas: 18, ronfle: 18, ne_demarre_pas: 12, pression_haute: 10, cycles_courts: 10, depression_forte: 8,
   courant_haut: 8, pression_basse: 8, debit_bas: 8, pression_tombe_arret: 6, courant_bas: 4, bruit: 5, fuite_visible: 5,
   tension_basse: 8, marche_sans_commande: 15, moteur_chaud: 12, courants_desequilibres: 8, coups_belier: 8, eau_sableuse: 6,

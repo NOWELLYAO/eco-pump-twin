@@ -1,4 +1,5 @@
 import { PIPE_MATS, refStatic } from './catalog';
+import { aquiferOf, withAquifer } from './aquifer';
 import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, pressZ, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
@@ -13,7 +14,8 @@ export interface Mods { valve: number; speed: number; level: number; clog: numbe
 export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 0, draw: -1, faults: [] };
 
 /** Installation telle qu'elle fonctionne avec les réglages de simulation. */
-export function applyMods(i: Installation, m: Mods): Installation {
+export function applyMods(i0: Installation, m: Mods): Installation {
+  const i = withAquifer(i0);
   const x: Installation = { ...i, pump: { ...i.pump }, geo: { ...i.geo }, acc: { ...i.acc } };
   // Les réglages du pressostat / de la vessie sont ceux posés à l'installation : une panne ou un réglage en direct ne les change pas
   const ves = i.acc.vessie;
@@ -37,12 +39,15 @@ export function applyMods(i: Installation, m: Mods): Installation {
     }
   }
   if (m.level !== 0) {
-    if (isForage(x)) x.geo.dynamicLevel = Math.max(0, x.geo.dynamicLevel - m.level);
+    // Forage : toute la nappe monte ou descend (niveau statique et niveau de l'essai)
+    if (isForage(x)) { x.geo.dynamicLevel = Math.max(0, x.geo.dynamicLevel - m.level); x.geo.staticLevel = Math.max(0, x.geo.staticLevel - m.level); if (x.geo.dynTest != null) x.geo.dynTest = Math.max(0, x.geo.dynTest - m.level); }
     else if (x.mode === 'aspiration') x.geo.suctionLift = Math.max(0, x.geo.suctionLift - m.level);
     else if (x.mode === 'charge') x.geo.chargeHead = Math.max(0, x.geo.chargeHead + m.level);
     else x.geo.wetLevel = Math.max(0, x.geo.wetLevel + m.level);
   }
-  return m.faults?.length ? applyFaults(x, m.faults) : x;
+  const y = m.faults?.length ? applyFaults(x, m.faults) : x;
+  // Niveau dynamique recalculé avec la pompe telle qu'elle est maintenant (usure, vitesse, panne)
+  return withAquifer(y);
 }
 
 export interface Readings { q: number; pRef: number; pAsp: number; amps: number; kw: number; hmt: number; margin: number; on: boolean }
@@ -76,10 +81,11 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   const fill = st.bkQ ?? (bc ? floatFlow(bc, st, !!fx.bkFloatStuck, serie, diff) : 0);
   const fillTxt = fill > 0.05 ? ` + ${f(fill)} m³/h pour le réservoir de secours${fx.bkFloatStuck && (st.bk ?? 0) >= 0.999 ? ' (déborde !)' : ''}` : '';
   if ((st.trip || st.t < st.outageUntil || st.lowLevel) && serie && bc) {
-    const cause = st.t < st.outageUntil ? 'coupure de courant' : st.trip ? 'pompe en défaut' : 'manque d\'eau au forage';
+    const cause = st.t < st.outageUntil ? 'coupure de courant' : st.burnt ? 'moteur grillé' : st.trip ? 'pompe en défaut' : 'manque d\'eau au forage';
     return (st.bk ?? 0) <= 0.002 ? `${cause} et réservoir VIDE : plus d'eau à la maison` : `${cause} : la maison reste servie par le réservoir (${Math.round((st.bk ?? 0) * 100)} %, encore ≈ ${durTxt(((st.bk ?? 0) * bkp!.volume / 1000) / Math.max(0.05, bc.avgM3h))} à la consommation moyenne)`;
   }
   if (st.trip || st.t < st.outageUntil) return null;
+  if (st.on && !st.hum && (st.q < 0.05 || st.noFlow)) return `ANORMALE : la pompe tourne mais ne débite rien (${st.noFlow ? 'plus d\'eau à l\'aspiration' : 'vanne fermée, colonne bouchée ou hauteur inatteignable'}) — l'eau s'échauffe dans la pompe (${f(st.tl ?? 0, 0)} °C), moteur à ${f(st.tm ?? 0, 0)} °C : à arrêter`;
   if (st.bkFeed) return `arrêtée : la maison est alimentée par le réservoir de secours (${Math.round((st.bk ?? 0) * 100)} %)`;
   if (st.lowLevel) return 'arrêtée : manque d\'eau au forage, attend que le niveau remonte';
   if (kind === 'vfd') return st.on ? `variateur à ${Math.round(st.s * 50)} Hz : la maison prend ${f(house)} m³/h${fillTxt}, pression tenue à ${f(st.x)} bar` : 'en veille : consommation trop faible';
@@ -121,6 +127,8 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   return `remonte la pression ${f(st.x)} → ${f(v.pOff)} bar : la pompe donne ${f(st.q)} m³/h, la maison prend ${f(house)}${fillTxt} — arrêt dans ≈ ${dur(Math.max(0, vw(v.pOff) - vw(st.x)) / Math.max(0.05, st.q - dem))}`;
 }
 
+/** Temps de réponse de la nappe (s) : le niveau rejoint le niveau dynamique en ~3 τ après le démarrage */
+const AQ_TAU = 600;
 const durTxt = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${h.toLocaleString('fr-FR', { maximumFractionDigits: h < 10 ? 1 : 0 })} h`);
 
 /** Ce qu'afficheraient les instruments. */
@@ -212,6 +220,9 @@ export interface SimState {
   bkFill?: boolean; // le réservoir de secours se remplit par le robinet à flotteur
   wd?: { on: number; house: number; q: number }; // moyennes glissantes (1 h) : part du temps en marche, consommation de la maison, débit pompé
   bkOver?: boolean; // réservoir de secours qui déborde par le trop-plein (robinet à flotteur bloqué ouvert)
+  ulT?: number; // durée de marche sans débit vue par le relais de sous-charge (s)
+  aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
+  aqDry?: boolean; // forage : l'eau est descendue sous l'entrée de la pompe (le forage ne suit pas)
   bkQ?: number; // débit qui entre dans le réservoir par le robinet à flotteur (m³/h)
   bkVo?: boolean; // robinet à flotteur différentiel ouvert (de « bas » jusqu'à plein)
   bkOpen?: boolean; // électrovanne (normalement ouverte) de sortie du réservoir de secours : ouverte
@@ -241,7 +252,8 @@ const demand = (hr: number) => Math.min(1, 0.08 + 0.85 * Math.exp(-(((hr - 7) / 
 
 export interface SimCtx { i: Installation; h: Hydro; er: ElecResult; kind: SimKind; draw: number; fx: FaultEffect & { ids: string[] } }
 
-export function makeCtx(i: Installation, draw = -1, faults: string[] = []): SimCtx {
+export function makeCtx(i0: Installation, draw = -1, faults: string[] = []): SimCtx {
+  const i = withAquifer(i0);
   const h = solve(i);
   return { i, h, er: electrical(i, h).r, kind: simKind(i), draw, fx: combined(faults) };
 }
@@ -307,8 +319,9 @@ export function surgePeak(i: Installation, h: Hydro, q: number, soft: boolean): 
 }
 /** Profondeur des électrodes de manque d'eau (ou du seuil de la sonde) dans un forage : 2 m au-dessus de la pompe au plus. */
 export function electrodeDepth(i: Installation): number {
-  const imm = Math.max(0.5, i.geo.pumpDepth - i.geo.dynamicLevel);
-  return i.geo.pumpDepth - Math.min(2, imm * 0.5);
+  // Posées 1 à 2 m au-dessus de la pompe (selon l'immersion prévue à l'essai), jamais au ras de l'entrée
+  const imm = Math.max(0.5, i.geo.pumpDepth - (i.geo.dynTest ?? i.geo.dynamicLevel));
+  return i.geo.pumpDepth - Math.max(1, Math.min(2, imm * 0.5));
 }
 /** Réglage du relais thermique du disjoncteur moteur (A). */
 export function relaySetting(ctx: SimCtx, fx: FaultEffect = ctx.fx): number {
@@ -636,6 +649,20 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     }
 
     // ----- Rabattement de la source -----
+    // ----- Nappe : le niveau descend quand la pompe débite (rabattement Q / C), remonte à l'arrêt -----
+    if (isForage(i)) {
+      const aq = aquiferOf(i, ctx.h.q)!;
+      const target = st.on && st.q > 0 && !st.noFlow ? st.q / aq.c : 0;
+      st.aqS = (st.aqS ?? 0) + (target - (st.aqS ?? 0)) * (1 - Math.exp(-sub / AQ_TAU));
+      const lv = i.geo.staticLevel + st.aqS + st.dd;
+      if (st.on && !st.hum && !st.aqDry && lv >= i.geo.pumpDepth - 0.3) {
+        st.aqDry = true; st.noFlow = true; st.q = 0;
+        newEv.push({ t: st.t, sev: 'critical', text: `Le forage ne suit pas : l'eau est descendue à ${f1(lv)} m, sous l'entrée de la pompe (${f1(i.geo.pumpDepth)} m) — la pompe aspire de l'air. Débit maxi du forage ≈ ${f1(aq.qMax)} m³/h`, target: 'source' });
+      } else if (st.aqDry && lv < i.geo.pumpDepth - 1.5) {
+        st.aqDry = false; st.noFlow = false;
+        newEv.push({ t: st.t, sev: 'ok', text: `La nappe est remontée à ${f1(lv)} m : la pompe est à nouveau noyée`, target: 'source' });
+      }
+    }
     if (fx.drawdown) {
       st.dd = st.on && st.q > 0 ? st.dd + (fx.drawdown * sub) / 3600 : Math.max(0, st.dd - (fx.drawdown * 0.4 * sub) / 3600);
       if (st.on && !st.hum) {
@@ -652,7 +679,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // ----- Forage : électrodes / sonde de niveau (protection manque d'eau) -----
     if (isForage(i) && (hasDryProt || i.acc.sonde_niveau?.on)) {
       const eD = electrodeDepth(i);
-      const lvl = i.geo.dynamicLevel + st.dd;
+      const lvl = i.geo.staticLevel + (st.aqS ?? i.geo.dynamicLevel - i.geo.staticLevel) + st.dd;
       const what = hasDryProt ? 'Électrodes de manque d\'eau hors de l\'eau' : 'Sonde de niveau : niveau mini atteint';
       if (st.on && !st.hum && lvl > eD) {
         st.lowLevel = true; seen('decl_manque_eau');
@@ -671,22 +698,32 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const spd = kind === 'vfd' || kind === 'solar' ? st.s : 1;
       const closedNow = st.on && !st.hum && !st.noFlow && st.q < 0.05 && (kind !== 'solar' || spd > 0.85);
       if (st.on && st.dry) seen('marche_a_sec');
+      // Relais de sous-charge (cos φ) de la protection manque d'eau : pompe qui tourne sans débiter pendant 1 min → arrêt
+      st.ulT = closedNow && !fx.decoupled ? (st.ulT ?? 0) + sub : 0;
+      if (hasDryProt && st.on && kind !== 'solar' && (st.ulT ?? 0) >= 60) {
+        st.ulT = 0;
+        trip('Relais de sous-charge (protection manque d\'eau) : la pompe tourne sans débiter, courant à 50 % de In — arrêt pour la protéger', 'decl_sous_charge');
+      }
       const iR = !st.on ? 0 : st.hum ? (i.elec.supply === 'mono' ? 4.5 : 3.2) : fx.decoupled ? 0.3 : st.noFlow ? 0.42 : closedNow ? 0.5 * (fx.ampsK ?? 1)
         : Math.max(fx.overload ?? 0, iBase * (fx.ampsK ?? 1) * (kind === 'vfd' || kind === 'solar' ? Math.max(0.35, st.s ** 2) : 1));
       // Refroidissement : moteur immergé = liquide qui le longe ; moteur de surface = ventilateur (arrêté avec le moteur)
       let cool = 1;
       if (st.on && imm) {
         if (st.noFlow || st.dry) cool = 8; // moteur dans l'air : plus aucun refroidissement par l'eau
-        else if (closedNow) cool = 2; // eau immobile autour du moteur
+        else if (closedNow) cool = (st.tl ?? 0) >= tSat(pShut + 1) - 3 ? 8 : 2; // eau immobile autour du moteur ; vaporisée : plus de refroidissement du tout
         else if (isForage(i) && !i.acc.chemise?.on && i.geo.boreDia > i.pump.diameterMm) {
           const ann = (Math.PI / 4) * ((i.geo.boreDia / 1000) ** 2 - (i.pump.diameterMm / 1000) ** 2);
           const vc = st.q / 3600 / Math.max(1e-4, ann);
           if (vc < 0.08) cool = 1.35; // vitesse de refroidissement insuffisante
         }
       }
-      const tEq = tAmb + 80 * iR * iR * cool * (st.on ? fx.heatK ?? 1 : 1);
+      let tEq = tAmb + 80 * iR * iR * cool * (st.on ? fx.heatK ?? 1 : 1);
+      // Moteur immergé dans de l'eau qui bout (pompe sans débit) : poche de vapeur, la chaleur ne s'évacue plus
+      if (imm && st.on && closedNow && (st.tl ?? 0) >= tSat(pShut + 1) - 3) tEq = Math.max(tEq, (st.tl ?? 0) + 40);
       const tau = st.hum ? tauM / 3 : !st.on && !imm ? tauM * 2.5 : tauM;
       st.tm = (st.tm ?? tAmb) + ((tEq - (st.tm ?? tAmb)) * sub) / tau;
+      // Moteur immergé : il baigne dans l'eau chauffée par la pompe qui tourne sans débit
+      if (imm && st.on && closedNow) st.tm = Math.max(st.tm, (st.tl ?? 0) - 25);
       // Cause principale de l'échauffement (affichée avec les alertes)
       if (st.tm > 105) {
         const runR = Math.max(fx.overload ?? 0, iBase * (fx.ampsK ?? 1));
@@ -696,7 +733,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (runR > 1.02) c.push(`surcharge : ${f1(runR * er.inom)} A en marche pour ${f1(er.inom)} A nominal`);
         if (sh > i.pump.maxStarts) c.push(`démarrages trop fréquents : ${sh} dans l'heure (maxi ${i.pump.maxStarts})`);
         else if (sh > i.pump.maxStarts * 0.6) c.push(`démarrages nombreux : ${sh} dans l'heure`);
-        if (cool > 1.2) c.push('refroidissement insuffisant : plus d\'eau qui circule autour du moteur');
+        if (closedNow) c.push('la pompe tourne sans débit (vanne fermée ou colonne bouchée) : l\'eau chauffe et ne refroidit plus le moteur');
+        else if (cool > 1.2) c.push('refroidissement insuffisant : plus d\'eau qui circule autour du moteur');
         if ((fx.heatK ?? 1) > 1) c.push('courants déséquilibrés entre phases');
         if (!c.length) c.push(runR > 0.9 ? `moteur chargé près de son maximum (${f1(runR * 100, 0)} % de In)` : 'chaleur accumulée pendant les marches précédentes');
         st.tmCause = c.join(' ; ');
@@ -723,7 +761,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       else st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 900;
       const ts = tSat(pShut + 1);
       if (st.tl > 60 && closedNow) once('tl60', { t: st.t, sev: 'warning', text: `Le liquide chauffe dans la pompe : ${f1(st.tl, 0)} °C (la pompe tourne sans débit)`, target: 'pump' });
-      if (st.tl >= ts - 2) {
+      if (st.tl > ts) st.tl = ts;
+      if (closedNow && st.tl >= ts - 2) {
         st.tl = ts;
         if (!st.sealGone) {
           st.sealGone = true; seen('fuite_visible', 'bruit');
@@ -763,8 +802,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const a = Math.min(1, sub / 3600), w = st.wd ?? { on: 0, house: 0, q: 0 };
       const bkS = backupOf(i);
       const house = bkS && backupMode(bkS) === 'serie' ? (st.bkOver ? 0 : st.bkFill ? st.q : 0) : use(ctx, hourOf(st.t)) * i.duty.qReq;
-      st.wd = { on: w.on + ((st.on && st.q > 0 ? 1 : 0) - w.on) * a, house: w.house + (house - w.house) * a, q: w.q + (st.q - w.q) * a };
-      if (st.wd.on > 0.85 && st.wd.house < 0.4 * st.wd.q && !st.runaway && st.t >= st.outageUntil) {
+      st.wd = { on: w.on + ((st.on && st.q > 0.05 ? 1 : 0) - w.on) * a, house: w.house + (house - w.house) * a, q: w.q + (st.q - w.q) * a };
+      if (st.wd.on > 0.85 && st.wd.q > 0.3 && st.q > 0.05 && st.wd.house < 0.4 * st.wd.q && !st.runaway && st.t >= st.outageUntil) {
         seen('ne_s_arrete_pas');
         once('runlong', { t: st.t, sev: 'warning', text: `Marche presque continue depuis 1 h : la pompe envoie ${f1(st.wd.q)} m³/h mais la maison n'en prend que ${f1(st.wd.house)} — l'eau part ailleurs (fuite, robinet à flotteur bloqué, trop-plein) ou le pressostat ne coupe pas`, target: 'pump' });
       }

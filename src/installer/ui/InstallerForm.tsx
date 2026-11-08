@@ -5,7 +5,8 @@ import { SolarSite } from './SolarSite';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES } from '../catalog';
 import { defaultDn, withPipe } from '../evaluate';
 import { SECTIONS, START_LABEL, SUPPLY_LABEL, TANK_SIZES, type ElecResult } from '../electrical';
-import { fluidAt } from '../hydraulics';
+import { fluidAt, solve } from '../hydraulics';
+import { aquiferOf, withAquifer } from '../aquifer';
 import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
@@ -159,7 +160,9 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           {forage && (
             <>
               <NumField label="Niveau statique" unit="m" value={i.geo.staticLevel} onChange={(v) => geo({ staticLevel: v })} dflt={D('geo.staticLevel')} />
-              <NumField label="Niveau dynamique" unit="m" value={i.geo.dynamicLevel} onChange={(v) => geo({ dynamicLevel: v })} dflt={D('geo.dynamicLevel')} />
+              <NumField label={(i.geo.boreQ ?? 0) > 0 ? 'Niveau dynamique (à l\'essai)' : 'Niveau dynamique'} unit="m" value={i.geo.dynamicLevel} onChange={(v) => geo({ dynamicLevel: v })} dflt={D('geo.dynamicLevel')} />
+              <NumField label="Débit de l'essai de pompage" unit="m³/h" value={i.geo.boreQ ?? 0} onChange={(v) => geo({ boreQ: v > 0 ? v : undefined })} hint="débit auquel le niveau dynamique a été mesuré (0 = inconnu)" wide />
+              <AquiferBox i={i} />
               <NumField label="Profondeur de la pompe" unit="m" value={i.geo.pumpDepth} onChange={(v) => geo({ pumpDepth: v })} dflt={D('geo.pumpDepth')} />
               <NumField label="Profondeur du forage" unit="m" value={i.geo.boreDepth} onChange={(v) => geo({ boreDepth: v })} dflt={D('geo.boreDepth')} />
               <NumField label="Diamètre intérieur du forage" unit="mm" value={i.geo.boreDia} onChange={(v) => geo({ boreDia: v })} wide />
@@ -333,5 +336,24 @@ function BackupSection({ i, set, n }: { i: Installation; set: (fn: (i: Installat
         </>
       )}
     </Section>
+  );
+}
+
+/** Ce que la nappe permet : capacité spécifique, niveau au débit réel de la pompe, débits maxi et conseillé. */
+function AquiferBox({ i }: { i: Installation }) {
+  const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
+  const ie = withAquifer(i);
+  const h = solve(ie);
+  const a = aquiferOf(ie, h.q);
+  if (!a) return null;
+  if (!a.known) return <p className="ihint wide2">Renseignez le débit de l'essai : on en déduit ce que le forage peut donner, le niveau réel de l'eau au débit de la pompe et le débit à ne pas dépasser.</p>;
+  const above = ie.geo.pumpDepth - ie.geo.dynamicLevel;
+  const bad = h.q > a.qMax + 0.05 || above < 2;
+  return (
+    <div className={`vrec wide2${bad ? ' bad' : ''}`}>
+      <b>Nappe</b>
+      <span>Capacité spécifique {f1(a.c, 2)} m³/h par mètre · débit maxi ≈ {f1(a.qMax)} m³/h · exploitation conseillée {f1(a.qExp)} m³/h</span>
+      <small>À {f1(h.q)} m³/h (débit de la pompe), l'eau se stabilise à {f1(ie.geo.dynamicLevel)} m, {above > 0 ? `${f1(above)} m au-dessus de la pompe` : 'sous l\'entrée de la pompe'}{bad ? ' : trop peu, la pompe va se dénoyer.' : '.'}</small>
+    </div>
   );
 }

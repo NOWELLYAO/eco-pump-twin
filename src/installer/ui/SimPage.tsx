@@ -73,7 +73,7 @@ export function SimPage({ s }: { s: Shared }) {
   const r = liveReadings(ctx, sim);
   const obs = observe(ctx, nctx, sim);
   const note = (sev: 'info' | 'warning' | 'critical' | 'ok', text: string, target?: string) => (st: SimState): SimState => ({ ...st, events: [{ t: st.t, sev, text, target }, ...st.events].slice(0, 80) });
-  const cleared = (st: SimState): SimState => ({ ...st, burnt: false, sealGone: false, burst: null, fatigue: 0, cavT: 0, relay: 0, tm: undefined, tl: undefined, flags: {}, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: {}, primed: true, dd: 0, runaway: false, blocked: false, hum: false, noFlow: false, on: false });
+  const cleared = (st: SimState): SimState => ({ ...st, burnt: false, sealGone: false, burst: null, fatigue: 0, cavT: 0, relay: 0, tm: undefined, tl: undefined, flags: {}, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: {}, primed: true, dd: 0, runaway: false, blocked: false, hum: false, noFlow: false, aqDry: false, on: false });
   // La panne apparaît : chrono de déclenchement remis à zéro ; un moteur qui ne peut plus démarrer
   // s'arrête (micro-coupure) et retente aussitôt de démarrer.
   const inject = (st: SimState, e: NonNullable<ReturnType<typeof faultById>>['effect']): SimState => ({
@@ -100,7 +100,7 @@ export function SimPage({ s }: { s: Shared }) {
     setFaultT({});
     setSim((st) => note('ok', 'Toutes les pannes réparées, protections réarmées')(cleared({ ...st, outageUntil: 0 })));
   };
-  const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_variateur: undefined } }));
+  const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_sous_charge: undefined, decl_variateur: undefined } }));
   const startMystery = () => {
     const cands = FAULTS.filter((f) => f.applies(iSim, kind) && !mods.faults.includes(f.id));
     if (!cands.length) return;
@@ -122,7 +122,7 @@ export function SimPage({ s }: { s: Shared }) {
   const useRel = kind === 'vessel' || kind === 'vfd' ? cNow / Math.max(0.1, s.inst.duty.qReq) : kind === 'tank' ? cNow / Math.max(0.1, s.inst.duty.qReq * 0.55) : sim.on ? 0.6 : 0;
   const phys = { tmCause: sim.tmCause, relaySet: relaySetting(ctx), tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
   const why = sim.master ? pumpReason(ctx, sim) : null;
-  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
   const reset = () => { setFaultT({}); setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
@@ -223,7 +223,7 @@ export function SimPage({ s }: { s: Shared }) {
           <div className={sim.on ? 'on' : ''}><small><Droplets size={13} aria-hidden /> Débit</small><b>{fmt(r.q, 1)}<span>m³/h</span></b></div>
           <div><small><Gauge size={13} aria-hidden /> Refoulement</small><b>{fmt(kind === 'vessel' || kind === 'vfd' ? sim.x : r.pRef, 2)}<span>bar</span></b></div>
           {s.inst.mode !== 'immergee' ? <div><small>Aspiration</small><b>{fmt(r.pAsp, 2)}<span>bar</span></b></div>
-            : s.inst.pumpType === 'immergee_forage' ? <div className={sim.noFlow ? 'bad' : ''}><small>Eau au-dessus de la pompe</small><b>{fmt(Math.max(0, s.inst.geo.pumpDepth - s.inst.geo.dynamicLevel - sim.dd), 1)}<span>m</span></b><em>niveau {fmt(s.inst.geo.dynamicLevel + sim.dd, 1)} m · pompe à {fmt(s.inst.geo.pumpDepth, 0)} m</em></div>
+            : s.inst.pumpType === 'immergee_forage' ? (() => { const lv = ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd; const ab = ctx.i.geo.pumpDepth - lv; return <div className={sim.noFlow || ab < 2 ? 'bad' : ''}><small>Eau au-dessus de la pompe</small><b>{fmt(Math.max(0, ab), 1)}<span>m</span></b><em>niveau {fmt(lv, 1)} m {sim.on ? '↓' : (sim.aqS ?? 0) > 0.2 ? '↑' : ''} · statique {fmt(ctx.i.geo.staticLevel, 0)} · pompe à {fmt(ctx.i.geo.pumpDepth, 0)} m</em></div>; })()
             : kind === 'pit' ? <div><small>Niveau dans la fosse</small><b>{fmt(sim.x * 100, 0)}<span>cm</span></b><em>marche à 50 cm · arrêt à 0</em></div> : null}
           <div><small><Zap size={13} aria-hidden /> Courant</small><b>{fmt(r.amps, 1)}<span>A</span></b></div>
           <div><small>Puissance</small><b>{fmt(r.kw, 2)}<span>kW</span></b></div>

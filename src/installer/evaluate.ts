@@ -1,3 +1,4 @@
+import { aquiferOf, withAquifer } from './aquifer';
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
 import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
@@ -79,7 +80,7 @@ export const CAT_LABEL: Record<Category, string> = {
 };
 
 export function evaluate(input: Installation): Evaluation {
-  const i = ensureElec(input);
+  const i = withAquifer(ensureElec(input));
   const h = solve(i);
   const out: Issue[] = [];
   const goods: string[] = [];
@@ -129,7 +130,10 @@ export function evaluate(input: Installation): Evaluation {
       solutions: ['Choisir une pompe de plus forte HMT (plus d\'étages, roue plus grande)', 'Réduire la pression résiduelle demandée', 'Vérifier les hauteurs saisies'] });
   } else {
     const r = h.q / i.duty.qReq;
-    if (r < 0.97) {
+    // Forage limité volontairement à son débit d'exploitation : ce n'est pas un défaut de la pompe (voir « aq_need »)
+    const aq0 = aquiferOf(i, h.q);
+    const boreLimited = !!aq0?.known && i.duty.qReq > aq0.qExp * 1.02 && h.q >= aq0.qExp * 0.9;
+    if (r < 0.97 && !boreLimited) {
       const crit = r < 0.9;
       const share = h.hLoss / h.h;
       const side: 'asp' | 'ref' = !imm && h.lossAsp > h.lossRef ? 'asp' : 'ref';
@@ -558,6 +562,44 @@ export function evaluate(input: Installation): Evaluation {
     }
   }
 
+  // ---------- Nappe phréatique : ce que le forage peut donner ----------
+  const aq = aquiferOf(i, h.q);
+  if (aq) {
+    const g = i.geo, above = g.pumpDepth - g.dynamicLevel;
+    if (!aq.known) {
+      add({ id: 'aq_unknown', sev: 'info', cat: 'hydraulique', title: 'Débit de l\'essai de pompage non renseigné',
+        detail: `Le niveau dynamique saisi (${f1(g.dynamicLevel)} m) est supposé mesuré au débit de la pompe (${f1(h.q)} m³/h). Sans le débit de l'essai, on ne peut pas vérifier que le forage suit, ni recalculer le niveau à un autre débit.`,
+        consequences: ['Risque de dénoyer la pompe si le forage donne moins'], parts: [],
+        solutions: ['Renseigner le débit de l\'essai de pompage (Conception › Site, niveaux et distances)'] });
+    } else {
+      const deeper = Math.ceil(g.staticLevel + h.q / aq.c + 3);
+      if (h.q > aq.qMax + 0.05 || above < 2) {
+        add({ id: 'aq_over', sev: 'critical', cat: 'hydraulique', title: 'La pompe pompe plus que le forage ne donne',
+          detail: `Le forage donne ${f1(aq.qTest)} m³/h à l'essai pour ${f1(aq.dynTest - g.staticLevel)} m de rabattement (${f1(aq.c, 2)} m³/h par mètre). À ${f1(h.q)} m³/h, l'eau descend à ${f1(g.dynamicLevel)} m, ${above > 0 ? `à ${f1(above)} m seulement au-dessus` : 'sous l\'entrée'} de la pompe (${f1(g.pumpDepth)} m). Débit maxi pour garder 2 m d'eau au-dessus : ${f1(aq.qMax)} m³/h.`,
+          consequences: ['La pompe se dénoie et aspire de l\'air', 'Marche à sec, moteur mal refroidi', 'Ensablement et colmatage du forage'], parts: ['moteur', 'garniture'],
+          solutions: [`Pompe plus petite, ≈ ${f1(aq.qExp)} m³/h (80 % du débit d'essai)`, deeper <= g.boreDepth - 3 ? `Ou descendre la pompe à ${deeper} m` : 'Le forage n\'est pas assez profond pour descendre la pompe', 'Électrodes de manque d\'eau indispensables'],
+          fix: deeper <= g.boreDepth - 3 ? { label: `Pompe à ${deeper} m`, apply: (x) => ({ ...x, geo: { ...x.geo, pumpDepth: deeper } }) } : undefined });
+      } else if (h.q > aq.qTest * 1.02) {
+        add({ id: 'aq_test', sev: 'warning', cat: 'hydraulique', title: 'Débit au-delà de l\'essai de pompage',
+          detail: `La pompe donne ${f1(h.q)} m³/h, plus que les ${f1(aq.qTest)} m³/h de l'essai : le rabattement (${f1(g.dynamicLevel - g.staticLevel)} m) est extrapolé et l'eau entre plus vite dans le forage, ce qui entraîne du sable et colmate la crépine avec le temps.`,
+          consequences: ['Vieillissement accéléré du forage', 'Eau chargée de sable'], parts: [],
+          solutions: [`Exploiter à ${f1(aq.qExp)} m³/h au plus (80 % de l'essai)`, 'Faire un essai de pompage par paliers pour connaître le débit critique'] });
+      }
+      const bkA = backupOf(i);
+      if (i.duty.qReq > aq.qExp * 1.02) {
+        const dailyNeed = i.duty.qReq * 0.27 * 24, dailyBore = aq.qExp * 20;
+        const tower = !!bkA && backupMode(bkA) === 'serie';
+        add({ id: 'aq_need', sev: dailyNeed > dailyBore ? 'critical' : tower ? 'info' : 'warning', cat: 'hydraulique', title: dailyNeed > dailyBore ? 'Le forage ne couvre pas la consommation journalière' : 'Pointe de consommation supérieure au débit du forage',
+          detail: dailyNeed > dailyBore
+            ? `Il faut ≈ ${f0(dailyNeed)} m³ par jour, le forage en donne ≈ ${f0(dailyBore)} (${f1(aq.qExp)} m³/h pendant 20 h) : aucun réservoir ne compense.`
+            : `La pointe (${f1(i.duty.qReq)} m³/h) dépasse ce que le forage donne durablement (${f1(aq.qExp)} m³/h), mais la journée est couverte (${f0(dailyNeed)} m³ pour ${f0(dailyBore)} possibles). ${tower ? 'Le château d\'eau absorbe les pointes : c\'est la bonne solution.' : 'Un château d\'eau en série absorberait les pointes, la pompe tournant à débit modéré.'}`,
+          consequences: dailyNeed > dailyBore ? ['Pénurie quotidienne'] : tower ? [] : ['Pompe dénoyée aux heures de pointe'], parts: [],
+          solutions: dailyNeed > dailyBore ? ['Second forage', 'Réduire la consommation'] : tower ? ['Pompe dimensionnée sur le débit d\'exploitation, pas sur la pointe'] : ['Château d\'eau en série (Conception › Réservoir surélevé)'] });
+      }
+      if (h.q <= aq.qMax && above >= 2) goods.push(`Forage : ${f1(aq.qTest)} m³/h à l'essai (${f1(aq.c, 2)} m³/h par mètre de rabattement) ; à ${f1(h.q)} m³/h, l'eau se stabilise à ${f1(g.dynamicLevel)} m, ${f1(above)} m au-dessus de la pompe`);
+    }
+  }
+
   // ---------- Électricité, réservoir à vessie, solaire ----------
   const el = electrical(i, h);
   out.push(...el.issues);
@@ -629,7 +671,7 @@ export function evaluate(input: Installation): Evaluation {
 
   // ---------- Note ----------
   const W: Record<Sev, number> = { critical: 16, warning: 6, info: 1 };
-  let score = 100 - out.filter((x) => x.id !== 'defaults').reduce((s, x) => s + W[x.sev], 0);
+  let score = 100 - out.filter((x) => x.id !== 'defaults' && x.id !== 'aq_unknown').reduce((s, x) => s + W[x.sev], 0);
   const nCrit = out.filter((x) => x.sev === 'critical').length;
   if (nCrit) score = Math.min(score, 54 - (nCrit - 1) * 6);
   score = Math.max(0, Math.min(100, Math.round(score)));

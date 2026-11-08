@@ -2,6 +2,7 @@ import { useId, useRef, type MouseEvent, type ReactNode } from 'react';
 import { useDeclutter } from '../../ui/declutter';
 import { electrodeDepth, type Readings, type SimKind } from '../sim';
 import { backupCalc, backupMode, backupOf, floatKind } from '../backup';
+import { withAquifer } from '../aquifer';
 import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
@@ -102,7 +103,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; // réservoir de secours
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; lvl?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -126,7 +127,9 @@ function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: num
   );
 }
 
-export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
+export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
+  // Forage : niveau dynamique au débit réel de la pompe (si elle ne débite pas — panne —, on garde celui de l'essai)
+  const i = h.q > 0.05 ? withAquifer(i0) : i0.geo.dynTest != null ? { ...i0, geo: { ...i0.geo, dynamicLevel: i0.geo.dynTest } } : i0;
   const svgRef = useRef<SVGSVGElement>(null);
   useDeclutter(svgRef, ['.r-note text', '.r-dim text', 'g.lcd', 'g.r-closed', 'g.r-tbadge', 'text.r-label', 'text.r-stuck', 'g.state'], '.r-legend, g.term, .r-obst');
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -178,7 +181,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const yS = G + i.geo.staticLevel * k, yD = G + i.geo.dynamicLevel * k, yP = G + i.geo.pumpDepth * k;
     // Niveau réel : dynamique (+ rabattement) en pompage, remonte vers le statique à l'arrêt
     // En marche : niveau dynamique ; à l'arrêt : remonte vers le statique, sauf si la nappe est rabattue (source qui se tarit)
-    const yNow = live ? Math.min(bottomY - 6, (live.on && !live.hum) || (live.dd ?? 0) > 0.05 ? yD + (live.dd ?? 0) * k : yS) : yD;
+    const yNow = live ? Math.min(bottomY - 6, live.lvl != null ? G + live.lvl * k : (live.on && !live.hum) || (live.dd ?? 0) > 0.05 ? yD + (live.dd ?? 0) * k : yS) : yD;
     scene.push(
       <rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />,
       <rect key="bore" x={150} y={G} width={90} height={bottomY - G} className="r-bore" />,
@@ -217,7 +220,8 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     dims.push(
       <g key="lv" className="r-note">
         <text x={258} y={yS + 4}>Niveau statique {fm(i.geo.staticLevel)}</text>
-        <text x={258} y={yD + 4}>Niveau dynamique {fm(i.geo.dynamicLevel)}</text>
+        <text x={258} y={yD + 4}>Niveau dynamique {fm(i.geo.dynamicLevel)}{(i.geo.boreQ ?? 0) > 0 && h.q > 0.05 ? ` à ${h.q.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h` : (i.geo.boreQ ?? 0) > 0 ? ` (essai à ${i.geo.boreQ!.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h)` : ''}</text>
+        {live?.lvl != null && Math.abs(live.lvl - i.geo.dynamicLevel) > 0.6 && Math.abs(live.lvl - i.geo.staticLevel) > 0.6 && <text x={258} y={G + live.lvl * k + 4} className="r-now">Eau à {fm(live.lvl)} {live.on ? '↓' : '↑'}</text>}
         <text x={258} y={pTop + 34}>Pompe à {fm(i.geo.pumpDepth)} · immersion {fm(i.geo.pumpDepth - i.geo.dynamicLevel)}</text>
         <text x={258} y={bottomY - 6}>Fond {fm(i.geo.boreDepth)} · Ø {i.geo.boreDia} mm</text>
       </g>,

@@ -1441,3 +1441,5 @@ html, body { overflow-x: clip; }
 .r-bk-badge.over rect{fill:#fff1f0;stroke:#c0392b;animation:bkpulse 1s ease-in-out infinite}.r-bk-badge.over text{fill:#c0392b}
 .r-puddle{fill:#7cc4f2;opacity:.7}
 .r-bypass path:first-child{fill:#d9534f;stroke:#5a2420;stroke-width:1.2}.r-bypass path:last-child{stroke:#5a2420;stroke-width:1.6}
+.vrec.bad{background:#fff1f0;border-color:#f3c3be}
+.r-now{fill:#0b5cad;font-style:italic;font-weight:700}

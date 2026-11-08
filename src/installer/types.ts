@@ -52,6 +52,8 @@ export interface Geometry {
   bottom: number; // distance entrée conduite / fond (m)
   // forage
   staticLevel: number; dynamicLevel: number; pumpDepth: number; boreDepth: number; boreDia: number;
+  boreQ?: number; // débit de l'essai de pompage auquel le niveau dynamique a été mesuré (m³/h)
+  dynTest?: number; // (calculé) niveau dynamique de l'essai, quand dynamicLevel a été recalculé au débit de la pompe
   // bâche / fosse
   tankVolume: number; // volume utile (L)
   wetLevel: number; // hauteur d'eau au-dessus de la pompe immergée (m)

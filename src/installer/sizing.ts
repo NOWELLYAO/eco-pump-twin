@@ -1,6 +1,7 @@
 /** Dimensionnement : pompe adaptée au besoin (débit demandé à la hauteur réellement nécessaire). */
 import { PUMP_TYPES } from './catalog';
 import { systemHeadAt } from './hydraulics';
+import { aquiferOf } from './aquifer';
 import type { Installation, PumpMatId } from './types';
 
 const MOTORS = [0.37, 0.55, 0.75, 1.1, 1.5, 2.2, 3, 4, 5.5, 7.5, 11, 15, 18.5, 22, 30, 37, 45, 55, 75, 90, 110, 132, 160];
@@ -19,8 +20,13 @@ function pumpMaterial(d: Installation): PumpMatId {
 export function proposePump(d: Installation): Installation {
   // Chaque pompe en service fournit sa part du débit, à la hauteur totale du réseau
   const nr = Math.max(1, (d.pump.count ?? 1) - (d.pump.standby ?? 0));
-  const q = Math.max(0.1, d.duty.qReq / nr);
-  const hReq = Math.max(2, systemHeadAt(d, d.duty.qReq));
+  // Forage dont l'essai de pompage est connu : on ne demande pas plus que le débit d'exploitation du forage,
+  // et la hauteur est calculée avec le niveau dynamique à CE débit (rabattement Q / C)
+  const aq = aquiferOf(d);
+  const qTot = aq?.known ? Math.max(0.1, Math.min(d.duty.qReq, aq.qExp)) : d.duty.qReq;
+  const dLvl = aq?.known ? { ...d, geo: { ...d.geo, dynTest: aq.dynTest, dynamicLevel: Math.min(d.geo.pumpDepth - 0.3, d.geo.staticLevel + qTot / aq.c) } } : d;
+  const q = Math.max(0.1, qTot / nr);
+  const hReq = Math.max(2, systemHeadAt(dLvl, qTot));
   const pt = d.pumpType;
   const shutoff = pt === 'immergee_forage' ? 1.3 : pt === 'submersible_relevage' ? 1.45 : 1.25;
   // Avec pressostat (sans variateur), la pompe doit pouvoir monter au-dessus de la pression de marche
