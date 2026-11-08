@@ -996,3 +996,14 @@ html, body { overflow-x: clip; }
 .wz-entry b { font-size: 1.05rem; color: var(--brand-ink); }
 .wz-entry small { color: var(--muted); }
 .wz-open { min-height: 50px; justify-content: center; font-size: 1rem; margin-bottom: 8px; }
+.ctip .cv { color: var(--good-ink); }
+.vfdbox { margin-top: 12px; border-radius: 12px; padding: 12px 14px; border: 1px solid var(--line); border-left: 5px solid var(--good); background: var(--good-bg); }
+.vfdbox.no { border-left-color: var(--warn); background: var(--warn-bg); }
+.vfdbox.opt { border-left-style: dashed; background: var(--panel-2); }
+.vfdbox h5 { margin: 0 0 6px; font-size: .98rem; }
+.vfdbox p { margin: 6px 0; line-height: 1.45; }
+.vfdtbl { width: 100%; margin: 8px 0; background: var(--panel); border-radius: 8px; font-size: .88rem; }
+.vfdtbl th, .vfdtbl td { padding: 6px 8px; text-align: left; vertical-align: top; }
+.vfdtbl thead th small { font-weight: 500; color: var(--muted); }
+.vfdtbl td.good { color: var(--good-ink); }
+.vfdtbl td.bad { color: var(--crit-ink); }

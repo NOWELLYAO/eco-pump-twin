@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
-import { MONTHS, START_LABEL, SUPPLY_LABEL, planLabel } from '../electrical';
+import { MONTHS, START_LABEL, SUPPLY_LABEL, effectiveStart, planLabel } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { losses, pumpHead, systemHeadAt } from '../hydraulics';
@@ -289,30 +289,45 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const kq = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
   const qe = qN / h.n;
   const sVfd = Math.sqrt((asksAtNeed + kq * qe * qe) / (i.pump.hn * i.pump.shutoff));
+  // Variateur : courbe de la pompe à vitesse réduite (lois de similitude H(q, s) = s² · H(q / s))
+  const hasVfd = effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire';
+  const vfdOk = h.ok && h.q > qN * 1.03 && sVfd > 0.3 && sVfd < 0.995;
+  const vfdHz = sVfd * 50;
+  const data = vfdOk ? h.curve.map((p) => { const v = sVfd * sVfd * pumpHead(i, p.q / sVfd); return { ...p, hv: v > 0 ? v : null }; }) : h.curve;
+  const regPt = vfdOk ? [{ q: qN, y: asksAtNeed }] : [];
+  const xReg = qe / (i.pump.qn * sVfd);
+  const vs = ev.elec.vfdSpeed;
+  const rho = i.fluid.rho * 9.81 / 3.6e6;
+  const kwhM3Now = h.ok && h.q > 0 ? h.pElec / h.q : 0;
+  const kwhM3Reg = vs ? vs.pNew / qN : vfdOk ? (rho * asksAtNeed) / Math.max(0.3, i.pump.eta * 0.95) / 0.88 : 0;
+  const vfdName = hasVfd ? `Avec le variateur (${fmt(vfdHz, 0)} Hz)` : `Si vous ajoutez un variateur (${fmt(vfdHz, 0)} Hz)`;
   return (
     <figure className="instcurve">
       <figcaption>Ce que la pompe fournit face à ce que l'installation demande <span>(hauteur en m, débit en m³/h)</span></figcaption>
       <ResponsiveContainer width="100%" height={330}>
-        <ComposedChart data={h.curve} margin={{ top: 34, right: 16, bottom: 4, left: -6 }}>
+        <ComposedChart data={data} margin={{ top: 34, right: 16, bottom: 4, left: -6 }}>
           <CartesianGrid stroke={c.grid} vertical={false} />
           <XAxis dataKey="q" type="number" domain={[0, 'dataMax']} {...axis} tickFormatter={(v) => fmt(v, 0)} />
           <YAxis domain={[0, Math.ceil(top / 5) * 5]} allowDataOverflow {...axis} width={44} tickFormatter={(v) => fmt(v, 0)} />
           <Tooltip position={{ y: 0 }} cursor={{ stroke: c.axis, strokeDasharray: '3 3' }} wrapperStyle={{ pointerEvents: 'none', zIndex: 5 }} content={({ active, payload }) => {
             if (!active || !payload?.length) return null;
-            const p = payload[0].payload as { q: number; hp: number | null; hs: number };
+            const p = payload[0].payload as { q: number; hp: number | null; hs: number; hv?: number | null };
             return (
               <div className="ctip">
                 <b>{fmt(p.q, 1)} m³/h</b>
-                <span className="cp">pompe {p.hp != null ? `${fmt(p.hp, 0)} m` : '—'}</span>
+                <span className="cp">pompe {vfdOk ? '50 Hz ' : ''}{p.hp != null ? `${fmt(p.hp, 0)} m` : '—'}</span>
+                {vfdOk && <span className="cv">pompe {fmt(vfdHz, 0)} Hz {p.hv != null ? `${fmt(p.hv, 0)} m` : '—'}</span>}
                 <span className="cn">installation {fmt(p.hs, 0)} m</span>
               </div>
             );
           }} />
           <Legend iconType="plainline" wrapperStyle={{ fontSize: 12.5 }} />
-          <Line name="Ce que la pompe fournit" dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          <Line name={vfdOk ? 'Ce que la pompe fournit (50 Hz)' : 'Ce que la pompe fournit'} dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} isAnimationActive={false} />
+          {vfdOk && <Line name={vfdName} dataKey="hv" stroke={c.good} strokeWidth={2.5} strokeDasharray={hasVfd ? undefined : '2 4'} dot={false} isAnimationActive={false} connectNulls={false} />}
           <Line name="Ce que l'installation demande" dataKey="hs" stroke={c.s3} strokeWidth={2.5} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
           <Scatter name="Votre besoin" data={need} dataKey="y" fill={c.ink} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
-          <Scatter name="Point de fonctionnement réel" data={op} dataKey="y" fill={c.s2} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
+          <Scatter name={vfdOk ? 'Point à 50 Hz' : 'Point de fonctionnement réel'} data={op} dataKey="y" fill={c.s2} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
+          {vfdOk && hasVfd && <Scatter name={`Point réel avec variateur`} data={regPt} dataKey="y" fill={c.good} stroke={c.surface} strokeWidth={2} legendType="diamond" shape="diamond" isAnimationActive={false} />}
         </ComposedChart>
       </ResponsiveContainer>
 
@@ -333,6 +348,39 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
                 ? <>À votre besoin ({fmt(qN, 1)} m³/h), la pompe ne donne que <b>{fmt(Math.max(0, givesAtNeed), 0)} m</b> alors que l'installation demande <b>{fmt(asksAtNeed, 0)} m</b> : <b>il manque {fmt(-gap, 0)} m</b>. Le débit reste donc plus faible ({fmt(h.q, 1)} m³/h). Il faut une pompe plus puissante, ou réduire les frottements (tuyaux plus gros) ou la pression demandée.</>
                 : <><b>Aucun débit : les deux lignes ne se croisent pas.</b> Même vanne fermée, la pompe ne pousse qu'à <b>{fmt(h0, 0)} m</b>, alors que l'installation demande déjà <b>{fmt(h.hStatic + h.hPress, 0)} m</b> sans aucun débit (hauteur à monter {fmt(h.hStatic, 1)} m + pression {fmt(h.hPress, 1)} m). À votre besoin, il manquerait <b>{fmt(-gap, 0)} m</b>. Il faut une pompe d'au moins <b>{fmt(asksAtNeed * 1.05, 0)} m à {fmt(qN, 1)} m³/h</b> (plus d'étages ou roue plus grande), ou baisser la pression demandée.</>}
         </div>
+        {hasVfd && (
+          <div className={`vfdbox ${vfdOk ? 'ok' : 'no'}`}>
+            <h5>Effet du variateur</h5>
+            {vfdOk ? (
+              <>
+                <p>Le variateur ralentit la pompe jusqu'à ce qu'elle donne <b>exactement votre besoin</b>. Sa courbe descend (ligne verte) et croise la demande de l'installation sur votre besoin : le point de fonctionnement passe du point orange (50 Hz) au losange vert.</p>
+                <table className="tbl vfdtbl">
+                  <thead><tr><th /><th>Sans variateur<br /><small>50 Hz</small></th><th>Avec variateur<br /><small>{fmt(vfdHz, 1)} Hz</small></th></tr></thead>
+                  <tbody>
+                    <tr><th>Vitesse</th><td>{fmt(i.pump.nn, 0)} tr/min</td><td><b>{fmt(i.pump.nn * sVfd, 0)} tr/min</b></td></tr>
+                    <tr><th>Débit</th><td>{fmt(h.q, 1)} m³/h</td><td><b>{fmt(qN, 1)} m³/h</b></td></tr>
+                    <tr><th>Hauteur</th><td>{fmt(h.h, 1)} m</td><td><b>{fmt(asksAtNeed, 1)} m</b></td></tr>
+                    <tr><th>Position sur la courbe</th><td className={h.x > 1.2 || h.x < 0.7 ? 'bad' : ''}>{fmt(h.x * 100, 0)} % du débit optimal</td><td className={xReg > 1.2 || xReg < 0.7 ? 'bad' : 'good'}><b>{fmt(xReg * 100, 0)} %</b></td></tr>
+                    {vs && <tr><th>Puissance absorbée</th><td>{fmt(vs.pNow, 2)} kW</td><td><b>{fmt(vs.pNew, 2)} kW</b></td></tr>}
+                    {kwhM3Now > 0 && kwhM3Reg > 0 && <tr><th>Énergie par m³</th><td>{fmt(kwhM3Now, 3)} kWh</td><td><b>{fmt(kwhM3Reg, 3)} kWh</b></td></tr>}
+                  </tbody>
+                </table>
+                {vs && vs.saving > 0.02 && <p className="small">Économie : <b>{fmt(vs.saving * 100, 0)} % d'énergie par m³</b> pompé, soit environ <b>{money(h.costYear * vs.saving, i.duty.currency)}</b> par an.</p>}
+                <p className="small muted">Réglage : consigne du variateur sur la pression ou le débit voulu (capteur de pression), ou fréquence fixe ≈ {fmt(vfdHz, 0)} Hz.</p>
+              </>
+            ) : h.ok && h.q <= qN * 1.03 ? (
+              <p>Le variateur ne peut <b>pas augmenter</b> le débit : à 50 Hz, la pompe donne déjà {h.q < qN * 0.97 ? <>moins que votre besoin ({fmt(h.q, 1)} m³/h pour {fmt(qN, 1)} m³/h)</> : 'juste votre besoin'}. Il tourne donc à 50 Hz et sert seulement au démarrage progressif et à la protection du moteur.{h.q < qN * 0.97 && ' Pour atteindre le besoin : pompe plus forte, ou réseau moins exigeant (tuyaux plus gros, pression plus basse).'}</p>
+            ) : (
+              <p>Le variateur ne peut rien faire ici : la pompe n'atteint pas la hauteur nécessaire, même à pleine vitesse.</p>
+            )}
+          </div>
+        )}
+        {!hasVfd && vfdOk && i.elec.supply !== 'solaire' && (
+          <div className="vfdbox opt">
+            <h5>Et avec un variateur ?</h5>
+            <p>La ligne verte en pointillés montre la pompe ralentie à <b>{fmt(vfdHz, 0)} Hz</b> : elle donnerait exactement votre besoin ({fmt(qN, 1)} m³/h), à {fmt(xReg * 100, 0)} % de son débit optimal{vs ? '' : ''}. Activez le variateur (Électricité ou accessoires) pour voir le gain détaillé.</p>
+          </div>
+        )}
       </div>
     </figure>
   );

@@ -42,8 +42,8 @@ export function useDark() {
 export function useChartColors() {
   const dark = useDark();
   return dark
-    ? { s1: '#2a93cc', s2: '#c96e1e', s3: '#8a6fd6', grid: '#2a3842', axis: '#9fb0bc', ink: '#e7eef3', surface: '#18222b', band: 'rgba(42,147,204,.10)', warn: '#fab219', crit: '#d03b3b' }
-    : { s1: '#1689c6', s2: '#d9761f', s3: '#7a5bc4', grid: '#e3e9ef', axis: '#5a6b78', ink: '#17242e', surface: '#ffffff', band: 'rgba(22,137,198,.08)', warn: '#c98a00', crit: '#d03b3b' };
+    ? { s1: '#2a93cc', s2: '#c96e1e', s3: '#8a6fd6', grid: '#2a3842', axis: '#9fb0bc', ink: '#e7eef3', surface: '#18222b', band: 'rgba(42,147,204,.10)', warn: '#fab219', crit: '#d03b3b', good: '#3fbf4f' }
+    : { s1: '#1689c6', s2: '#d9761f', s3: '#7a5bc4', grid: '#e3e9ef', axis: '#5a6b78', ink: '#17242e', surface: '#ffffff', band: 'rgba(22,137,198,.08)', warn: '#c98a00', crit: '#d03b3b', good: '#0a8f2e' };
 }
 
 export function download(name: string, text: string, type = 'text/csv;charset=utf-8') {
