@@ -9,18 +9,19 @@ import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
 import { PumpCurveEditor } from './PumpCurveEditor';
+import { isDefault, touch } from '../defaults';
 
 const dnOpts = DN_LIST.map((d) => ({ v: d, l: `DN${d}` }));
 const pnOpts = [4, 6, 10, 16, 25, 40].map((p) => ({ v: p, l: `PN${p}` }));
 const matOpts = (Object.keys(PIPE_MATS) as PipeMatId[]).map((m) => ({ v: m, l: PIPE_MATS[m].label }));
 
-function PipeFields({ run, onChange }: { run: PipeRun; onChange: (r: PipeRun) => void }) {
+function PipeFields({ run, onChange, dflt }: { run: PipeRun; onChange: (r: PipeRun) => void; dflt?: boolean }) {
   return (
     <div className="igrid">
       <SelField label="Matériau" value={run.material} options={matOpts} onChange={(v) => onChange({ ...run, material: v })} wide />
       <SelField label="Diamètre intérieur" value={run.dn} options={dnOpts} onChange={(v) => onChange({ ...run, dn: v })} />
       <SelField label="Pression nominale" value={run.pn} options={pnOpts} onChange={(v) => onChange({ ...run, pn: v })} />
-      <NumField label="Longueur" unit="m" value={run.length} onChange={(v) => onChange({ ...run, length: v })} />
+      <NumField label="Longueur" unit="m" value={run.length} onChange={(v) => onChange({ ...run, length: v })} dflt={dflt} />
       <NumField label="Coudes à 90°" value={run.elbows} onChange={(v) => onChange({ ...run, elbows: Math.round(v) })} />
     </div>
   );
@@ -34,10 +35,12 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
   const forage = i.pumpType === 'immergee_forage';
   const upd = <K extends keyof Installation>(k: K, v: Installation[K]) => set((x) => ({ ...x, [k]: v }));
   const pump = (p: Partial<Installation['pump']>) => set((x) => ({ ...x, pump: { ...x.pump, ...p } }));
-  const geo = (g: Partial<Installation['geo']>) => set((x) => ({ ...x, geo: { ...x.geo, ...g } }));
+  const keys = (pre: string, o: object) => Object.keys(o).map((k) => `${pre}.${k}`);
+  const geo = (g: Partial<Installation['geo']>) => set((x) => touch({ ...x, geo: { ...x.geo, ...g } }, keys('geo', g)));
+  const D = (k: string) => isDefault(i, k);
   const fluid = (f: Partial<Installation['fluid']>) => set((x) => ({ ...x, fluid: { ...x.fluid, ...f } }));
-  const duty = (d: Partial<Installation['duty']>) => set((x) => ({ ...x, duty: { ...x.duty, ...d } }));
-  const elec = (d: Partial<Installation['elec']>) => set((x) => ({ ...x, elec: { ...x.elec, ...d } }));
+  const duty = (d: Partial<Installation['duty']>) => set((x) => touch({ ...x, duty: { ...x.duty, ...d } }, keys('duty', d)));
+  const elec = (d: Partial<Installation['elec']>) => set((x) => touch({ ...x, elec: { ...x.elec, ...d } }, keys('elec', d)));
   const sol = (d: Partial<Installation['elec']['solar']>) => set((x) => ({ ...x, elec: { ...x.elec, solar: { ...x.elec.solar, ...d } } }));
   const setStart = (st: StartId) => set((x) => ({ ...x, elec: { ...x.elec, start: st }, acc: { ...x.acc, variateur: { ...((x.acc.variateur as AccState | undefined) ?? { dn: 0, qty: 1 }), on: st === 'variateur' } } }));
   const solar = i.elec.supply === 'solaire';
@@ -142,9 +145,9 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
       <Section n={4} title="Site, niveaux et distances" summary={forage ? `Pompe à ${i.geo.pumpDepth} m` : imm ? `Fosse ${i.geo.tankVolume} L` : i.mode === 'aspiration' ? `Aspiration ${i.geo.suctionLift} m` : `En charge ${i.geo.chargeHead} m`}>
         <div className="igrid">
           <NumField label="Altitude du site" unit="m" value={i.geo.altitude} onChange={(v) => geo({ altitude: v })} />
-          <NumField label={forage ? 'Point de refoulement au-dessus du sol' : 'Point de refoulement au-dessus de la pompe'} unit="m" min={-50} value={i.geo.hRef} onChange={(v) => geo({ hRef: v })} wide />
-          {i.mode === 'aspiration' && <NumField label="Hauteur d'aspiration (niveau mini sous l'axe)" unit="m" value={i.geo.suctionLift} onChange={(v) => geo({ suctionLift: v })} wide />}
-          {i.mode === 'charge' && <NumField label="Charge (niveau mini au-dessus de l'axe)" unit="m" value={i.geo.chargeHead} onChange={(v) => geo({ chargeHead: v })} wide />}
+          <NumField label={forage ? 'Point de refoulement au-dessus du sol' : 'Point de refoulement au-dessus de la pompe'} unit="m" min={-50} value={i.geo.hRef} onChange={(v) => geo({ hRef: v })} wide dflt={D('geo.hRef')} />
+          {i.mode === 'aspiration' && <NumField label="Hauteur d'aspiration (niveau mini sous l'axe)" unit="m" value={i.geo.suctionLift} onChange={(v) => geo({ suctionLift: v })} wide dflt={D('geo.suctionLift')} />}
+          {i.mode === 'charge' && <NumField label="Charge (niveau mini au-dessus de l'axe)" unit="m" value={i.geo.chargeHead} onChange={(v) => geo({ chargeHead: v })} wide dflt={D('geo.chargeHead')} />}
           {!imm && (
             <>
               <NumField label="Immersion de l'entrée sous niveau mini" unit="m" value={i.geo.immersion} onChange={(v) => geo({ immersion: v })} />
@@ -154,17 +157,17 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           )}
           {forage && (
             <>
-              <NumField label="Niveau statique" unit="m" value={i.geo.staticLevel} onChange={(v) => geo({ staticLevel: v })} />
-              <NumField label="Niveau dynamique" unit="m" value={i.geo.dynamicLevel} onChange={(v) => geo({ dynamicLevel: v })} />
-              <NumField label="Profondeur de la pompe" unit="m" value={i.geo.pumpDepth} onChange={(v) => geo({ pumpDepth: v })} />
-              <NumField label="Profondeur du forage" unit="m" value={i.geo.boreDepth} onChange={(v) => geo({ boreDepth: v })} />
+              <NumField label="Niveau statique" unit="m" value={i.geo.staticLevel} onChange={(v) => geo({ staticLevel: v })} dflt={D('geo.staticLevel')} />
+              <NumField label="Niveau dynamique" unit="m" value={i.geo.dynamicLevel} onChange={(v) => geo({ dynamicLevel: v })} dflt={D('geo.dynamicLevel')} />
+              <NumField label="Profondeur de la pompe" unit="m" value={i.geo.pumpDepth} onChange={(v) => geo({ pumpDepth: v })} dflt={D('geo.pumpDepth')} />
+              <NumField label="Profondeur du forage" unit="m" value={i.geo.boreDepth} onChange={(v) => geo({ boreDepth: v })} dflt={D('geo.boreDepth')} />
               <NumField label="Diamètre intérieur du forage" unit="mm" value={i.geo.boreDia} onChange={(v) => geo({ boreDia: v })} wide />
             </>
           )}
           {imm && !forage && (
             <>
-              <NumField label="Eau au-dessus de la pompe (arrêt)" unit="m" value={i.geo.wetLevel} onChange={(v) => geo({ wetLevel: v })} />
-              <NumField label="Volume utile entre flotteurs" unit="L" value={i.geo.tankVolume} onChange={(v) => geo({ tankVolume: v })} />
+              <NumField label="Eau au-dessus de la pompe (arrêt)" unit="m" value={i.geo.wetLevel} onChange={(v) => geo({ wetLevel: v })} dflt={D('geo.wetLevel')} />
+              <NumField label="Volume utile entre flotteurs" unit="L" value={i.geo.tankVolume} onChange={(v) => geo({ tankVolume: v })} dflt={D('geo.tankVolume')} />
             </>
           )}
           <Toggle label="La conduite de refoulement a un point haut" checked={i.geo.highPoint} onChange={(v) => geo({ highPoint: v })} />
@@ -173,18 +176,18 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
 
       {!imm && (
         <Section n={5} title="Conduite d'aspiration" summary={`DN${i.asp.dn} · ${PIPE_MATS[i.asp.material].label} · ${i.asp.length} m`}>
-          <PipeFields run={i.asp} onChange={(r) => set((x) => ({ ...withPipe(x, 'asp', r.dn), asp: r }))} />
+          <PipeFields run={i.asp} dflt={D('asp.length')} onChange={(r) => set((x) => touch({ ...withPipe(x, 'asp', r.dn), asp: r }, r.length !== x.asp.length ? ['asp.length'] : []))} />
         </Section>
       )}
       <Section n={imm ? 5 : 6} title="Conduite de refoulement" summary={`DN${i.ref.dn} · ${PIPE_MATS[i.ref.material].label} · ${i.ref.length} m`}>
         {forage && <p className="ihint">Longueur après la tête de forage ; la colonne d'exhaure ({i.geo.pumpDepth} m) est ajoutée automatiquement.</p>}
-        <PipeFields run={i.ref} onChange={(r) => set((x) => ({ ...withPipe(x, 'ref', r.dn), ref: r }))} />
+        <PipeFields run={i.ref} dflt={D('ref.length')} onChange={(r) => set((x) => touch({ ...withPipe(x, 'ref', r.dn), ref: r }, r.length !== x.ref.length ? ['ref.length'] : []))} />
       </Section>
 
       <Section n={imm ? 6 : 7} title="Besoin et énergie" summary={`${i.duty.qReq} m³/h · ${i.duty.pRes} bar`}>
         <div className="igrid">
-          <NumField label="Débit demandé" unit="m³/h" value={i.duty.qReq} onChange={(v) => v > 0 && duty({ qReq: v })} />
-          <NumField label="Pression au point d'utilisation" unit="bar" value={i.duty.pRes} onChange={(v) => duty({ pRes: v })} />
+          <NumField label="Débit demandé" unit="m³/h" value={i.duty.qReq} onChange={(v) => v > 0 && duty({ qReq: v })} dflt={D('duty.qReq')} />
+          <NumField label="Pression au point d'utilisation" unit="bar" value={i.duty.pRes} onChange={(v) => duty({ pRes: v })} dflt={D('duty.pRes')} />
           <NumField label="Fonctionnement" unit="h/jour" value={i.duty.hoursPerDay} onChange={(v) => duty({ hoursPerDay: Math.min(24, v) })} />
           <NumField label="Prix du kWh" unit={i.duty.currency} value={i.duty.pricePerKwh} onChange={(v) => duty({ pricePerKwh: v })} />
           <SelField label="Devise" value={i.duty.currency} options={['FCFA', 'KES', 'EUR', 'USD', 'MAD', 'GNF', 'CDF', 'XAF'].map((c) => ({ v: c, l: c }))} onChange={(v) => duty({ currency: v })} />
@@ -198,7 +201,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           <NumField label="Tension moteur" unit="V" value={i.elec.voltage} onChange={(v) => v > 0 && elec({ voltage: v })} />
           <NumField label="Cos φ moteur" value={i.elec.cosphi} onChange={(v) => v > 0.3 && v <= 1 && elec({ cosphi: v })} />
           {!solar && <SelField label="Mode de démarrage" value={i.acc.variateur?.on ? 'variateur' : i.elec.start === 'variateur' ? 'direct' : i.elec.start} wide options={(Object.keys(START_LABEL) as StartId[]).map((k) => ({ v: k, l: START_LABEL[k] }))} onChange={setStart} />}
-          <NumField label="Longueur câble coffret → moteur" unit="m" value={i.elec.cableLen} onChange={(v) => elec({ cableLen: v })} wide />
+          <NumField label="Longueur câble coffret → moteur" unit="m" value={i.elec.cableLen} onChange={(v) => elec({ cableLen: v })} wide dflt={D('elec.cableLen')} />
           {!solar && <NumField label="Longueur câble d'arrivée (compteur → coffret)" unit="m" value={i.elec.feedLen ?? 15} onChange={(v) => elec({ feedLen: v })} wide hint={er.feed ? `Arrivée conseillée : ${i.elec.supply === 'mono' ? '3G' : '5G'} ${String(er.feed.sec).replace('.', ',')} mm², protection ${er.feed.rating} A (${fx(er.feed.iTot)} A au total)` : undefined} />}
           <SelField label="Section du câble" value={i.elec.cableSec} options={SECTIONS.map((x) => ({ v: x, l: `${String(x).replace('.', ',')} mm²` }))} onChange={(v) => elec({ cableSec: v })} />
           <SelField label="Conducteur" value={i.elec.cableMat} options={[{ v: 'cu', l: 'Cuivre' }, { v: 'al', l: 'Aluminium' }]} onChange={(v) => elec({ cableMat: v })} />

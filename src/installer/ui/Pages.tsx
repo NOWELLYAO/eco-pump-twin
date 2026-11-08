@@ -7,6 +7,7 @@ import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadi
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
 import { QuoteRequest } from './Quote';
+import { defaultsLeft } from '../defaults';
 import type { Installation, Issue } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
@@ -44,6 +45,13 @@ export function DesignPage({ s, goDiag }: { s: Shared; goDiag: (x?: Issue) => vo
       </aside>
       <div className="design-main">
         <MiniScore ev={s.ev} onClick={() => goDiag()} />
+        {defaultsLeft(s.inst).length > 0 && (
+          <div className="dflt-banner" role="note">
+            <b>{defaultsLeft(s.inst).length} valeur{defaultsLeft(s.inst).length > 1 ? 's' : ''} par défaut à vérifier</b>
+            <span>{defaultsLeft(s.inst).map((x) => x.label).join(' · ')}</span>
+            <small>Elles sont marquées « par défaut · à vérifier » dans le formulaire. Remplacez-les par les mesures du site.</small>
+          </div>
+        )}
         <Diagram s={s} />
         <KeyFigures i={s.inst} ev={s.ev} />
         <section className="card">

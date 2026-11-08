@@ -8,6 +8,7 @@ import { posAdvice } from '../positions';
 import { autoEquip, empty, makeFluid } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { HealthRing, LevelIcon } from '../../ui/Status';
+import { touch, trackedFields } from '../defaults';
 import { NumField, SelField, TextField } from './Fields';
 
 const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
@@ -26,6 +27,19 @@ const DUTY0: Record<AppId, { q: number; p: number; h: number; hRef: number }> = 
   piscine: { q: 12, p: 0.8, h: 8, hRef: 1.5 },
 };
 
+/** Disposition des pompes conseillée par application (secours là où l'arrêt n'est pas acceptable). */
+const PUMPS0: Record<AppId, { count: number; standby: number; alternate: boolean }> = {
+  forage: { count: 1, standby: 0, alternate: false }, surpression: { count: 2, standby: 1, alternate: true }, irrigation: { count: 1, standby: 0, alternate: false },
+  relevage: { count: 2, standby: 1, alternate: true }, drainage: { count: 1, standby: 0, alternate: false }, transfert: { count: 1, standby: 0, alternate: false },
+  incendie: { count: 2, standby: 1, alternate: false }, carburant: { count: 1, standby: 0, alternate: false }, piscine: { count: 1, standby: 0, alternate: false },
+};
+const ARR: { v: string; l: string; d: string; count: number; standby: number; alternate: boolean }[] = [
+  { v: '1', l: '1 pompe', d: 'Le plus simple et le moins cher ; arrêt total en cas de panne.', count: 1, standby: 0, alternate: false },
+  { v: '1+1', l: '2 pompes : 1 en service + 1 de secours', d: 'Permutation automatique : usure partagée, la secours prend le relais en cas de panne.', count: 2, standby: 1, alternate: true },
+  { v: '2', l: '2 pompes en parallèle', d: 'Débit partagé : chacune fait la moitié ; en cas de panne, demi-débit.', count: 2, standby: 0, alternate: true },
+  { v: '2+1', l: '3 pompes : 2 en service + 1 de secours', d: 'Gros débits variables (immeubles, réseaux) ; aucune perte de débit en cas de panne.', count: 3, standby: 1, alternate: true },
+];
+
 /** Plus petit DN qui respecte la vitesse visée. */
 export function dnFor(q: number, vmax: number) {
   return DN_LIST.find((d) => d >= 25 && vel(q, d) <= vmax) ?? DN_LIST[DN_LIST.length - 1];
@@ -43,8 +57,10 @@ function pumpMaterial(d: Installation): PumpMatId {
 
 /** Pompe proposée pour atteindre le besoin : débit demandé à la hauteur réellement nécessaire. */
 export function proposePump(d: Installation): Installation {
-  const q = Math.max(0.1, d.duty.qReq);
-  const hReq = Math.max(2, systemHeadAt(d, q));
+  // Chaque pompe en service fournit sa part du débit, à la hauteur totale du réseau
+  const nr = Math.max(1, (d.pump.count ?? 1) - (d.pump.standby ?? 0));
+  const q = Math.max(0.1, d.duty.qReq / nr);
+  const hReq = Math.max(2, systemHeadAt(d, d.duty.qReq));
   const pt = d.pumpType;
   const shutoff = pt === 'immergee_forage' ? 1.3 : pt === 'submersible_relevage' ? 1.45 : 1.25;
   // Avec pressostat (sans variateur), la pompe doit pouvoir monter au-dessus de la pression de marche
@@ -72,7 +88,6 @@ export function proposePump(d: Installation): Installation {
       diameterMm: pt === 'immergee_forage' ? (q <= 8 && d.geo.boreDia < 160 ? 98 : 142) : 0,
       shutoff,
       dnAsp: d.asp.dn, dnRef: d.ref.dn,
-      count: 1, standby: 0,
     },
   };
 }
@@ -240,7 +255,7 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
     const z = DUTY0[a];
     const base = empty(a);
     const mat: PipeMatId = a === 'carburant' ? 'acier' : a === 'forage' || a === 'relevage' ? 'pehd' : 'pvc';
-    return { ...base, name: x.name, pumpType: pt, asp: { ...base.asp, material: mat === 'pehd' ? 'pvc' : mat, pn: mat === 'acier' ? 16 : 10 }, ref: { ...base.ref, material: mat, pn: mat === 'acier' ? 16 : 10 }, mode: PUMP_TYPES[pt].modes[0], fluid: makeFluid(APPS[a].fluid), duty: { ...base.duty, qReq: z.q, pRes: z.p, hoursPerDay: z.h }, geo: { ...base.geo, hRef: z.hRef } };
+    return { ...base, name: x.name, pumpType: pt, asp: { ...base.asp, material: mat === 'pehd' ? 'pvc' : mat, pn: mat === 'acier' ? 16 : 10 }, ref: { ...base.ref, material: mat, pn: mat === 'acier' ? 16 : 10 }, mode: PUMP_TYPES[pt].modes[0], fluid: makeFluid(APPS[a].fluid), duty: { ...base.duty, qReq: z.q, pRes: z.p, hoursPerDay: z.h }, geo: { ...base.geo, hRef: z.hRef }, pump: { ...base.pump, ...PUMPS0[a] } };
   }); };
   const pickPump = (pt: PumpTypeId) => { setEquipped(false); set((x) => ({ ...x, pumpType: pt, mode: PUMP_TYPES[pt].modes.includes(x.mode) ? x.mode : PUMP_TYPES[pt].modes[0] })); };
   const setStart = (st: StartId) => set((x) => ({ ...x, elec: { ...x.elec, start: st }, acc: { ...x.acc, variateur: { ...((x.acc.variateur as AccState | undefined) ?? { dn: 0, qty: 1 }), on: st === 'variateur' } } }));
@@ -262,6 +277,11 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
       setEquipped(true);
     }
     if (id === 'choix' && !ownPump) set((x) => proposePump(x));
+    if (id === 'fin') set((x) => {
+      // Les choix faits ensuite (variateur, plusieurs pompes…) peuvent rendre d'autres accessoires obligatoires
+      const e = autoEquip(x, false);
+      return e.acc.variateur?.on && e.acc.capteur_p?.on && e.acc.pressostat?.on ? { ...e, acc: { ...e.acc, pressostat: { ...e.acc.pressostat, on: false } } } : e;
+    });
     if (id === 'elec' && to > k) {
       set((x) => {
         const len = forage ? Math.round(x.geo.pumpDepth + 15) : imm ? 20 : x.elec.cableLen;
@@ -437,13 +457,21 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
             <div><small>Hauteur totale à fournir</small><b>{fx(hReq)} m</b></div>
           </div>
           <p className="ihint">Hauteur totale = {fx(staticHead(d))} m à monter + {fx(d.duty.pRes * 10.2)} m de pression + {fx(hReq - staticHead(d) - d.duty.pRes * 1e5 / (d.fluid.rho * 9.81))} m de frottements (tuyaux et accessoires).</p>
+          {!forage && (
+            <>
+              <p className="wz-lead">Combien de pompes ?</p>
+              <Cards value={ARR.find((a) => a.count === (d.pump.count ?? 1) && a.standby === (d.pump.standby ?? 0))?.v ?? '1'}
+                onPick={(v: string) => { const a = ARR.find((x) => x.v === v)!; set((x) => { const y = { ...x, pump: { ...x.pump, count: a.count, standby: a.standby, alternate: a.alternate } }; return ownPump ? y : proposePump(y); }); }}
+                items={ARR.map((a) => ({ v: a.v, l: a.l, d: a.d }))} />
+            </>
+          )}
           <div className="wz-seg">
             <button type="button" aria-pressed={!ownPump} onClick={() => { setOwnPump(false); set((x) => proposePump(x)); }}>Proposez-moi une pompe</button>
             <button type="button" aria-pressed={ownPump} onClick={() => setOwnPump(true)}>J'ai déjà ma pompe</button>
           </div>
           {!ownPump && (
             <div className="wz-prop">
-              <b>Pompe à rechercher dans le catalogue</b>
+              <b>{(d.pump.count ?? 1) > 1 ? `${d.pump.count} pompes identiques à rechercher (caractéristiques d'une pompe)` : 'Pompe à rechercher'}</b>
               <span>{PUMP_TYPES[d.pumpType].label}</span>
               <span className="big">{fx(d.pump.qn)} m³/h à {fx(d.pump.hn, 0)} m</span>
               <span>Moteur {fx(d.pump.motorKw, 2)} kW · rendement visé ≈ {Math.round(d.pump.eta * 100)} %{forage ? ` · ${d.pump.diameterMm <= 100 ? '4"' : '6"'}` : ''}</span>
@@ -472,7 +500,20 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
         <>
           <Cards value={d.elec.supply} onPick={setSupply} items={(Object.keys(SUPPLY_LABEL) as SupplyId[]).map((s) => ({ v: s, l: SUPPLY_LABEL[s], dim: s === 'mono' && d.pump.motorKw > 2.2, d: s === 'mono' && d.pump.motorKw > 2.2 ? 'Déconseillé au-delà de 2,2 kW' : undefined }))} />
           <div className="igrid">
-            {!solar && <SelField label="Démarrage" value={d.acc.variateur?.on ? 'variateur' : d.elec.start === 'variateur' ? 'direct' : d.elec.start} wide options={(Object.keys(START_LABEL) as StartId[]).map((s) => ({ v: s, l: START_LABEL[s] }))} onChange={setStart} />}
+            {!solar && (
+              <div className="wide">
+                <p className="wz-lead">Comment la pompe démarre-t-elle ?</p>
+                <Cards value={(d.acc.variateur?.on ? 'variateur' : d.elec.start === 'variateur' ? 'direct' : d.elec.start) as StartId} onPick={setStart}
+                  items={(['direct', 'progressif', 'variateur', 'etoile'] as StartId[]).filter((st) => st !== 'etoile' || (d.elec.supply !== 'mono' && d.pump.motorKw >= 5.5)).map((st) => ({
+                    v: st, l: START_LABEL[st],
+                    d: st === 'direct' ? (d.pump.motorKw > 7.5 ? 'Déconseillé au-delà de 7,5 kW (pointe de courant, coups de bélier)' : 'Simple et économique pour les petits moteurs')
+                      : st === 'progressif' ? 'Démarrage et arrêt doux : moins de coups de bélier'
+                        : st === 'variateur' ? (d.app === 'surpression' || d.app === 'irrigation' ? 'Conseillé ici : pression constante, économies d\'énergie' : 'Vitesse réglable, démarrage doux, économies')
+                          : 'Pour les gros moteurs triphasés (≥ 5,5 kW)',
+                    dim: st === 'direct' && d.pump.motorKw > 7.5,
+                  }))} />
+              </div>
+            )}
             <NumField label="Longueur de câble coffret → moteur" unit="m" value={d.elec.cableLen} onChange={(v) => elec({ cableLen: v })} wide hint={forage ? 'Profondeur de pose + trajet jusqu\'au coffret' : undefined} />
             {d.elec.supply === 'groupe' && <NumField label="Groupe électrogène installé" unit="kVA" value={d.elec.genKva} onChange={(v) => elec({ genKva: v })} hint={`Conseillé : ${ev.elec.genKva} kVA`} wide />}
             {solar && (
@@ -553,7 +594,7 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
         <button type="button" className="btn wz-btn" disabled={k === 0} onClick={() => go(k - 1)}><ArrowLeft size={18} aria-hidden /> Précédent</button>
         {step.id !== 'fin'
           ? <button type="button" className="btn primary wz-btn" onClick={() => go(k + 1)}>Suivant <ArrowRight size={18} aria-hidden /></button>
-          : <button type="button" className="btn primary wz-btn" onClick={() => onDone({ ...d, name: d.name.trim() || `${APPS[d.app].label} — ${fx(d.duty.qReq)} m³/h` })}><Check size={18} aria-hidden /> Valider l'installation</button>}
+          : <button type="button" className="btn primary wz-btn" onClick={() => onDone(touch({ ...d, name: d.name.trim() || `${APPS[d.app].label} — ${fx(d.duty.qReq)} m³/h` }, trackedFields(d).map((x) => x.key)))}><Check size={18} aria-hidden /> Valider l'installation</button>}
       </footer>
     </div>
   );

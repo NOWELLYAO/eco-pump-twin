@@ -152,6 +152,6 @@ export function blank(app: AppId): Installation {
 export function empty(app: AppId, equip = false): Installation {
   const pumpType = APPS[app].pumps[0];
   const mode = PUMP_TYPES[pumpType].modes[0];
-  const i = mk({ ...base(app, pumpType, mode), name: 'Nouvelle installation', acc: {} });
+  const i = { ...mk({ ...base(app, pumpType, mode), name: 'Nouvelle installation', acc: {} }), touched: [] as string[] };
   return equip ? autoEquip(i, false) : i;
 }

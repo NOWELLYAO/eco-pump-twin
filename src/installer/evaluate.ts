@@ -1,6 +1,7 @@
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
 import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
+import { defaultsLeft } from './defaults';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -551,9 +552,15 @@ export function evaluate(input: Installation): Evaluation {
   out.push(...el.issues);
   goods.push(...el.goods);
 
+  // ---------- Valeurs par défaut non vérifiées (n'entre pas dans la note) ----------
+  const dl = defaultsLeft(i);
+  if (dl.length) add({ id: 'defaults', sev: 'info', cat: 'hydraulique', title: `${dl.length} valeur${dl.length > 1 ? 's' : ''} par défaut à vérifier`,
+    detail: `Ces valeurs n'ont pas encore été saisies : ${dl.map((x) => x.label).join(', ')}. Les résultats en dépendent directement.`,
+    consequences: ['Calculs faux si le site est différent'], parts: [], solutions: ['Mesurer sur site et remplacer chaque valeur marquée « par défaut » dans la page Conception'] });
+
   // ---------- Note ----------
   const W: Record<Sev, number> = { critical: 16, warning: 6, info: 1 };
-  let score = 100 - out.reduce((s, x) => s + W[x.sev], 0);
+  let score = 100 - out.filter((x) => x.id !== 'defaults').reduce((s, x) => s + W[x.sev], 0);
   const nCrit = out.filter((x) => x.sev === 'critical').length;
   if (nCrit) score = Math.min(score, 54 - (nCrit - 1) * 6);
   score = Math.max(0, Math.min(100, Math.round(score)));

@@ -2,15 +2,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 const show = (v: number) => (Number.isFinite(v) ? String(Math.round(v * 1000) / 1000).replace('.', ',') : '');
 
-export function NumField({ label, value, onChange, unit, min = 0, hint, wide }: {
-  label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; hint?: string; wide?: boolean;
+export function NumField({ label, value, onChange, unit, min = 0, hint, wide, dflt }: {
+  label: string; value: number; onChange: (v: number) => void; unit?: string; min?: number; hint?: string; wide?: boolean; dflt?: boolean;
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const [txt, setTxt] = useState(show(value));
   useEffect(() => { if (document.activeElement !== ref.current) setTxt(show(value)); }, [value]);
   return (
-    <label className={wide ? 'ifld wide' : 'ifld'}>
-      <span>{label}</span>
+    <label className={`${wide ? 'ifld wide' : 'ifld'}${dflt ? ' dflt' : ''}`}>
+      <span>{label}{dflt && <em className="dflt-tag" title="Valeur proposée par défaut : remplacez-la par la valeur réelle du site">par défaut · à vérifier</em>}</span>
       <div className="ifld-in">
         <input
           ref={ref} inputMode="decimal" value={txt}
