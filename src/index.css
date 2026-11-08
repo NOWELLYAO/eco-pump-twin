@@ -1323,3 +1323,49 @@ html, body { overflow-x: clip; }
 .brand-box b { color: #0b4f86; font-size: 14px; }
 .brand-box span { font-size: 12.5px; color: var(--muted, #5b6b7b); }
 .photos .row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+/* Afficheur de supervision du coffret */
+.hmi { background: #0f1a24; color: #d8e6f2; border-radius: 12px; padding: 12px; margin-bottom: 12px; border: 2px solid #22374a; font-variant-numeric: tabular-nums; }
+.hmi.alarm { border-color: #d03b3b; box-shadow: 0 0 0 3px rgba(208,59,59,.25); animation: hmiPulse 1.2s ease-in-out infinite alternate; }
+@keyframes hmiPulse { from { box-shadow: 0 0 0 2px rgba(208,59,59,.15); } to { box-shadow: 0 0 0 6px rgba(208,59,59,.35); } }
+.hmi-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13px; color: #9fb4c7; }
+.hmi-state { font-weight: 800; letter-spacing: .04em; padding: 4px 10px; border-radius: 6px; font-size: 13px; color: #fff; background: #475569; }
+.hmi-state.on { background: #15803d; }
+.hmi-state.wait { background: #1d4ed8; }
+.hmi-state.crit { background: #d03b3b; animation: blink 1s steps(2) infinite; }
+.hmi-state.off { background: #475569; }
+@keyframes blink { 50% { opacity: .45; } }
+.hmi-clock { margin-left: auto; font-family: ui-monospace, monospace; color: #7dd3fc; }
+.hmi-cmd { margin: 8px 0 10px; font-size: 13px; color: #a7f3d0; font-family: ui-monospace, monospace; }
+.hmi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 8px; }
+.hmi-tile { background: #16263a; border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 2px; border-left: 3px solid #2c4a66; min-width: 0; }
+.hmi-tile small { font-size: 11px; color: #8aa3b8; text-transform: uppercase; letter-spacing: .03em; }
+.hmi-tile b { font-size: 20px; color: #f1f7fc; font-family: ui-monospace, monospace; line-height: 1.15; }
+.hmi-tile b em { font-style: normal; font-size: 12px; color: #8aa3b8; margin-left: 2px; }
+.hmi-tile span { font-size: 11px; color: #8aa3b8; }
+.hmi-tile.ok { border-left-color: #22c55e; }
+.hmi-tile.warn { border-left-color: #f59e0b; }
+.hmi-tile.warn b { color: #fcd34d; }
+.hmi-tile.crit { border-left-color: #ef4444; }
+.hmi-tile.crit b { color: #fca5a5; }
+.hmi-bar { display: block; height: 4px; background: #24384d; border-radius: 2px; overflow: hidden; margin: 2px 0; }
+.hmi-bar span { display: block; height: 100%; background: #38bdf8; transition: width .6s; }
+.hmi-tile.warn .hmi-bar span { background: #f59e0b; }
+.hmi-tile.crit .hmi-bar span { background: #ef4444; }
+.hmi-note { margin: 10px 0 0; font-size: 12.5px; color: #9fb4c7; }
+.hmi-alarms { margin-top: 10px; background: #111f2e; border-radius: 8px; padding: 8px 10px; }
+.hmi-al-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+.hmi-al-h .btn { background: #d03b3b; border-color: #d03b3b; color: #fff; }
+.hmi-alarms .link { color: #7dd3fc; }
+.hmi-alarms ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.hmi-alarms li { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; padding: 4px 6px; border-radius: 4px; flex-wrap: wrap; }
+.hmi-alarms li.act.crit { background: rgba(239,68,68,.16); color: #fecaca; }
+.hmi-alarms li.act.warn { background: rgba(245,158,11,.14); color: #fde68a; }
+.hmi-alarms li.new .hmi-x { font-weight: 700; }
+.hmi-alarms li.new.crit { animation: blink 1s steps(2) infinite; }
+.hmi-alarms li.old { color: #6b8196; }
+.hmi-t { font-family: ui-monospace, monospace; color: #7dd3fc; flex: none; }
+.hmi-x { flex: 1; min-width: 160px; }
+.hmi-ack { font-size: 11px; color: #94a3b8; }
+.hmi-ok { margin: 6px 0 0; color: #86efac; font-size: 13px; }
+.d-scale.red { stroke: #d03b3b; }
+.d-mini.over { fill: #d03b3b; font-weight: 700; }

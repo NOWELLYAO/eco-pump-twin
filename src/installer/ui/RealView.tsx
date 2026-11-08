@@ -96,6 +96,7 @@ export interface Live {
   faults?: string[]; powered?: boolean; runaway?: boolean; isolated?: boolean;
   use?: number; // consommation relative (robinets, réseau aval)
   inflow?: number; // arrivée dans la fosse (m³/h)
+  syms?: string[]; runTot?: number; startLog?: number[]; simT?: number; // pour le coffret en direct
 }
 
 /** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */

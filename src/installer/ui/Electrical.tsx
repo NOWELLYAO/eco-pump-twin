@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { SYM_LABEL, type Sym } from '../faults';
 import { X } from 'lucide-react';
 import { effectiveStart } from '../electrical';
 import type { Evaluation } from '../evaluate';
@@ -11,6 +12,10 @@ export interface ELive {
   trip: string | null; tripKind: string | null; hum: boolean; amps: number; faults: string[];
   running?: number[]; // pompes en marche (1, 2…)
   isolated?: boolean; // pompe 1 isolée après défaut
+  // Mesures pour l'afficheur du coffret
+  q?: number; pRef?: number; pAsp?: number; kw?: number; hz?: number; x?: number; kind?: string;
+  clock?: string; starts?: number; startsH?: number; vol?: number; kwh?: number; runTot?: number; pv?: number;
+  syms?: string[]; floatPit?: 'high' | 'low'; floatRes?: boolean; noFlow?: boolean;
 }
 
 type Kind = 'switch' | 'spd' | 'rcd' | 'mcb' | 'mpcb' | 'contactor' | 'timer' | 'soft' | 'vfd' | 'mppt' | 'relay' | 'transfo' | 'fuse' | 'cap' | 'terminal' | 'filter' | 'dcswitch' | 'psu';
@@ -134,14 +139,14 @@ function partState(p0: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fa
   if (p.id === 'q0' || p.id === 'qdc') return L.powered ? 'on' : 'off';
   if (['km1', 'km2', 'km3', 'u1', 'kt', 'flt', 'c1', 'h2', 'kp'].includes(p.id)) return L.on || (p.id === 'km1' && L.faults.includes('contacteur_colle') && L.on) ? 'on' : 'off';
   if (p.id === 'h1') return L.powered ? 'on' : 'off';
-  if (p.id === 'h3') return L.trip || L.isolated ? 'trip' : 'off';
+  if (p.id === 'h3') return L.trip || L.isolated || (L.syms ?? []).some((y) => CRIT_SYMS.has(y)) ? 'trip' : 'off';
   return L.powered ? 'on' : 'off';
 }
 
 /* =============================== Coffret ================================= */
 const MOD = 20; // largeur d'un pôle (module 18 mm)
 
-function Module({ p, x, y, st, sel, hl, onPick }: { p: EPart; x: number; y: number; st: string; sel: boolean; hl?: boolean; onPick: (id: string) => void }) {
+function Module({ p, x, y, st, sel, hl, onPick, hz }: { p: EPart; x: number; y: number; st: string; sel: boolean; hl?: boolean; onPick: (id: string) => void; hz?: number }) {
   const w = Math.max(1, p.poles) * MOD;
   const big = p.kind === 'vfd' || p.kind === 'mppt' || p.kind === 'soft';
   const h = big ? 112 : p.kind === 'transfo' ? 64 : 80;
@@ -173,7 +178,7 @@ function Module({ p, x, y, st, sel, hl, onPick }: { p: EPart; x: number; y: numb
     case 'filter':
       body = <><rect x={x + 4} y={yy + 16} width={W - 8} height={46} rx={3} className="m-coil" /></>; break;
     case 'vfd': case 'mppt': case 'soft':
-      body = <><rect x={x + 10} y={yy + 14} width={W - 20} height={26} rx={3} className={`m-screen ${st}`} /><text x={x + W / 2} y={yy + 32} textAnchor="middle" className="m-scrtxt">{st === 'trip' ? (p.kind === 'soft' ? 'ERR' : 'OV') : st === 'on' ? (p.kind === 'soft' ? 'BYP' : '50.0') : 'rdy'}</text><rect x={x + 14} y={yy + 50} width={W - 28} height={34} rx={3} className="m-vent" /></>; break;
+      body = <><rect x={x + 10} y={yy + 14} width={W - 20} height={26} rx={3} className={`m-screen ${st}`} /><text x={x + W / 2} y={yy + 32} textAnchor="middle" className="m-scrtxt">{st === 'trip' ? (p.kind === 'soft' ? 'ERR' : 'OV') : st === 'on' ? (p.kind === 'soft' ? 'BYP' : (hz ?? 50).toFixed(1)) : 'rdy'}</text><rect x={x + 14} y={yy + 50} width={W - 28} height={34} rx={3} className="m-vent" /></>; break;
     default: body = null;
   }
   return (
@@ -188,7 +193,7 @@ function Module({ p, x, y, st, sel, hl, onPick }: { p: EPart; x: number; y: numb
   );
 }
 
-function DoorItem({ p, x, y, st, L, sel, onPick }: { p: EPart; x: number; y: number; st: string; L?: ELive; sel: boolean; onPick: (id: string) => void }) {
+function DoorItem({ p, x, y, st, L, sel, onPick, inom }: { p: EPart; x: number; y: number; st: string; L?: ELive; sel: boolean; onPick: (id: string) => void; inom?: number }) {
   let body: ReactNode;
   const lamp = (cls: string, lit: boolean) => <><circle cx={x} cy={y} r={13} className="d-bezel" /><circle cx={x} cy={y} r={9} className={`d-lamp ${cls} ${lit ? 'lit' : ''}`} /></>;
   switch (p.kind) {
@@ -198,9 +203,14 @@ function DoorItem({ p, x, y, st, L, sel, onPick }: { p: EPart; x: number; y: num
     case 'lamp-o': body = lamp('o', false); break;
     case 'sel': body = <><circle cx={x} cy={y} r={15} className="d-bezel" /><rect x={x - 3} y={y - 13} width={6} height={26} rx={3} className="d-handle" transform={`rotate(40 ${x} ${y})`} /><text x={x - 22} y={y - 16} className="d-mini">M</text><text x={x - 3} y={y - 19} className="d-mini">0</text><text x={x + 15} y={y - 16} className="d-mini">A</text></>; break;
     case 'estop': body = <><rect x={x - 16} y={y - 16} width={32} height={32} rx={4} className="d-yellow" /><circle cx={x} cy={y} r={12} className="d-red" /></>; break;
-    case 'amp': body = <><rect x={x - 26} y={y - 22} width={52} height={44} rx={3} className="d-meter" /><path d={`M${x - 18} ${y + 8} A 20 20 0 0 1 ${x + 18} ${y + 8}`} className="d-scale" /><path d={`M${x} ${y + 10} L${x - 16 + Math.min(32, ((L?.amps ?? 0) / Math.max(1, (L?.amps ?? 0) + 4)) * 32 * 1.6)} ${y - 8}`} className="d-needle" /><text x={x} y={y + 19} textAnchor="middle" className="d-mini">{L ? `${fmt(p.pump == null || (L.running ?? []).includes(p.pump) ? L.amps : 0, 1)} A` : 'A'}</text></>; break;
-    case 'hour': body = <><rect x={x - 24} y={y - 12} width={48} height={24} rx={3} className="d-meter" /><text x={x} y={y + 5} textAnchor="middle" className="d-digits">01234</text></>; break;
-    case 'keypad': body = <><rect x={x - 24} y={y - 28} width={48} height={56} rx={4} className="d-keypad" /><rect x={x - 18} y={y - 22} width={36} height={16} rx={2} className={`m-screen ${st}`} /><text x={x} y={y - 10} textAnchor="middle" className="m-scrtxt">{st === 'trip' ? 'OV' : st === 'on' ? 'RUN' : 'rdy'}</text></>; break;
+    case 'amp': {
+      const a = L && (p.pump == null || (L.running ?? []).includes(p.pump)) ? L.amps : 0;
+      const ang = -60 + 120 * Math.min(1, a / Math.max(0.1, (inom ?? 10) * 1.5));
+      const over = a > (inom ?? 1e9) * 1.05;
+      body = <><rect x={x - 26} y={y - 22} width={52} height={44} rx={3} className="d-meter" /><path d={`M${x - 18} ${y + 8} A 20 20 0 0 1 ${x + 18} ${y + 8}`} className="d-scale" /><path d={`M${x + 9.5} ${y - 6.5} A 20 20 0 0 1 ${x + 18} ${y + 8}`} className="d-scale red" /><path d={`M${x} ${y + 10} l0 -18`} className="d-needle" style={{ transform: `rotate(${ang}deg)`, transformOrigin: `${x}px ${y + 10}px`, transition: 'transform .6s' }} /><text x={x} y={y + 19} textAnchor="middle" className={`d-mini ${over ? 'over' : ''}`}>{L ? `${fmt(a, 1)} A` : 'A'}</text></>; break;
+    }
+    case 'hour': body = <><rect x={x - 24} y={y - 12} width={48} height={24} rx={3} className="d-meter" /><text x={x} y={y + 5} textAnchor="middle" className="d-digits">{String(Math.floor((L?.runTot ?? 0) / 3600 * 10)).padStart(5, '0')}</text></>; break;
+    case 'keypad': body = <><rect x={x - 24} y={y - 28} width={48} height={56} rx={4} className="d-keypad" /><rect x={x - 18} y={y - 22} width={36} height={16} rx={2} className={`m-screen ${st}`} /><text x={x} y={y - 10} textAnchor="middle" className="m-scrtxt">{st === 'trip' ? 'OV' : st === 'on' ? `${fmt(L?.hz ?? 50, 1)}Hz` : 'rdy'}</text></>; break;
     default: body = null;
   }
   return (
@@ -210,6 +220,151 @@ function DoorItem({ p, x, y, st, L, sel, onPick }: { p: EPart; x: number; y: num
       <text x={x} y={y + (p.kind === 'keypad' ? 42 : 34)} textAnchor="middle" className="m-tag">{p.tag}</text>
       <title>{p.tag} — {p.label}</title>
     </g>
+  );
+}
+
+
+/* ===================== Afficheur de supervision (temps réel) ===================== */
+const CRIT_SYMS = new Set(['decl_thermique', 'decl_diff', 'decl_manque_eau', 'decl_variateur', 'pas_de_tension', 'ronfle', 'marche_a_sec', 'debordement', 'ne_demarre_pas', 'ne_s_arrete_pas']);
+interface Alarm { id: string; text: string; crit: boolean }
+interface AlarmRec extends Alarm { since: string; ack: boolean; active: boolean; end?: string }
+
+/** Alarmes actives déduites des mesures et des protections */
+function activeAlarms(i: Installation, ev: Evaluation, L: ELive): Alarm[] {
+  const out: Alarm[] = [];
+  const add = (id: string, text: string, crit = false) => { if (!out.some((a) => a.id === id)) out.push({ id, text, crit }); };
+  if (!L.powered) add('pas_de_tension', 'Absence de tension réseau', true);
+  if (L.trip) add('trip', L.trip, true);
+  if (L.isolated) add('isolated', 'Pompe 1 en défaut, isolée : la pompe de secours a pris le relais', true);
+  for (const y of L.syms ?? []) if (!(L.trip && y.startsWith('decl_'))) add(y, SYM_LABEL[y as Sym] ?? y, CRIT_SYMS.has(y));
+  const e = ev.elec;
+  if (L.on && L.amps > e.inom * 1.05) add('i_high', `Surintensité : ${fmt(L.amps, 1)} A pour ${fmt(e.inom, 1)} A nominal`, L.amps > e.inom * 1.2);
+  if (L.on && L.noFlow) add('debit_nul', 'Pompe en marche sans débit', true);
+  if ((L.startsH ?? 0) > i.pump.maxStarts) add('cycles_courts', `Démarrages trop fréquents : ${L.startsH} dans l'heure (maxi ${i.pump.maxStarts})`);
+  if (L.on && e.dropRun > 5) add('drop', `Chute de tension en marche : ${fmt(e.dropRun, 1)} % (maxi 5 %)`);
+  if (L.floatRes === false && L.kind === 'tank' && L.x != null) { /* réservoir non plein : normal */ }
+  return out;
+}
+
+function Tile({ l, v, u, sub, lvl, bar }: { l: string; v: string; u?: string; sub?: string; lvl?: 'ok' | 'warn' | 'crit'; bar?: number }) {
+  return (
+    <div className={`hmi-tile ${lvl ?? ''}`}>
+      <small>{l}</small>
+      <b>{v}{u && <em>{u}</em>}</b>
+      {bar != null && <i className="hmi-bar"><span style={{ width: `${Math.max(0, Math.min(100, bar * 100))}%` }} /></i>}
+      {sub && <span>{sub}</span>}
+    </div>
+  );
+}
+
+/** Afficheur de la façade : état, mesures utiles et alarmes, mis à jour en temps réel pendant la simulation. */
+export function CabinetHmi({ i, ev, cfg, L }: { i: Installation; ev: Evaluation; cfg: ECfg; L?: ELive }) {
+  const e = ev.elec;
+  const hist = useRef<Map<string, AlarmRec>>(new Map());
+  const [, force] = useState(0);
+  const act = L ? activeAlarms(i, ev, L) : [];
+  const key = act.map((a) => a.id).join('|');
+  useEffect(() => {
+    if (!L) { hist.current.clear(); return; }
+    const m = hist.current;
+    for (const a of act) {
+      const r = m.get(a.id);
+      if (!r || !r.active) m.set(a.id, { ...a, since: L.clock ?? '', ack: false, active: true });
+      else r.text = a.text;
+    }
+    for (const r of m.values()) if (r.active && !act.some((a) => a.id === r.id)) { r.active = false; r.end = L.clock ?? ''; }
+    // On garde les 10 dernières
+    const all = [...m.values()];
+    if (all.length > 10) for (const r of all.filter((x) => !x.active).slice(0, all.length - 10)) m.delete(r.id);
+    force((n) => n + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, !!L]);
+  const recs = [...hist.current.values()].sort((a, b) => Number(b.active) - Number(a.active));
+  const unack = recs.filter((r) => r.active && !r.ack);
+  const ack = (id?: string) => { for (const r of hist.current.values()) if (!id || r.id === id) r.ack = true; force((n) => n + 1); };
+  const clear = () => { for (const r of [...hist.current.values()]) if (!r.active) hist.current.delete(r.id); force((n) => n + 1); };
+
+  const nP = Math.max(1, i.pump.count ?? 1);
+  const run = L?.running ?? [];
+  const U = i.elec.supply === 'solaire' ? null : i.elec.voltage;
+  const autoTxt = { pressostat: 'pressostat', capteur: 'capteur de pression + variateur', flotteurs: 'flotteurs de la fosse', flotteur_res: 'flotteur du réservoir', soleil: 'solaire (MPPT)', manuel: 'commande manuelle' }[cfg.auto];
+
+  if (!L) {
+    return (
+      <div className="hmi idle">
+        <div className="hmi-head"><span className="hmi-state off">AU REPOS</span><span>Mode AUTO · {autoTxt}</span></div>
+        <div className="hmi-grid">
+          {U != null && <Tile l="Tension" v={fmt(U, 0)} u=" V" sub={i.elec.supply === 'mono' ? 'monophasé' : 'triphasé'} />}
+          <Tile l="Courant nominal" v={fmt(e.inom, 1)} u=" A" sub={`démarrage ≈ ${fmt(e.istart, 0)} A`} />
+          <Tile l="Puissance moteur" v={fmt(i.pump.motorKw, 1)} u=" kW" sub={`${nP > 1 ? `${nP} pompes · ` : ''}cos φ ${fmt(i.elec.cosphi, 2)}`} />
+          <Tile l="Chute de tension" v={fmt(e.dropRun, 1)} u=" %" sub={`au démarrage ${fmt(e.dropStart, 1)} %`} lvl={e.dropRun > 5 ? 'warn' : 'ok'} />
+          {e.vessel && <Tile l="Pressostat" v={`${fmt(e.vessel.pOn, 1)} / ${fmt(e.vessel.pOff, 1)}`} u=" bar" sub="marche / arrêt" />}
+        </div>
+        <p className="hmi-note">Lancez la simulation (page Simulation, onglet Coffret) : l'afficheur montre alors en temps réel tension, courant, pression, débit, compteurs et alarmes.</p>
+      </div>
+    );
+  }
+
+  const tensionBasse = (L.syms ?? []).includes('tension_basse');
+  const uNow = U == null ? null : !L.powered ? 0 : U * (1 - (L.on ? e.dropRun : 0) / 100) * (tensionBasse ? 0.88 : 1);
+  const state = !L.powered ? { t: 'HORS TENSION', c: 'off' } : L.trip ? { t: 'DÉFAUT', c: 'crit' } : L.on ? { t: run.length > 1 ? `MARCHE · ${run.length} POMPES` : 'MARCHE', c: 'on' } : { t: 'ARRÊT · ATTENTE', c: 'wait' };
+  // Ordre de marche donné par l'automatisme
+  let cmd = '';
+  const x = L.x ?? 0;
+  if (cfg.auto === 'pressostat' && e.vessel) cmd = `Pression ${fmt(x, 2)} bar · marche ≤ ${fmt(e.vessel.pOn, 1)} · arrêt ≥ ${fmt(e.vessel.pOff, 1)} bar`;
+  else if (cfg.auto === 'capteur') cmd = `Pression mesurée ${fmt(x, 2)} bar · consigne ${fmt((e.vessel?.pOn ?? 3) + 0.5, 1)} bar`;
+  else if (cfg.auto === 'flotteurs') cmd = `Niveau ${fmt(x, 2)} m · ${L.floatPit === 'high' ? 'flotteur de marche basculé' : L.floatPit === 'low' ? 'flotteur d\'arrêt retombé' : L.on ? 'vidange en cours' : 'remplissage de la fosse'}`;
+  else if (cfg.auto === 'flotteur_res') cmd = `Réservoir ${fmt(x, 1)} m³ · ${L.on ? 'remplissage' : 'plein : flotteur fermé'}`;
+  else if (cfg.auto === 'soleil') cmd = `Puissance solaire ${fmt(L.pv ?? 0, 2)} kW · ${fmt(L.hz ?? 0, 1)} Hz`;
+  else cmd = L.on ? 'Marche manuelle' : 'Arrêt';
+  const iMax = e.inom * 1.3;
+  const iLvl = L.amps > e.inom * 1.2 ? 'crit' : L.amps > e.inom * 1.05 ? 'warn' : 'ok';
+  const pMax = ev.hydro.pMaxBar;
+  return (
+    <div className={`hmi ${unack.some((r) => r.crit) ? 'alarm' : ''}`}>
+      <div className="hmi-head">
+        <span className={`hmi-state ${state.c}`}>{state.t}</span>
+        <span>AUTO · {autoTxt}</span>
+        <span className="hmi-clock">{L.clock}</span>
+      </div>
+      <p className="hmi-cmd">{cmd}</p>
+      <div className="hmi-grid">
+        {uNow != null && <Tile l={i.elec.supply === 'mono' ? 'Tension (L-N)' : 'Tension (entre phases)'} v={fmt(uNow, 0)} u=" V" lvl={!L.powered ? 'crit' : uNow < U! * 0.92 ? 'warn' : 'ok'} sub={`${fmt(U!, 0)} V nominal`} />}
+        {Array.from({ length: nP }, (_, k) => k + 1).map((p) => {
+          const a = run.includes(p) ? L.amps : 0;
+          return <Tile key={p} l={nP > 1 ? `Courant pompe ${p}` : 'Courant moteur'} v={fmt(a, 1)} u=" A" bar={a / iMax} lvl={a ? iLvl : undefined} sub={`In ${fmt(e.inom, 1)} A${nP > 1 ? (run.includes(p) ? ' · en marche' : L.isolated && p === 1 ? ' · isolée' : ' · à l\'arrêt') : ''}`} />;
+        })}
+        <Tile l="Puissance absorbée" v={fmt(L.kw ?? 0, 2)} u=" kW" sub={L.on ? `cos φ ${fmt(i.elec.cosphi, 2)}` : 'moteur arrêté'} />
+        {L.hz != null && <Tile l="Fréquence" v={fmt(L.on ? L.hz : 0, 1)} u=" Hz" bar={L.on ? L.hz / 50 : 0} sub="sortie variateur" />}
+        {(L.kind === 'vessel' || L.kind === 'vfd') ? <Tile l={cfg.auto === 'capteur' ? 'Pression (capteur)' : 'Pression (pressostat)'} v={fmt(x, 2)} u=" bar" bar={x / Math.max(1, (e.vessel?.pOff ?? pMax) * 1.15)} lvl={(L.syms ?? []).includes('pression_haute') || (L.syms ?? []).includes('pression_basse') ? 'warn' : undefined} sub={cfg.auto === 'capteur' ? `consigne ${fmt((e.vessel?.pOn ?? 3) + 0.5, 1)} bar` : e.vessel ? `marche ${fmt(e.vessel.pOn, 1)} / arrêt ${fmt(e.vessel.pOff, 1)} bar` : ''} /> : <Tile l="Pression refoulement" v={fmt(L.pRef ?? 0, 2)} u=" bar" bar={(L.pRef ?? 0) / Math.max(1, pMax)} lvl={(L.syms ?? []).includes('pression_haute') ? 'warn' : (L.syms ?? []).includes('pression_basse') ? 'warn' : undefined} sub={`maxi vanne fermée ${fmt(pMax, 1)} bar`} />}
+        {i.mode !== 'immergee' && <Tile l="Aspiration" v={fmt(L.pAsp ?? 0, 2)} u=" bar" lvl={(L.syms ?? []).includes('depression_forte') ? 'warn' : undefined} sub="relative (négatif = dépression)" />}
+        {L.kind === 'pit' && <Tile l="Niveau fosse" v={fmt(x, 2)} u=" m" lvl={(L.syms ?? []).includes('debordement') ? 'crit' : undefined} sub={L.floatPit === 'high' ? 'flotteur haut basculé' : L.floatPit === 'low' ? 'flotteur bas' : 'entre les flotteurs'} />}
+        {L.kind === 'tank' && <Tile l="Réservoir" v={fmt(x, 1)} u=" m³" sub={L.floatRes ? 'flotteur : plein' : 'flotteur : demande d\'eau'} />}
+        <Tile l="Débit" v={fmt(L.q ?? 0, 1)} u=" m³/h" bar={(L.q ?? 0) / Math.max(0.1, i.duty.qReq * 1.3)} lvl={L.on && L.noFlow ? 'crit' : undefined} sub={`besoin ${fmt(i.duty.qReq, 1)} m³/h`} />
+        <Tile l="Démarrages" v={String(L.startsH ?? 0)} u=" /h" lvl={(L.startsH ?? 0) > i.pump.maxStarts ? 'warn' : undefined} sub={`total ${L.starts ?? 0} · maxi ${i.pump.maxStarts}/h`} />
+        <Tile l="Heures de marche" v={fmt((L.runTot ?? 0) / 3600, 1)} u=" h" sub={`${fmt(L.vol ?? 0, 1)} m³ pompés`} />
+        <Tile l="Énergie" v={fmt(L.kwh ?? 0, 1)} u=" kWh" sub={(L.vol ?? 0) > 0.01 ? `${fmt(((L.kwh ?? 0) / (L.vol ?? 1)) * 1000, 0)} Wh/m³` : '—'} />
+      </div>
+      <div className="hmi-alarms">
+        <div className="hmi-al-h">
+          <b>Alarmes {recs.filter((r) => r.active).length > 0 ? `(${recs.filter((r) => r.active).length} active${recs.filter((r) => r.active).length > 1 ? 's' : ''})` : ''}</b>
+          {unack.length > 0 && <button type="button" className="btn sm" onClick={() => ack()}>Acquitter tout</button>}
+          {recs.some((r) => !r.active) && <button type="button" className="link" onClick={clear}>Effacer l'historique</button>}
+        </div>
+        {recs.length === 0 ? <p className="hmi-ok">✓ Aucune alarme</p> : (
+          <ul>
+            {recs.map((r) => (
+              <li key={r.id} className={`${r.crit ? 'crit' : 'warn'} ${r.active ? 'act' : 'old'} ${r.active && !r.ack ? 'new' : ''}`}>
+                <span className="hmi-t">{r.since}</span>
+                <span className="hmi-x">{r.text}{!r.active && <em> — disparue à {r.end}</em>}</span>
+                {r.active && !r.ack && <button type="button" className="link" onClick={() => ack(r.id)}>Acquitter</button>}
+                {r.active && r.ack && <em className="hmi-ack">acquittée</em>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -228,7 +383,7 @@ export function CabinetView({ i, ev, live, print }: { i: Installation; ev: Evalu
     for (const p of cfg.parts.filter((q) => q.row === r)) {
       const big = p.kind === 'vfd' || p.kind === 'mppt' || p.kind === 'soft';
       const w = big ? Math.max(p.poles * MOD, 86) : p.kind === 'transfo' ? 62 : p.kind === 'cap' ? 30 : p.poles * MOD;
-      placed.push(<Module key={p.id} p={p} x={x} y={rowY[r]} st={partState(p, live)} sel={sel === p.id} hl={hl.has(p.id)} onPick={setSel} />);
+      placed.push(<Module key={p.id} p={p} x={x} y={rowY[r]} st={partState(p, live)} sel={sel === p.id} hl={hl.has(p.id)} onPick={setSel} hz={live?.hz} />);
       x += w + 12;
     }
     maxX = Math.max(maxX, x);
@@ -238,6 +393,7 @@ export function CabinetView({ i, ev, live, print }: { i: Installation; ev: Evalu
   const cur = cfg.parts.find((p) => p.id === sel);
   return (
     <div className="cabinet">
+      {!print && <CabinetHmi i={i} ev={ev} cfg={cfg} L={live} />}
       <div className="cab-wrap" onClick={() => setSel(null)}>
         <svg viewBox={`0 0 ${W + 20} 560`} className="cab-in" role="img" aria-label="Intérieur du coffret électrique">
           <rect x={10} y={10} width={W} height={540} rx={10} className="cab-box" />
@@ -256,7 +412,7 @@ export function CabinetView({ i, ev, live, print }: { i: Installation; ev: Evalu
           <rect x={4} y={4} width={182} height={52 + Math.ceil(door.length / 2) * 92} rx={10} className="cab-door" />
           <text x={95} y={36} textAnchor="middle" className="cab-row">Porte (façade)</text>
           {door.map((p, k) => (
-            <DoorItem key={p.id} p={p} x={57 + (k % 2) * 76} y={84 + Math.floor(k / 2) * 92} st={partState(p, live)} L={live} sel={sel === p.id} onPick={setSel} />
+            <DoorItem key={p.id} p={p} x={57 + (k % 2) * 76} y={84 + Math.floor(k / 2) * 92} st={partState(p, live)} L={live} sel={sel === p.id} onPick={setSel} inom={ev.elec.inom} />
           ))}
         </svg>
       </div>

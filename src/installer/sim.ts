@@ -110,6 +110,7 @@ export interface SimState {
   primed: boolean; // pompe amorcée
   noFlow: boolean; // en marche sans débit (désamorcée, à sec)
   runT: number; // temps de marche depuis le démarrage (s)
+  runTot?: number; // temps de marche cumulé (s), compteur horaire
   outageUntil: number; // coupure secteur jusqu'à t
   dd: number; // rabattement supplémentaire du niveau (m)
   startLog: number[]; // instants des démarrages
@@ -405,7 +406,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (st.blocked && !st.on) seen('ne_demarre_pas');
     // ----- Déclenchement thermique / défaut -----
     if (st.on) {
-      st.runT += sub;
+      st.runT += sub; st.runTot = (st.runTot ?? 0) + sub;
       if (fx.tripAfter != null && st.runT >= fx.tripAfter) trip(fx.tripMsg ?? 'Protection déclenchée', fx.tripKind ?? 'decl_thermique');
     }
 
