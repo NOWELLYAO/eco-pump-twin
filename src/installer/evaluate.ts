@@ -1,6 +1,6 @@
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
-import { isForage, solve, type Hydro } from './hydraulics';
-import { electrical, ensureElec, type ElecResult } from './electrical';
+import { isForage, losses, pressureHead, solve, staticHead, type Hydro } from './hydraulics';
+import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -124,15 +124,30 @@ export function evaluate(input: Installation): Evaluation {
         fix: i.acc.variateur?.on ? undefined : { label: 'Ajouter un variateur', apply: setAcc('variateur') } });
     } else goods.push(`Débit conforme au besoin : ${f1(h.q)} m³/h pour ${f1(i.duty.qReq)} m³/h demandés`);
 
-    if (h.x < 0.7 || h.x > 1.2) {
-      const crit = h.x < 0.5 || h.x > 1.3;
-      const low = h.x < 1;
+    // Avec un variateur (hors solaire) et une pompe qui donne plus que le besoin, la vitesse est réduite
+    // jusqu'au débit demandé : c'est ce point régulé qu'il faut juger.
+    let vfdPt: { hz: number; x: number } | null = null;
+    if (effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire' && h.q > i.duty.qReq * 1.03) {
+      const qe = i.duty.qReq / h.n;
+      const hs = staticHead(i) + pressureHead(i) + losses(i, i.duty.qReq).total;
+      const h0 = i.pump.hn * i.pump.shutoff;
+      const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
+      const sp = Math.sqrt((hs + k * qe * qe) / h0);
+      if (Number.isFinite(sp) && sp > 0.3 && sp < 1) vfdPt = { hz: 50 * sp, x: qe / (i.pump.qn * sp) };
+    }
+    const xr = vfdPt ? vfdPt.x : h.x;
+    const at = vfdPt ? ` avec le variateur réglé sur le besoin (≈ ${f0(vfdPt.hz)} Hz)` : '';
+    if (vfdPt && h.x > 1.2 && xr >= 0.7 && xr <= 1.2) {
+      goods.push(`Le variateur ramène la pompe à ${f0(vfdPt.hz)} Hz : ${f0(xr * 100)} % du débit optimal (à 50 Hz elle serait à ${f0(h.x * 100)} %)`);
+    } else if (xr < 0.7 || xr > 1.2) {
+      const crit = xr < 0.5 || xr > 1.3;
+      const low = xr < 1;
       add({ id: 'bep', sev: crit ? 'critical' : 'warning', cat: 'hydraulique', title: low ? 'Pompe trop à gauche de sa courbe (faible débit)' : 'Pompe trop à droite de sa courbe (fort débit)',
-        detail: `Point de fonctionnement à ${f0(h.x * 100)} % du débit optimal (plage conseillée 70–120 %).`,
+        detail: `Point de fonctionnement à ${f0(xr * 100)} % du débit optimal${at} (plage conseillée 70–120 %).${!vfdPt && !low && effectiveStart(i) === 'variateur' && h.q <= i.duty.qReq * 1.03 ? ' Le variateur ne peut pas corriger : la pompe donne déjà moins que le besoin à 50 Hz, ralentir réduirait encore le débit.' : ''}`,
         consequences: low ? ['Recirculation interne, vibrations', 'Échauffement du liquide', 'Efforts radiaux sur l\'arbre'] : ['Risque de cavitation', 'Surcharge du moteur', 'Bruit et vibrations'],
         parts: low ? ['roulements', 'garniture', 'arbre', 'roue'] : ['roue', 'moteur', 'garniture', 'roulements'],
         solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : ['Choisir une pompe plus adaptée, ou freiner le débit (vanne, variateur)', 'Vérifier la puissance moteur'] });
-    } else if (h.x >= 0.85 && h.x <= 1.1) goods.push(`Point de fonctionnement proche du rendement optimal (${f0(h.x * 100)} % du débit nominal)`);
+    } else if (xr >= 0.85 && xr <= 1.1) goods.push(`Point de fonctionnement proche du rendement optimal (${f0(xr * 100)} % du débit nominal${at})`);
 
     const share = h.hLoss / h.h;
     if (share > 0.2) {
