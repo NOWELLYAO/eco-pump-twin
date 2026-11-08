@@ -1234,3 +1234,16 @@ html, body { overflow-x: clip; }
 .pce-bep { fill: #0a8f2e; stroke: #fff; stroke-width: 1.5; }
 .ihint.warn { color: var(--warn-ink); font-weight: 600; }
 .ihint.ok { color: var(--good-ink); }
+/* ===== Rapport complet ===== */
+.rp-part { display: flex; flex-direction: column; gap: 10px; }
+.rp-h { display: flex; align-items: center; gap: 10px; font-family: var(--f-display); font-size: 1.15rem; margin: 14px 0 0; padding-bottom: 6px; border-bottom: 2px solid #1689c6; color: #0d6699; }
+.rp-h span { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: #1689c6; color: #fff; font-size: .85rem; }
+.print-report .rp-fig svg { min-width: 0 !important; width: 100% !important; height: auto; }
+.print-report .curtip, .print-report .vhint { display: none !important; }
+.print-report .cab-wrap { flex-wrap: nowrap; }
+.print-report .cab-wrap .cab-in { flex: 1 1 auto; }
+.print-report .cab-wrap .cab-doorsvg { flex: 0 0 150px; width: 150px; }
+.print-report .wiring-grid { grid-template-columns: 1fr 1fr; }
+.rp-faults { font-size: .78rem; }
+.rp-faults td, .rp-faults th { vertical-align: top; padding: 5px 6px; }
+.cab-table { margin-top: 8px; font-size: .82rem; }

@@ -213,7 +213,7 @@ function DoorItem({ p, x, y, st, L, sel, onPick }: { p: EPart; x: number; y: num
   );
 }
 
-export function CabinetView({ i, ev, live }: { i: Installation; ev: Evaluation; live?: ELive }) {
+export function CabinetView({ i, ev, live, print }: { i: Installation; ev: Evaluation; live?: ELive; print?: boolean }) {
   const cfg = elecConfig(i, ev);
   const [sel, setSel] = useState<string | null>(null);
   const rows: (0 | 1 | 2)[] = [0, 1, 2];
@@ -261,7 +261,12 @@ export function CabinetView({ i, ev, live }: { i: Installation; ev: Evaluation; 
         </svg>
       </div>
       {hl.size > 0 && <p className="small cab-warn">Composants concernés par la panne en cours : {cfg.parts.filter((p) => hl.has(p.id)).map((p) => p.tag).join(', ')}</p>}
-      {cur ? (
+      {print ? (
+        <table className="tbl cab-table">
+          <thead><tr><th>Repère</th><th>Désignation</th><th>Réglage / calibre</th></tr></thead>
+          <tbody>{cfg.parts.map((p) => <tr key={p.id}><td><b>{p.tag}</b></td><td>{p.label}</td><td>{p.setting ?? '—'}</td></tr>)}</tbody>
+        </table>
+      ) : cur ? (
         <div className="cab-card">
           <div className="cab-card-h"><b>{cur.tag} — {cur.label}</b><button type="button" className="icon-btn sm" onClick={() => setSel(null)} aria-label="Fermer"><X size={16} /></button></div>
           <p>{cur.role}</p>

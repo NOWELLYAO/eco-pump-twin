@@ -11,11 +11,10 @@ import { UpdateBanner, appVersion } from './ui/Update';
 import { ProjectsButton, ProjectsModal } from './ui/Projects';
 import { createProject, currentId, fromLink, listProjects, loadProject, saveProject, setCurrent } from './projects';
 import { buildReportPdf, shareOrDownload } from './ui/pdf';
+import { PrintReport } from './ui/PrintReport';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
-import { CommissionPage, CommissionResults } from './installer/ui/CommissionPage';
-import { PidView } from './installer/ui/PidView';
+import { CommissionPage } from './installer/ui/CommissionPage';
 import { Wizard } from './installer/ui/Wizard';
-import { Alerts, Bom, ElecCard, Goods, KeyFigures, LossTable, MountOrder, PartsAtRisk, Recommendations, ScoreCard } from './installer/ui/Report';
 
 type Page = 'design' | 'sim' | 'diag' | 'com' | 'mat';
 const PAGES: { id: Page; label: string; icon: typeof PencilRuler }[] = [
@@ -67,24 +66,29 @@ export default function App() {
   const [wiz, setWiz] = useState(false);
   useEffect(() => { const o = () => { setReset(false); setWiz(true); }; window.addEventListener('open-wizard', o); return () => window.removeEventListener('open-wizard', o); }, []);
   const [busy, setBusy] = useState<string | null>(null);
+  const [printing, setPrinting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const say = (m: string) => { setToast(m); window.setTimeout(() => setToast(null), 4500); };
   const standaloneIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && ((navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia('(display-mode: standalone)').matches);
   const exportPdf = async () => {
-    const el = document.querySelector<HTMLElement>('.print-report');
-    if (!el) return;
     setBusy('Création du PDF…');
     document.body.classList.add('pdf-export');
+    setPrinting(true);
     try {
-      await new Promise((r) => window.setTimeout(r, 120));
+      // Le rapport n'est monté qu'au moment de l'export : on laisse les schémas et graphiques se dessiner
+      await new Promise((r) => window.setTimeout(r, 900));
+      const el = document.querySelector<HTMLElement>('.print-report');
+      if (!el) throw new Error('rapport introuvable');
       const blob = await buildReportPdf(el, inst.name);
       const safe = inst.name.normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '-') || 'installation';
       document.body.classList.remove('pdf-export');
+      setPrinting(false);
       const r = await shareOrDownload(blob, `Rapport-${safe}.pdf`, `Rapport — ${inst.name}`);
       setBusy(r === 'downloaded' ? 'PDF téléchargé.' : r === 'shared' ? 'PDF partagé.' : null);
       window.setTimeout(() => setBusy(null), 2500);
     } catch (e) {
       document.body.classList.remove('pdf-export');
+      setPrinting(false);
       setBusy(`Échec de la création du PDF (${(e as Error).message}).`);
     }
   };
@@ -172,21 +176,7 @@ export default function App() {
         {page === 'mat' && <MaterialPage s={s} />}
       </main>
 
-      <div className="print-report" aria-hidden>
-        <h1>Rapport d'installation — {inst.name}</h1>
-        <CommissionResults i={inst} ev={ev} />
-        <ScoreCard ev={ev} />
-        <KeyFigures i={inst} ev={ev} />
-        <section className="card"><PidView i={inst} h={ev.hydro} /></section>
-        <Alerts ev={ev} onFix={() => undefined} printAll />
-        <Recommendations ev={ev} />
-        <PartsAtRisk ev={ev} />
-        <Goods ev={ev} />
-        <ElecCard i={inst} ev={ev} />
-        <LossTable ev={ev} />
-        <MountOrder i={inst} ev={ev} onFix={() => undefined} />
-        <Bom i={inst} ev={ev} onFix={() => undefined} />
-      </div>
+      {printing && <PrintReport inst={inst} ev={ev} />}
 
       {rep && (
         <div className="backdrop" onClick={() => !busy?.startsWith('Création') && setRep(false)}>
@@ -195,7 +185,7 @@ export default function App() {
             <p className="muted">Le rapport complet : note, chiffres clés, schéma P&ID, alertes, préconisations, pièces exposées, électricité, ordre de montage, nomenclature{inst.commissioning ? ' et procès-verbal de mise en service' : ''}.</p>
             <div className="repbtns">
               <button className="btn primary big" disabled={!!busy?.startsWith('Création')} onClick={exportPdf}><FileDown size={20} aria-hidden /> {busy?.startsWith('Création') ? busy : 'Créer le PDF (partager, enregistrer, imprimer)'}</button>
-              {!standaloneIOS && <button className="btn big" onClick={() => { setRep(false); window.setTimeout(() => window.print(), 200); }}><Printer size={20} aria-hidden /> Imprimer directement</button>}
+              {!standaloneIOS && <button className="btn big" onClick={() => { setRep(false); setPrinting(true); window.setTimeout(() => { window.print(); setPrinting(false); }, 900); }}><Printer size={20} aria-hidden /> Imprimer directement</button>}
             </div>
             {busy && !busy.startsWith('Création') && <p className="note ok">{busy}</p>}
             <p className="small muted">Sur iPhone, le PDF s'ouvre dans le menu Partager : choisissez « Imprimer », « Enregistrer dans Fichiers », WhatsApp ou Mail.</p>
