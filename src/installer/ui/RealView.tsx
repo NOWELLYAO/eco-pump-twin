@@ -102,7 +102,7 @@ export interface Live {
   overflow?: boolean; backDrop?: boolean;
 }
 /** Grandeurs physiques simulées */
-export interface Phys { relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
+export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
 
 /** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */
 function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: number; waterY: number; L?: number; stuck?: 'up' | 'down'; title: string }) {
@@ -689,7 +689,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     if (P) {
       const hot = Math.max(0, Math.min(1, (P.tm - 95) / 70));
       if (hot > 0 || P.burnt) lcd.push(<g key="heat" className="r-heat"><circle cx={pxp} cy={pyp} r={30 + 10 * hot} style={{ opacity: P.burnt ? 0.25 : 0.15 + 0.5 * hot }} /><title>Moteur à {Math.round(P.tm)} °C</title></g>);
-      if (P.tm > 110 || P.burnt) lcd.push(<g key="tm" className={`r-tbadge ${P.burnt || P.tm > 155 ? 'crit' : 'warn'}`}><rect x={pxp - 42} y={pyp + 30} width={84} height={18} rx={9} /><text x={pxp} y={pyp + 43} textAnchor="middle">{P.burnt ? 'MOTEUR GRILLÉ' : `moteur ${Math.round(P.tm)} °C`}</text></g>);
+      if (P.tm > 120 || P.burnt) lcd.push(<g key="tm" className={`r-tbadge ${P.burnt || P.tm > 140 ? 'crit' : 'warn'}`}><rect x={pxp - 42} y={pyp + 30} width={84} height={18} rx={9} /><text x={pxp} y={pyp + 43} textAnchor="middle">{P.burnt ? 'MOTEUR GRILLÉ' : `moteur ${Math.round(P.tm)} °C`}</text></g>);
       if (P.burnt) lcd.push(<g key="smoke" className="r-smoke">{[0, 1, 2].map((k) => <circle key={k} cx={pxp - 8 + k * 8} cy={pyp - 20} r={6} style={{ animationDelay: `${k * 0.6}s` }} />)}</g>);
       if (P.sealGone || P.tl > 90) lcd.push(<g key="seal" className="r-seal">{P.sealGone && [0, 1, 2].map((k) => <circle key={k} cx={pxp + 22} cy={pyp + 8} r={2.4} className="r-drop" style={{ animationDelay: `${k * 0.4}s` }} />)}{P.tl > 90 && [0, 1].map((k) => <path key={`v${k}`} d={`M${pxp + 14 + k * 10} ${pyp - 24} q -5 -8 0 -16 q 5 -8 0 -16`} className="r-vapor" style={{ animationDelay: `${k * 0.7}s` }} />)}</g>);
       const mid = ref[Math.min(ref.length - 1, Math.max(1, Math.floor(ref.length / 2)))];

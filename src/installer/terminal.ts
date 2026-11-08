@@ -29,7 +29,7 @@ export function termLines(i: Installation, ev: Evaluation, live?: TermLive): Ter
     L.push({ tag: tag(h.margin < 1, h.margin < 0.5), text: `${pad('NPSH', 8)}marge ${f(h.margin)} m` });
     if (live.phys) {
       const P = live.phys;
-      L.push({ tag: tag(P.tm > 130 || P.tl > 60, P.tm > 155 || P.burnt || P.sealGone), text: `${pad('THERM.', 8)}moteur ${f(P.tm, 0)} °C${P.burnt ? ' GRILLÉ' : ''}  liquide ${f(P.tl, 0)} °C${P.sealGone ? ' garniture HS' : ''}` });
+      L.push({ tag: tag(P.tm > 120 || P.tl > 60, P.tm > 140 || P.burnt || P.sealGone), text: `${pad('THERM.', 8)}moteur ${f(P.tm, 0)} °C${P.burnt ? ' GRILLÉ' : ''}  liquide ${f(P.tl, 0)} °C${P.sealGone ? ' garniture HS' : ''}` });
       if (P.pPeak != null || P.burst) L.push({ tag: tag((P.pPeak ?? 0) > i.ref.pn * 0.8, (P.pPeak ?? 0) > i.ref.pn || !!P.burst), text: `${pad('TUYAU', 8)}pointe ${f(P.pPeak ?? 0)} bar / PN${i.ref.pn}${P.burst ? (P.burst === 'rupture' ? '  ROMPUE' : '  FUITE') : ''}` });
     }
     L.push({ tag: tag((live.starts ?? 0) > 0 && false), text: `${pad('CUMUL', 8)}${f(live.vol ?? 0)} m³  ${f(live.kwh ?? 0)} kWh  ${live.starts ?? 0} démarrage(s)` });

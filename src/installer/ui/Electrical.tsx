@@ -16,7 +16,7 @@ export interface ELive {
   q?: number; pRef?: number; pAsp?: number; kw?: number; hz?: number; x?: number; kind?: string;
   clock?: string; starts?: number; startsH?: number; vol?: number; kwh?: number; runTot?: number; pv?: number;
   syms?: string[]; floatPit?: 'high' | 'low' | 'tangle'; floatRes?: boolean; noFlow?: boolean; sandy?: boolean; unbalance?: boolean; relayK?: number;
-  phys?: { relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean };
+  phys?: { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean };
 }
 
 type Kind = 'switch' | 'spd' | 'rcd' | 'mcb' | 'mpcb' | 'contactor' | 'timer' | 'soft' | 'vfd' | 'mppt' | 'relay' | 'transfo' | 'fuse' | 'cap' | 'terminal' | 'filter' | 'dcswitch' | 'psu';
@@ -237,7 +237,7 @@ function activeAlarms(i: Installation, ev: Evaluation, L: ELive): Alarm[] {
   if (!L.powered) add('pas_de_tension', 'Absence de tension réseau', true);
   if (L.trip) add('trip', L.trip, true);
   if (L.isolated) add('isolated', 'Pompe 1 en défaut, isolée : la pompe de secours a pris le relais', true);
-  for (const y of L.syms ?? []) if (!(L.trip && y.startsWith('decl_')) && !(y === 'courant_haut' && L.on && L.amps > ev.elec.inom * 1.05)) add(y, SYM_LABEL[y as Sym] ?? y, CRIT_SYMS.has(y));
+  for (const y of L.syms ?? []) if (!(L.trip && y.startsWith('decl_')) && !(y === 'courant_haut' && L.on && L.amps > ev.elec.inom * 1.05) && !(y === 'moteur_chaud' && L.phys)) add(y, SYM_LABEL[y as Sym] ?? y, CRIT_SYMS.has(y));
   const e = ev.elec;
   if (L.on && L.amps > e.inom * 1.05) add('i_high', `Surintensité : ${fmt(L.amps, 1)} A pour ${fmt(e.inom, 1)} A nominal`, L.amps > e.inom * 1.2);
   if (L.on && L.noFlow) add('debit_nul', 'Pompe en marche sans débit', true);
@@ -246,8 +246,9 @@ function activeAlarms(i: Installation, ev: Evaluation, L: ELive): Alarm[] {
   const P = L.phys;
   if (P) {
     if (P.burnt) add('burnt', 'Moteur grillé : bobinage à remplacer ou rebobiner', true);
-    else if (P.tm > 155) add('tm', `Température moteur ${fmt(P.tm, 0)} °C : au-delà de la classe F`, true);
-    else if (P.tm > 130) add('tm', `Température moteur élevée : ${fmt(P.tm, 0)} °C`);
+    else if (P.tm > 155) add('tm', `Température moteur ${fmt(P.tm, 0)} °C : au-delà de la classe F${P.tmCause ? ` — ${P.tmCause}` : ''}`, true);
+    else if (P.tm > 140) add('tm', `Moteur très chaud : ${fmt(P.tm, 0)} °C${P.tmCause ? ` — ${P.tmCause}` : ''}`, true);
+    else if (P.tm > 120) add('tm', `Moteur chaud : ${fmt(P.tm, 0)} °C${P.tmCause ? ` — ${P.tmCause}` : ''}`);
     if (!P.burnt && P.relay > 1.1 && L.on) add('relay', `Relais thermique à ${fmt((P.relay / 1.44) * 100, 0)} % du seuil de déclenchement`);
     if (P.sealGone) add('seal', 'Garniture mécanique détruite (vaporisation) : fuite à l\'arbre', true);
     else if (P.tl > 60) add('tl', `Liquide à ${fmt(P.tl, 0)} °C dans la pompe (débit nul)`, P.tl > 90);
@@ -353,7 +354,7 @@ export function CabinetHmi({ i, ev, cfg, L }: { i: Installation; ev: Evaluation;
         {L.kind === 'pit' && <Tile l="Niveau fosse" v={fmt(x, 2)} u=" m" lvl={(L.syms ?? []).includes('debordement') ? 'crit' : undefined} sub={L.floatPit === 'high' ? 'flotteur haut basculé' : L.floatPit === 'low' ? 'flotteur bas' : 'entre les flotteurs'} />}
         {L.kind === 'tank' && <Tile l="Réservoir" v={fmt(x, 1)} u=" m³" sub={L.floatRes ? 'flotteur : plein' : 'flotteur : demande d\'eau'} />}
         <Tile l="Débit" v={fmt(L.q ?? 0, 1)} u=" m³/h" bar={(L.q ?? 0) / Math.max(0.1, i.duty.qReq * 1.3)} lvl={L.on && L.noFlow ? 'crit' : undefined} sub={`besoin ${fmt(i.duty.qReq, 1)} m³/h`} />
-        {L.phys && <Tile l="Température moteur" v={fmt(L.phys.tm, 0)} u=" °C" bar={L.phys.tm / 180} lvl={L.phys.burnt || L.phys.tm > 155 ? 'crit' : L.phys.tm > 130 ? 'warn' : 'ok'} sub={L.phys.burnt ? 'GRILLÉ' : `classe F : 155 °C · relais ${fmt(Math.min(100, (L.phys.relay / 1.44) * 100), 0)} %`} />}
+        {L.phys && <Tile l="Température moteur" v={fmt(L.phys.tm, 0)} u=" °C" bar={L.phys.tm / 180} lvl={L.phys.burnt || L.phys.tm > 140 ? 'crit' : L.phys.tm > 120 ? 'warn' : 'ok'} sub={L.phys.burnt ? 'GRILLÉ' : `classe F : 155 °C · relais ${fmt(Math.min(100, (L.phys.relay / 1.44) * 100), 0)} %`} />}
         {L.phys && (L.phys.tl > i.fluid.temp + 4 || L.phys.sealGone) && <Tile l="Liquide dans la pompe" v={fmt(L.phys.tl, 0)} u=" °C" bar={L.phys.tl / 160} lvl={L.phys.sealGone ? 'crit' : L.phys.tl > 60 ? 'warn' : undefined} sub={L.phys.sealGone ? 'garniture détruite' : 'débit nul'} />}
         {L.phys?.pPeak != null && <Tile l="Pointe de pression" v={fmt(L.phys.pPeak, 1)} u=" bar" bar={L.phys.pPeak / (i.ref.pn * 1.5)} lvl={L.phys.pPeak > i.ref.pn ? 'crit' : L.phys.pPeak > i.ref.pn * 0.8 ? 'warn' : 'ok'} sub={`conduite PN${i.ref.pn}${L.phys.burst ? ` · ${L.phys.burst === 'rupture' ? 'ROMPUE' : 'fuite'}` : ''}`} />}
         <Tile l="Démarrages" v={String(L.startsH ?? 0)} u=" /h" lvl={(L.startsH ?? 0) > i.pump.maxStarts ? 'warn' : undefined} sub={`total ${L.starts ?? 0} · maxi ${i.pump.maxStarts}/h`} />

@@ -120,6 +120,7 @@ export interface SimState {
   fatigue?: number; // sollicitations au-delà de la PN
   burst?: 'fuite' | 'rupture' | null; // dommage sur la conduite de refoulement
   burnt?: boolean; // bobinage grillé
+  tmCause?: string; // cause principale de l'échauffement du moteur
   sealGone?: boolean; // garniture détruite (vaporisation, marche à sec)
   cavT?: number; // temps de marche en cavitation (s)
   dryRun?: number; // durée de marche à sec en cours (s)
@@ -503,14 +504,29 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const tEq = tAmb + 80 * iR * iR * cool * (st.on ? fx.heatK ?? 1 : 1);
       const tau = st.hum ? tauM / 3 : !st.on && !imm ? tauM * 2.5 : tauM;
       st.tm = (st.tm ?? tAmb) + ((tEq - (st.tm ?? tAmb)) * sub) / tau;
-      if (st.tm > 120) seen('moteur_chaud');
-      if (st.tm > 130) once('tm130', { t: st.t, sev: 'warning', text: `Moteur chaud : bobinage à ${f1(st.tm, 0)} °C`, target: 'pump' });
+      // Cause principale de l'échauffement (affichée avec les alertes)
+      if (st.tm > 105) {
+        const runR = Math.max(fx.overload ?? 0, iBase * (fx.ampsK ?? 1));
+        const sh = st.startLog.filter((t) => t > st.t - 3600).length;
+        const c: string[] = [];
+        if (st.hum) c.push('rotor bloqué : le moteur ne tourne pas mais absorbe un fort courant');
+        if (runR > 1.02) c.push(`surcharge : ${f1(runR * er.inom)} A en marche pour ${f1(er.inom)} A nominal`);
+        if (sh > i.pump.maxStarts) c.push(`démarrages trop fréquents : ${sh} dans l'heure (maxi ${i.pump.maxStarts})`);
+        else if (sh > i.pump.maxStarts * 0.6) c.push(`démarrages nombreux : ${sh} dans l'heure`);
+        if (cool > 1.2) c.push('refroidissement insuffisant : plus d\'eau qui circule autour du moteur');
+        if ((fx.heatK ?? 1) > 1) c.push('courants déséquilibrés entre phases');
+        if (!c.length) c.push(runR > 0.9 ? `moteur chargé près de son maximum (${f1(runR * 100, 0)} % de In)` : 'chaleur accumulée pendant les marches précédentes');
+        st.tmCause = c.join(' ; ');
+      } else st.tmCause = undefined;
+      const why = st.tmCause ? ` — cause : ${st.tmCause}` : '';
+      if (st.tm > 120) { seen('moteur_chaud'); once('tm120', { t: st.t, sev: 'warning', text: `Moteur chaud : bobinage à ${f1(st.tm, 0)} °C${why}`, target: 'pump' }); }
+      if (st.tm > 140) once('tm140', { t: st.t, sev: 'critical', text: `Moteur très chaud : ${f1(st.tm, 0)} °C, sa durée de vie se réduit fortement${why}`, target: 'pump' });
       if (st.tm > 155) { once('tm155', { t: st.t, sev: 'critical', text: `Bobinage à ${f1(st.tm, 0)} °C : au-delà de la classe d'isolation F (155 °C), le vernis se dégrade`, target: 'pump' }); seen('bruit'); }
       if (st.tm > 180 && !st.burnt) {
         st.burnt = true;
         trip(`Moteur grillé : bobinage à ${f1(st.tm, 0)} °C, court-circuit entre spires`, 'decl_thermique');
       }
-      if (st.tm < 100) { delete st.flags!.tm130; }
+      if (st.tm < 100) { delete st.flags!.tm120; delete st.flags!.tm140; }
       // Relais thermique du disjoncteur moteur (classe 10, réglé au courant nominal)
       if (i.elec.supply !== 'solaire') {
         const rk = relaySetting(ctx, fx) / Math.max(0.1, er.inom); // réglage du relais / In

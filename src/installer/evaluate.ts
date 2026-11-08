@@ -495,6 +495,14 @@ export function evaluate(input: Installation): Evaluation {
         solutions: ['Ballon anti-bélier dimensionné ou soupape anti-bélier', 'Clapet à fermeture rapide (ressort)', 'Démarrage/arrêt progressif par variateur ou démarreur'],
         fix: prot ? undefined : { label: 'Ajouter un anti-bélier', apply: setAcc('anti_belier') } });
     }
+    // Anti-bélier en plus du réservoir à vessie : sur un refoulement court, la vessie suffit à amortir l'arrêt
+    if (i.acc.anti_belier?.on && i.acc.vessie?.on && refLen(i) < 300) {
+      const pVes = ((refStatic(i) + h.surge * 0.35) * rhoG) / 1e5;
+      if (pVes <= pLimit) add({ id: 'dup_ab', sev: 'info', cat: 'accessoires', title: 'Anti-bélier en double avec le réservoir à vessie',
+        detail: `Le réservoir à vessie, placé juste après la pompe, amortit déjà le coup de bélier : pointe estimée ${f1(pVes)} bar pour PN${i.ref.pn} sur ${f0(refLen(i))} m de refoulement. Un ballon anti-bélier séparé n'apporte rien de plus ici.`,
+        consequences: ['Coût et entretien d\'un second ballon (précharge à contrôler)'], parts: [],
+        solutions: ['Retirer : Anti-bélier (ballon ou soupape)'], fix: { label: 'Retirer l\'anti-bélier', apply: setAcc('anti_belier', false) } });
+    }
     if (h.pShaft > i.pump.motorKw * 0.95 && vfdPt && vfdPt.pShaft <= i.pump.motorKw * 0.95) {
       add({ id: 'motor', sev: 'warning', cat: 'securite', title: 'Moteur trop juste à 50 Hz : limiter le variateur',
         detail: `Réglée sur le besoin (≈ ${f0(vfdPt.hz)} Hz), la pompe absorbe ${f1(vfdPt.pShaft, 2)} kW : le moteur de ${f1(i.pump.motorKw)} kW suffit. Mais si le variateur monte à 50 Hz (consigne perdue, capteur en défaut, mode manuel), elle absorberait ${f1(h.pShaft, 2)} kW.`,

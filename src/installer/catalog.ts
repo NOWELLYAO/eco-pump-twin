@@ -173,7 +173,7 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'vessie', label: 'Réservoir à vessie', side: 'ref', k: 0, glyph: 'vessel', desc: 'Limite les démarrages et amortit les variations de pression.', inline: false,
     need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.app === 'surpression' ? 'required' : i.acc.pressostat?.on ? 'required' : 'optional' },
   { id: 'anti_belier', label: 'Anti-bélier (ballon ou soupape)', side: 'ref', k: 0, glyph: 'surge', desc: 'Protège la conduite des surpressions à l\'arrêt brutal.', inline: false,
-    need: (i) => i.app === 'piscine' ? 'na' : refLen(i) > 150 || refStatic(i) > 30 ? 'recommended' : 'optional' },
+    need: (i) => i.app === 'piscine' ? 'na' : i.acc.vessie?.on && refLen(i) < 300 ? 'optional' : refLen(i) > 150 || refStatic(i) > 30 ? 'recommended' : 'optional' },
   { id: 'ventouse', label: 'Ventouse / purgeur d\'air', side: 'ref', k: 0, glyph: 'airvalve', desc: 'Évacue l\'air aux points hauts.', inline: false,
     need: (i) => i.app === 'piscine' ? 'na' : i.geo.highPoint ? 'required' : refLen(i) > 300 ? 'recommended' : 'optional' },
   { id: 'soupape', label: 'Soupape de décharge / by-pass', side: 'ref', k: 0, glyph: 'relief', desc: 'Limite la pression maximale (vanne fermée).', inline: false,
