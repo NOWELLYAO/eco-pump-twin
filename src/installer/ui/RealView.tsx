@@ -432,7 +432,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     }
     destEls.push(
       <path key="hp" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} stroke="#8a96a3" strokeWidth={8} className="r-pipe" />,
-      netFlow && (use > 0.05 || (flow && !bkSerie)) ? <path key="hpf" d={`M${bkSerie ? ax + 142 : ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
+      netFlow && (use > 0.05 || (flow && !bkSerie)) ? <path key="hpf" d={`M${bkSerie || (live?.bkFeed && !flow) ? ax + 142 : ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
       <path key="roof" d={`M${hx - 10} ${hy} L${hx + 70} ${hy - 50} L${hx + 150} ${hy} Z`} className="r-roof" />,
       <rect key="house" x={hx} y={hy} width={140} height={90} className="r-building" />,
       <rect key="door" x={hx + 98} y={hy + 40} width={24} height={50} rx={2} className="r-door" />,

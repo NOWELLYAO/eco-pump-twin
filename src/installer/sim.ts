@@ -77,7 +77,7 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   const fillTxt = fill > 0.05 ? ` + ${f(fill)} m³/h pour le réservoir de secours${fx.bkFloatStuck && (st.bk ?? 0) >= 0.999 ? ' (déborde !)' : ''}` : '';
   if ((st.trip || st.t < st.outageUntil || st.lowLevel) && serie && bc) {
     const cause = st.t < st.outageUntil ? 'coupure de courant' : st.trip ? 'pompe en défaut' : 'manque d\'eau au forage';
-    return (st.bk ?? 0) <= 0.002 ? `${cause} et réservoir VIDE : plus d'eau à la maison` : `${cause} : la maison reste servie par le réservoir (${Math.round((st.bk ?? 0) * 100)} %, encore ≈ ${f(((st.bk ?? 0) * bkp!.volume / 1000) / Math.max(0.05, bc.avgM3h), 0)} h à la consommation moyenne)`;
+    return (st.bk ?? 0) <= 0.002 ? `${cause} et réservoir VIDE : plus d'eau à la maison` : `${cause} : la maison reste servie par le réservoir (${Math.round((st.bk ?? 0) * 100)} %, encore ≈ ${durTxt(((st.bk ?? 0) * bkp!.volume / 1000) / Math.max(0.05, bc.avgM3h))} à la consommation moyenne)`;
   }
   if (st.trip || st.t < st.outageUntil) return null;
   if (st.bkFeed) return `arrêtée : la maison est alimentée par le réservoir de secours (${Math.round((st.bk ?? 0) * 100)} %)`;
@@ -120,6 +120,8 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   if (dem >= qOff * 0.97) return `marche continue normale en pointe : la maison prend ${f(house)} m³/h${fillTxt}, la pompe ne donne que ${f(qOff)} m³/h à ${f(v.pOff)} bar (arrêt) : elle ne peut pas l'atteindre tant que la consommation reste aussi forte`;
   return `remonte la pression ${f(st.x)} → ${f(v.pOff)} bar : la pompe donne ${f(st.q)} m³/h, la maison prend ${f(house)}${fillTxt} — arrêt dans ≈ ${dur(Math.max(0, vw(v.pOff) - vw(st.x)) / Math.max(0.05, st.q - dem))}`;
 }
+
+const durTxt = (h: number) => (h < 1 ? `${Math.max(1, Math.round(h * 60))} min` : `${h.toLocaleString('fr-FR', { maximumFractionDigits: h < 10 ? 1 : 0 })} h`);
 
 /** Ce qu'afficheraient les instruments. */
 export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult, qOverride?: number, speed = 1): Readings {
@@ -623,7 +625,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         // Électrovanne ouverte et pression du réseau sous la charge du réservoir : le clapet s'ouvre, la cuve alimente la maison
         st.x = bc.headV; st.bkFeed = true;
         st.bk = Math.max(0, (st.bk ?? 0) - (qHouse * sub) / 3600 / bkVol);
-        if (!wasFeed) newEv.push({ t: st.t, sev: 'warning', text: `${why ? why.charAt(0).toUpperCase() + why.slice(1) : 'Pompe arrêtée'} : le réservoir de secours alimente la maison (${f1(bc.pHouse)} bar, ${Math.round((st.bk ?? 0) * 100)} % plein, ≈ ${f1(((st.bk ?? 0) * bkVol) / Math.max(0.05, bc.avgM3h), 0)} h d'autonomie)`, target: 'dest' });
+        if (!wasFeed) newEv.push({ t: st.t, sev: 'warning', text: `${why ? why.charAt(0).toUpperCase() + why.slice(1) : 'Pompe arrêtée'} : le réservoir de secours alimente la maison (${f1(bc.pHouse)} bar, ${Math.round((st.bk ?? 0) * 100)} % plein, ≈ ${durTxt(((st.bk ?? 0) * bkVol) / Math.max(0.05, bc.avgM3h))} d'autonomie)`, target: 'dest' });
         if ((st.bk ?? 0) <= 0.002) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir de secours vide : plus d\'eau à la maison', target: 'dest' });
       } else {
         if (wasFeed) newEv.push({ t: st.t, sev: 'ok', text: `La pompe a repris : l'électrovanne du réservoir de secours se referme (${Math.round((st.bk ?? 0) * 100)} % plein), il se remplit à nouveau`, target: 'dest' });
