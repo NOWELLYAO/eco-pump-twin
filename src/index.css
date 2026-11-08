@@ -1274,3 +1274,4 @@ html, body { overflow-x: clip; }
 .dflt-banner { display: flex; flex-direction: column; gap: 3px; background: var(--warn-bg); border: 1px solid var(--warn); border-left: 5px solid var(--warn); border-radius: 12px; padding: 10px 14px; color: var(--warn-ink); }
 .dflt-banner span { color: var(--fg); }
 .dflt-banner small { color: var(--muted); }
+.chart-wait { padding: 30px 12px; text-align: center; color: var(--muted); font-size: .9rem; }

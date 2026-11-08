@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { BookOpen, ClipboardCheck, Wand2, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
@@ -8,13 +8,17 @@ import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
 import { UpdateBanner, appVersion } from './ui/Update';
-import { ProjectsButton, ProjectsModal } from './ui/Projects';
+import { ProjectsButton } from './ui/ProjectsButton';
 import { createProject, currentId, fromLink, listProjects, loadProject, saveProject, setCurrent } from './projects';
 import { buildReportPdf, shareOrDownload } from './ui/pdf';
-import { PrintReport } from './ui/PrintReport';
-import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
-import { CommissionPage } from './installer/ui/CommissionPage';
-import { Wizard } from './installer/ui/Wizard';
+import { DesignPage, DiagPage, type Shared } from './installer/ui/Pages';
+// Pages et fenêtres chargées à la demande : démarrage plus rapide sur réseau mobile
+const SimPage = lazy(() => import('./installer/ui/SimPage').then((m) => ({ default: m.SimPage })));
+const MaterialPage = lazy(() => import('./installer/ui/Pages').then((m) => ({ default: m.MaterialPage })));
+const CommissionPage = lazy(() => import('./installer/ui/CommissionPage').then((m) => ({ default: m.CommissionPage })));
+const Wizard = lazy(() => import('./installer/ui/Wizard').then((m) => ({ default: m.Wizard })));
+const PrintReport = lazy(() => import('./ui/PrintReport').then((m) => ({ default: m.PrintReport })));
+const ProjectsModal = lazy(() => import('./ui/Projects').then((m) => ({ default: m.ProjectsModal })));
 
 type Page = 'design' | 'sim' | 'diag' | 'com' | 'mat';
 const PAGES: { id: Page; label: string; icon: typeof PencilRuler }[] = [
@@ -169,14 +173,16 @@ export default function App() {
           <h1>{PAGES.find((p) => p.id === page)?.label}</h1>
           <p className="muted">{inst.name}</p>
         </div>
+        <Suspense fallback={<div className="chart-wait">Chargement…</div>}>
         {page === 'design' && <DesignPage s={s} goDiag={() => setPage('diag')} />}
         {page === 'sim' && <SimPage s={s} />}
         {page === 'diag' && <DiagPage s={s} />}
         {page === 'com' && <CommissionPage i={inst} ev={ev} set={s.set} />}
         {page === 'mat' && <MaterialPage s={s} />}
+        </Suspense>
       </main>
 
-      {printing && <PrintReport inst={inst} ev={ev} />}
+      {printing && <Suspense fallback={null}><PrintReport inst={inst} ev={ev} /></Suspense>}
 
       {rep && (
         <div className="backdrop" onClick={() => !busy?.startsWith('Création') && setRep(false)}>
@@ -221,10 +227,12 @@ export default function App() {
           </div>
         </div>
       )}
+      <Suspense fallback={null}>
       {projOpen && <ProjectsModal currentId={projId} inst={inst} onOpen={openProject} onClose={() => setProjOpen(false)}
         onNew={() => { setProjOpen(false); setResetName(''); setReset(true); }}
         onImport={(x) => newProject(x, `Projet « ${x.name} » importé.`)} />}
       {wiz && <Wizard onClose={() => setWiz(false)} onDone={(n) => { newProject(n); setWiz(false); }} />}
+      </Suspense>
       {guide && (
         <div className="backdrop" onClick={() => setGuide(false)}>
           <div className="modal" role="dialog" aria-modal aria-label="Guide" onClick={(e) => e.stopPropagation()}>

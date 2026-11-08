@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Copy, FileDown, FileUp, FolderOpen, Link2, Plus, Trash2, X } from 'lucide-react';
+import { Copy, FileDown, FileUp, Link2, Plus, Trash2, X } from 'lucide-react';
 import { APPS } from '../installer/catalog';
 import { evaluate } from '../installer/evaluate';
 import type { AppId, Installation } from '../installer/types';
@@ -79,6 +79,3 @@ export function ProjectsModal({ currentId, inst, onOpen, onNew, onImport, onClos
   );
 }
 
-export function ProjectsButton({ onClick }: { onClick: () => void }) {
-  return <button className="icon-btn" onClick={onClick} aria-label="Mes projets" title="Mes projets"><FolderOpen size={18} /></button>;
-}
