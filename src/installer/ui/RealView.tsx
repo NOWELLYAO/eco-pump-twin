@@ -94,6 +94,8 @@ export interface Live {
   dd?: number; trip?: string | null; hum?: boolean; noFlow?: boolean; vesFill?: number;
   floatPit?: 'high' | 'low'; floatRes?: boolean; tripKind?: string | null;
   faults?: string[]; powered?: boolean; runaway?: boolean; isolated?: boolean;
+  use?: number; // consommation relative (robinets, réseau aval)
+  inflow?: number; // arrivée dans la fosse (m³/h)
 }
 
 /** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */
@@ -218,6 +220,10 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       </g>,
       <rect key="lid" x={96} y={G - 10} width={258} height={10} rx={2} className="r-plinth" />,
       <path key="inlet" d={`M0 ${G + 40} H114`} stroke="#8a96a3" strokeWidth={14} className="r-pipe" />,
+      ...(live?.kind === 'pit' && (live.inflow ?? 0) > 0.02 ? [
+        <path key="inf" d={`M0 ${G + 40} H114`} className="r-flow slow" strokeWidth={4} />,
+        <g key="infs" clipPath={`url(#pit${uid})`}><path d={`M118 ${G + 46} V${Math.max(G + 50, yWater)}`} className="r-stream-body" strokeWidth={5} /><path d={`M118 ${G + 46} V${Math.max(G + 50, yWater)}`} className="r-stream" strokeWidth={2.5} /></g>,
+      ] : []),
     );
     front.push(
       <g key="rp">
@@ -310,48 +316,194 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     front.unshift(...ghosts.reverse());
   }
 
-  // ----- Destination -----
+  // ----- Destination (avec l'eau qui circule) -----
   const [ax, ay] = ref[ref.length - 1];
   const destG = G;
   const destEls: ReactNode[] = [];
-  if (dest === 'reservoir') {
+  const qr = live ? Math.max(0, Math.min(1.6, live.r.q / Math.max(0.1, i.duty.qReq))) : flow ? 1 : 0; // débit relatif
+  const use = live ? Math.max(0, live.use ?? 0) : 0.6; // consommation relative (robinets, réseau aval)
+  const stream = (k: string, x: number, y1: number, y2: number, w = 6) => (
+    <g key={k}><path d={`M${x} ${y1} V${y2}`} className="r-stream-body" strokeWidth={w} /><path d={`M${x} ${y1} V${y2}`} className="r-stream" strokeWidth={Math.max(2, w * 0.45)} /></g>
+  );
+  const pressureMode = live ? live.kind === 'vessel' || live.kind === 'vfd' : !!(i.acc.pressostat?.on || i.acc.capteur_p?.on);
+  if (dest === 'reservoir' && pressureMode && i.app !== 'surpression') {
+    // Alimentation directe sous pression (pressostat / variateur) : maison avec robinets
+    const hx = ax + 20, hy = destG - 90;
     destEls.push(
-      <path key="legs" d={`M${ax + 30} ${ay + 34} L${ax + 18} ${destG} M${ax + 110} ${ay + 34} L${ax + 122} ${destG} ${ay + 90 < destG ? `M${ax + 26} ${ay + 90} H${ax + 114}` : ''}`} className="r-legs" />,
-      <rect key="t" x={ax + 10} y={ay - 46} width={120} height={80} rx={10} className="r-tank" />,
-      <clipPath key="dc" id={`dest${uid}`}><rect x={ax + 16} y={ay - 40} width={108} height={68} rx={6} /></clipPath>,
+      <path key="hp" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} stroke="#8a96a3" strokeWidth={8} className="r-pipe" />,
+      flow ? <path key="hpf" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
+      <path key="roof" d={`M${hx - 10} ${hy} L${hx + 70} ${hy - 50} L${hx + 150} ${hy} Z`} className="r-roof" />,
+      <rect key="house" x={hx} y={hy} width={140} height={90} className="r-building" />,
+      <rect key="door" x={hx + 98} y={hy + 40} width={24} height={50} rx={2} className="r-door" />,
+      <rect key="sink" x={hx + 18} y={hy + 56} width={50} height={12} rx={3} className="r-sink" />,
+      <path key="tap" d={`M${hx + 30} ${hy + 40} V${hy + 32} H${hx + 46} V${hy + 40}`} className="r-tap" />,
+      use > 0.08 ? stream('ts', hx + 46, hy + 41, hy + 56, 3 + 3 * Math.min(1, use)) : null,
+      <text key="hl" x={hx + 70} y={hy + 106} textAnchor="middle" className="r-label">Points d'eau{live ? ` · ${Math.round(use * 100)} %` : ''}</text>,
+    );
+  } else if (dest === 'reservoir') {
+    // Château d'eau / grande bâche : arrivée par le haut, niveau, flotteur, départ vers le réseau
+    const big = i.app === 'forage' || i.app === 'transfert';
+    const tw = big ? 170 : 120, th = big ? 96 : 80;
+    const tx = ax + 10, ty = ay - th + 34;
+    destEls.push(
+      <path key="legs" d={`M${tx + 20} ${ty + th} L${tx + 8} ${destG} M${tx + tw - 20} ${ty + th} L${tx + tw - 8} ${destG} ${ty + th + 50 < destG ? `M${tx + 16} ${ty + th + 50} H${tx + tw - 16}` : ''}`} className="r-legs" />,
+      <rect key="t" x={tx} y={ty} width={tw} height={th} rx={10} className="r-tank" />,
+      <clipPath key="dc" id={`dest${uid}`}><rect x={tx + 6} y={ty + 6} width={tw - 12} height={th - 12} rx={6} /></clipPath>,
     );
     const fill = live && live.kind === 'tank' ? Math.min(1.04, live.x) : 0.7;
-    const yTop = ay - 36, yBot = ay + 28; // plein (100 %) → vide
+    const yTop = ty + 12, yBot = ty + th - 6;
     const yW = yBot - (yBot - yTop) * fill;
+    // conduite d'arrivée qui monte et se déverse par le haut
+    const inX = tx + 34;
     destEls.push(
+      <path key="inl" d={`M${ax} ${ay} H${tx - 6} V${ty - 14} H${inX} V${ty + 8}`} stroke="#8a96a3" strokeWidth={7} className="r-pipe" />,
+      flow ? <path key="inlf" d={`M${ax} ${ay} H${tx - 6} V${ty - 14} H${inX} V${ty + 8}`} className="r-flow" strokeWidth={3} /> : null,
       <g key="tw" clipPath={`url(#dest${uid})`}>
-        <g className="r-anim-level" style={{ transform: `translateY(${yW - (ay - 40)}px)` }}>
-          <rect x={ax + 16} y={ay - 40} width={108} height={72} className="r-water" />
-          <rect x={ax + 16} y={ay - 40} width={108} height={3} className="r-surface" />
+        <g className="r-anim-level" style={{ transform: `translateY(${yW - ty}px)` }}>
+          <rect x={tx + 6} y={ty} width={tw - 12} height={th + 8} className="r-water" />
+          <rect x={tx + 6} y={ty} width={tw - 12} height={3} className="r-surface" />
+          {flow && <circle cx={inX} cy={ty + 2} r={7} className="r-splash" />}
         </g>
+        {flow && stream('ins', inX, ty + 8, yBot, 4 + 4 * Math.min(1, qr))}
       </g>,
     );
+    // départ vers le réseau (consommation)
+    const outY = ty + th - 12;
+    const usingOut = live ? use > 0.05 && fill > 0.03 : true;
+    destEls.push(<path key="out" d={`M${tx + tw} ${outY} H${tx + tw + 40} V${destG + 18} H${W}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />);
+    if (usingOut) destEls.push(<path key="outf" d={`M${tx + tw} ${outY} H${tx + tw + 40} V${destG + 18} H${W}`} className="r-flow slow" strokeWidth={2.5} />);
+    destEls.push(<text key="outl" x={tx + tw + 46} y={destG + 12} className="r-label">vers le réseau</text>);
     if (on('flotteur_res')) {
-      // Le flotteur bascule quand le réservoir est plein
-      destEls.push(<g key="fr"><path d={`M${ax + 104} ${ay - 46} V${yTop + 2}`} className="r-cablepath" /><FloatSw px={ax + 104} py={yTop + 2} waterY={yW} L={18} stuck={live?.floatRes ? 'down' : undefined} title="Flotteur du réservoir" />{live?.floatRes && <text x={ax + 60} y={ay - 52} className="r-stuck">flotteur bloqué</text>}</g>);
+      // Flotteur à bras : la boule suit la surface ; bras horizontal = réservoir plein, arrêt
+      const px = tx + tw - 22, py = yTop + 4, L = 30;
+      const c = Math.max(-1, Math.min(1, (yW - py) / L));
+      const ang = (Math.asin(c) * 180) / Math.PI;
+      const stuck = !!live?.floatRes;
+      destEls.push(
+        <g key="fr">
+          <rect x={px - 4} y={ty - 6} width={8} height={py - ty + 8} className="g-dark" />
+          <g className="r-anim-slow" style={{ transform: `translate(${px}px, ${py}px) rotate(${stuck ? 70 : 180 - ang}deg)` }}>
+            <path d={`M0 0 H${L - 7}`} className="r-arm" />
+            <circle cx={L} cy={0} r={7} className={`g-float ${fill >= 0.98 ? 'closed' : ''} ${stuck ? 'stuck' : ''}`} />
+          </g>
+          <text x={px - 30} y={ty - 10} className="r-label">Flotteur{stuck ? ' bloqué' : fill >= 0.98 ? ' : plein, arrêt' : ''}</text>
+        </g>,
+      );
     }
   } else if (dest === 'batiment' || dest === 'incendie') {
-    destEls.push(<rect key="b" x={ax + 10} y={40} width={170} height={destG - 40} className="r-building" />);
-    for (let r = 0; r < Math.floor((destG - 60) / 34); r++) for (let c = 0; c < 4; c++) destEls.push(<rect key={`w${r}${c}`} x={ax + 24 + c * 40} y={54 + r * 34} width={24} height={18} rx={2} className="r-window" />);
-    if (dest === 'incendie') destEls.push(<rect key="ria" x={ax + 70} y={destG - 50} width={40} height={40} rx={4} className="r-ria" />);
-  } else if (dest === 'irrigation') {
-    destEls.push(<path key="lat" d={`M${ax} ${ay} V${destG - 8} H${ax + 190}`} stroke="#2b2f33" strokeWidth={8} className="r-pipe" />);
-    for (let s = 0; s < 3; s++) {
-      const sx = ax + 40 + s * 70;
-      destEls.push(<g key={`s${s}`}><path d={`M${sx} ${destG - 8} V${destG - 46}`} className="r-riser" /><path d={`M${sx} ${destG - 48} q-30 -26 -56 4 M${sx} ${destG - 48} q30 -26 56 4`} className="r-spray" /></g>);
+    const bx = dest === 'incendie' ? ax + 95 : ax + 30, top = 40;
+    const floors = Math.max(2, Math.floor((destG - top - 20) / 34));
+    const bw = dest === 'incendie' ? 120 : 170;
+    destEls.push(<rect key="b" x={bx} y={top} width={bw} height={destG - top} className="r-building" />);
+    for (let r = 0; r < floors; r++) for (let c = 0; c < (dest === 'incendie' ? 2 : 3); c++) destEls.push(<rect key={`w${r}${c}`} x={bx + 50 + c * 36} y={top + 14 + r * 34} width={24} height={18} rx={2} className="r-window" />);
+    // colonne montante le long de la façade
+    const rx = bx + 18;
+    destEls.push(
+      <path key="col" d={`M${ax} ${ay} H${rx} V${top + 18}`} stroke="#a9b4bd" strokeWidth={7} className="r-pipe" />,
+      flow ? <path key="colf" d={`M${ax} ${ay} H${rx} V${top + 18}`} className="r-flow" strokeWidth={3} /> : null,
+    );
+    if (dest === 'batiment') {
+      // un robinet par étage : ouverts selon la consommation du moment
+      const nOpen = live ? Math.round(Math.min(1, use) * floors) : Math.ceil(floors / 2);
+      for (let r = 0; r < floors; r++) {
+        const fy = top + 30 + r * 34;
+        const open = (floors - 1 - r) < nOpen; // les étages du bas d'abord
+        destEls.push(
+          <path key={`tp${r}`} d={`M${rx} ${fy} H${rx + 16} V${fy + 4}`} className="r-tap" />,
+          open && (flow || !live) ? stream(`ts${r}`, rx + 16, fy + 5, fy + 18, 3) : null,
+          <rect key={`sk${r}`} x={rx + 8} y={fy + 18} width={18} height={4} rx={1} className="r-sink" />,
+        );
+      }
+      destEls.push(<text key="bl" x={bx + 85} y={top - 8} textAnchor="middle" className="r-label">{live ? `${nOpen} étage(s) consomment · ${Math.round(use * 100)} %` : 'Robinets aux étages'}</text>);
+    } else {
+      // Incendie : RIA devant l'immeuble, tuyau déroulé et lance dirigée vers la façade
+      const rx2 = ax + 8, ry = destG - 52;
+      const fireOn = live ? use > 0.02 : false;
+      destEls.push(
+        <path key="riap" d={`M${ax} ${ay} V${ry + 12}`} stroke="#d03b3b" strokeWidth={6} className="r-pipe" />,
+        <rect key="ria" x={rx2 - 4} y={ry - 8} width={40} height={42} rx={4} className="r-ria" />,
+        <circle key="reel" cx={rx2 + 16} cy={ry + 13} r={13} className="r-reel" />,
+        <text key="rl" x={rx2 + 16} y={ry - 14} textAnchor="middle" className="r-label">RIA</text>,
+      );
+      if (fireOn || !live) {
+        const lx = ax + 62, ly = destG - 26;
+        destEls.push(
+          <path key="hose" d={`M${rx2 + 30} ${ry + 24} C ${rx2 + 40} ${destG + 2}, ${lx - 20} ${destG + 2}, ${lx} ${ly}`} className="r-hose" />,
+          <path key="lance" d={`M${lx} ${ly} l10 -8`} className="r-lance" />,
+          <text key="ll" x={lx - 6} y={destG + 14} className="r-label">Lance</text>,
+        );
+        // Départ de feu sur la façade quand la lance est ouverte
+        const fx2 = bx + 50, fy2 = top + 14 + (floors - 2) * 34;
+        if (fireOn) destEls.push(<g key="flame" className="r-flame"><path d={`M${fx2 + 2} ${fy2 + 18} q 4 -16 10 -24 q 2 10 8 4 q 4 10 -2 20 Z`} /><path d={`M${fx2 + 8} ${fy2 + 18} q 2 -8 5 -12 q 2 6 4 2 q 2 6 -2 10 Z`} className="in" /></g>);
+        if (flow && fireOn) {
+          const jx = lx + 10, jy = ly - 8;
+          const tx = fx2 + 10, ty = fy2 + 6;
+          const k = Math.min(1.2, qr);
+          const ex = jx + (tx - jx) * (0.6 + 0.4 * k), ey = jy + (ty - jy) * (0.6 + 0.4 * k);
+          destEls.push(
+            <path key="jet" d={`M${jx} ${jy} Q ${(jx + ex) / 2} ${Math.min(jy, ey) - 40 * k} ${ex} ${ey}`} className="r-jet" />,
+            <path key="jet2" d={`M${jx} ${jy} Q ${(jx + ex) / 2 - 4} ${Math.min(jy, ey) - 34 * k} ${ex - 6} ${ey + 4}`} className="r-jet thin" />,
+            ...[0, 1, 2, 3].map((m) => <circle key={`jd${m}`} cx={ex + (m - 1.5) * 4} cy={ey + 4} r={2.2} className="r-drop" style={{ animationDelay: `${m * 0.2}s` }} />),
+          );
+        }
+      }
+      destEls.push(<text key="bl" x={W - 6} y={top - 8} textAnchor="end" className="r-label">{live ? (use > 0.02 ? `Lance ouverte · ${Math.round(use * 100)} % du débit incendie` : 'Réseau en veille (sous pression)') : 'Réseau incendie'}</text>);
     }
-    for (let c = 0; c < 9; c++) destEls.push(<path key={`c${c}`} d={`M${ax + 10 + c * 22} ${destG} q4 -14 8 0 q4 -10 8 0`} className="r-crop" />);
+  } else if (dest === 'irrigation') {
+    destEls.push(<path key="lat" d={`M${ax} ${ay} V${destG - 8} H${ax + 220}`} stroke="#2b2f33" strokeWidth={8} className="r-pipe" />);
+    if (flow) destEls.push(<path key="latf" d={`M${ax} ${ay} V${destG - 8} H${ax + 220}`} className="r-flow" strokeWidth={3} />);
+    for (let c = 0; c < 10; c++) destEls.push(<path key={`c${c}`} d={`M${ax + 10 + c * 22} ${destG} q4 -14 8 0 q4 -10 8 0`} className="r-crop" />);
+    for (let k = 0; k < 3; k++) {
+      const sx = ax + 40 + k * 75, sy = destG - 50;
+      destEls.push(<path key={`r${k}`} d={`M${sx} ${destG - 8} V${sy}`} className="r-riser" />, <circle key={`n${k}`} cx={sx} cy={sy - 2} r={4} className="g-dark" />);
+      if (flow) {
+        const R = 26 + 34 * Math.min(1.2, qr);
+        destEls.push(
+          <g key={`sp${k}`} className="r-sweep" style={{ transformOrigin: `${sx}px ${sy}px`, animationDelay: `${k * 0.4}s` }}>
+            <path d={`M${sx} ${sy} q ${-R * 0.5} ${-R * 0.7} ${-R} ${R * 0.35}`} className="r-sprayjet" />
+            <path d={`M${sx} ${sy} q ${R * 0.5} ${-R * 0.7} ${R} ${R * 0.35}`} className="r-sprayjet" />
+            <path d={`M${sx} ${sy} q ${-R * 0.25} ${-R * 0.55} ${-R * 0.55} ${R * 0.3}`} className="r-sprayjet thin" />
+            <path d={`M${sx} ${sy} q ${R * 0.25} ${-R * 0.55} ${R * 0.55} ${R * 0.3}`} className="r-sprayjet thin" />
+          </g>,
+          ...[-1, 1].flatMap((d) => [0, 1, 2].map((m) => <circle key={`d${k}${d}${m}`} cx={sx + d * R * (0.6 + m * 0.2)} cy={sy + R * 0.2} r={1.8} className="r-drop" style={{ animationDelay: `${(m * 0.25 + k * 0.1).toFixed(2)}s` }} />)),
+        );
+      }
+    }
   } else if (dest === 'regard') {
-    destEls.push(<rect key="rg" x={ax} y={destG - 6} width={70} height={ay - destG + 60} className="r-concrete" />, <rect key="rgi" x={ax + 10} y={destG} width={50} height={ay - destG + 44} className="r-pitin" />, <rect key="rgl" x={ax - 4} y={destG - 10} width={78} height={8} rx={2} className="r-plinth" />);
+    // Regard / réseau gravitaire : l'eau tombe puis s'écoule
+    destEls.push(
+      <rect key="rg" x={ax} y={destG - 6} width={70} height={ay - destG + 70} className="r-concrete" />,
+      <rect key="rgi" x={ax + 10} y={destG} width={50} height={ay - destG + 54} className="r-pitin" />,
+      <rect key="rgw" x={ax + 10} y={ay + 38} width={50} height={16} className={liquidCls} />,
+      <rect key="rgl" x={ax - 4} y={destG - 10} width={78} height={8} rx={2} className="r-plinth" />,
+      <path key="rgo" d={`M${ax + 60} ${ay + 46} H${W}`} stroke="#8a96a3" strokeWidth={10} className="r-pipe" />,
+    );
+    if (flow) destEls.push(stream('rgs', ax + 14, ay, ay + 40, 5 + 4 * Math.min(1, qr)), <path key="rgof" d={`M${ax + 60} ${ay + 46} H${W}`} className="r-flow" strokeWidth={4} />);
+    destEls.push(<text key="rgt" x={ax + 80} y={ay + 34} className="r-label">vers le réseau d'assainissement</text>);
   } else if (dest === 'cuve') {
-    destEls.push(<rect key="cv" x={ax + 10} y={ay - 30} width={160} height={70} rx={35} className="r-tank" />, <path key="cl" d={`M${ax + 40} ${ay + 40} V${destG} M${ax + 140} ${ay + 40} V${destG}`} className="r-legs" />, <text key="ct" x={ax + 90} y={ay + 10} textAnchor="middle" className="r-note">Cuve</text>);
+    const fill = live && live.kind === 'tank' ? Math.min(1, live.x) : 0.55;
+    destEls.push(
+      <rect key="cv" x={ax + 10} y={ay - 30} width={160} height={70} rx={35} className="r-tank" />,
+      <clipPath key="cc" id={`cuve${uid}`}><rect x={ax + 16} y={ay - 24} width={148} height={58} rx={29} /></clipPath>,
+      <g key="cvw" clipPath={`url(#cuve${uid})`}><g className="r-anim-level" style={{ transform: `translateY(${58 * (1 - fill)}px)` }}><rect x={ax + 16} y={ay - 24} width={148} height={60} className={liquidCls} /><rect x={ax + 16} y={ay - 24} width={148} height={3} className="r-surface" /></g>{flow && stream('cvs', ax + 40, ay - 26, ay + 30, 4)}</g>,
+      <path key="cvi" d={`M${ax} ${ay} H${ax + 4} V${ay - 40} H${ax + 40} V${ay - 26}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />,
+      <path key="cl" d={`M${ax + 40} ${ay + 40} V${destG} M${ax + 140} ${ay + 40} V${destG}`} className="r-legs" />,
+      <text key="ct" x={ax + 90} y={ay + 58} textAnchor="middle" className="r-note">Cuve</text>,
+    );
   } else if (dest === 'bassin') {
-    destEls.push(<path key="pl" d={`M${ax} ${ay} V${destG - 4}`} stroke="#8a96a3" strokeWidth={10} className="r-pipe" />, <rect key="pb" x={ax + 10} y={destG} width={180} height={70} className="r-pitin" />, <rect key="pw" x={ax + 10} y={destG + 8} width={180} height={62} className="r-water" />);
+    const py0 = destG + 8;
+    destEls.push(
+      <path key="pl" d={`M${ax} ${ay} V${destG + 30} H${ax + 12}`} stroke="#8a96a3" strokeWidth={10} className="r-pipe" />,
+      <rect key="pb" x={ax + 10} y={destG} width={190} height={74} className="r-pitin" />,
+      <rect key="pw" x={ax + 12} y={py0} width={186} height={64} className="r-water" />,
+      <rect key="pws" x={ax + 12} y={py0} width={186} height={3} className="r-surface" />,
+      <text key="pt" x={ax + 105} y={destG + 92} textAnchor="middle" className="r-label">Bassin · buse de refoulement</text>,
+    );
+    if (flow) destEls.push(
+      <path key="plf" d={`M${ax} ${ay} V${destG + 30} H${ax + 12}`} className="r-flow" strokeWidth={4} />,
+      <path key="pjet" d={`M${ax + 14} ${destG + 30} q 40 -6 80 4`} className="r-jet thin" />,
+      ...[0, 1, 2, 3, 4].map((k) => <circle key={`bb${k}`} cx={ax + 30 + k * 16} cy={destG + 34} r={2.2 + (k % 2)} className="r-bubble" style={{ animationDelay: `${k * 0.3}s` }} />),
+    );
   }
 
   // ----- Accessoires -----

@@ -1281,3 +1281,34 @@ html, body { overflow-x: clip; }
 .closedtest small { color: var(--muted); }
 .cfg-block { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; background: var(--crit-bg); border: 1px solid var(--crit); border-left: 5px solid var(--crit); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; color: var(--crit-ink); }
 .cfg-block span { color: var(--fg); }
+/* ===== Eau en mouvement ===== */
+.r-stream-body { fill: none; stroke: rgba(91, 179, 224, .55); stroke-linecap: round; }
+.r-stream { fill: none; stroke: #d8f1ff; stroke-dasharray: 6 7; stroke-linecap: round; animation: fall .45s linear infinite; }
+@keyframes fall { to { stroke-dashoffset: -13; } }
+.r-flow.slow { animation-duration: 2.2s; }
+.r-splash { fill: rgba(255, 255, 255, .7); animation: splash .6s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes splash { from { transform: scale(.4); opacity: .9; } to { transform: scale(1.6); opacity: 0; } }
+.r-jet { fill: none; stroke: #7cc7f0; stroke-width: 4; stroke-linecap: round; stroke-dasharray: 7 6; animation: fall .35s linear infinite; }
+.r-jet.thin { stroke-width: 2; stroke: #bfe6fb; }
+.r-sprayjet { fill: none; stroke: #6fc0ee; stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 3 5; animation: fall .4s linear infinite; }
+.r-sprayjet.thin { stroke-width: 1.4; stroke: #bfe6fb; }
+.r-sweep { transform-box: view-box; animation: sweep 2.2s ease-in-out infinite alternate; }
+@keyframes sweep { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+.r-drop { fill: #6fc0ee; animation: drop 1s ease-in infinite; }
+@keyframes drop { from { transform: translateY(-6px); opacity: 1; } to { transform: translateY(16px); opacity: 0; } }
+.r-bubble { fill: rgba(255, 255, 255, .8); animation: bubble 1.6s ease-in infinite; }
+@keyframes bubble { from { transform: translateY(0); opacity: .9; } to { transform: translateY(-26px); opacity: 0; } }
+.r-roof { fill: #b5523b; stroke: #7c3424; stroke-width: 2; }
+.r-door { fill: #8a5a3a; }
+.r-sink { fill: #d9e2e8; stroke: #8a96a3; }
+.r-tap { fill: none; stroke: #6c7782; stroke-width: 3; stroke-linecap: round; }
+.r-reel { fill: #8a1a1a; stroke: #fff; stroke-width: 2; }
+.r-hose { fill: none; stroke: #c94a3a; stroke-width: 5; stroke-linecap: round; }
+.r-lance { stroke: #3a4650; stroke-width: 5; stroke-linecap: round; }
+.r-arm { stroke: #3a4650; stroke-width: 3; stroke-linecap: round; }
+@media (prefers-reduced-motion: reduce) { .r-stream, .r-jet, .r-sprayjet, .r-sweep, .r-drop, .r-bubble, .r-splash { animation: none; } }
+.firebtn { min-height: 50px; justify-content: center; background: #d03b3b; color: #fff; border-color: #a42a2a; font-weight: 800; margin-bottom: 6px; }
+.firebtn.on { background: #17242e; border-color: #17242e; }
+.r-flame path { fill: #f08a1c; animation: flicker .35s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: bottom; }
+.r-flame path.in { fill: #ffd34a; }
+@keyframes flicker { from { transform: scaleY(.85); } to { transform: scaleY(1.12); } }

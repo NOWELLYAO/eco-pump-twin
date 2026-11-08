@@ -28,7 +28,9 @@ export function SimPage({ s }: { s: Shared }) {
   // (capteur de pression, solaire), c'est la régulation qui fixe la vitesse : on part de 100 %.
   const autoReg = ['vfd', 'solar'].includes(simKind(s.inst));
   const baseSpeed = !autoReg && s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100;
-  const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: baseSpeed }));
+  // Réseau incendie : aucune consommation tant qu'on n'ouvre pas une lance
+  const fire = s.inst.app === 'incendie';
+  const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: baseSpeed, draw: fire ? 0 : -1 }));
   // Pompe isolée après un défaut : la secours prend le relais, ou l'installation tourne avec une pompe de moins
   const [iso, setIso] = useState(false);
   const iView = useMemo(() => applyMods(s.inst, mods), [s.inst, mods]); // affichage : toutes les pompes
@@ -51,7 +53,7 @@ export function SimPage({ s }: { s: Shared }) {
   useEffect(() => { setIso(!!sim.isolated); }, [sim.isolated]);
 
   // Avec un variateur réglé sur le besoin, la simulation démarre à sa fréquence de consigne, pas à 50 Hz.
-  const base: Mods = { ...NO_MODS, speed: baseSpeed };
+  const base: Mods = { ...NO_MODS, speed: baseSpeed, draw: fire ? 0 : -1 };
   useEffect(() => { setSim(initSim(makeCtx(applyMods(s.inst, base)))); setMods(base); setMystery(null); }, [s.inst]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing) return;
@@ -106,7 +108,9 @@ export function SimPage({ s }: { s: Shared }) {
   const vRes = ctx.er.vessel;
   const vf = vRes && (kind === 'vessel' || kind === 'vfd') ? Math.max(0, 1 - (vRes.pre + 1) / (Math.max(sim.x, vRes.pre) + 1)) : undefined;
   const vesFill = vf == null ? undefined : ctx.fx.vesselK ? 1 - (1 - vf) * ctx.fx.vesselK : vf;
-  const live = { isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const cNow = sim.series.at(-1)?.c ?? 0;
+  const useRel = kind === 'vessel' || kind === 'vfd' ? cNow / Math.max(0.1, s.inst.duty.qReq) : kind === 'tank' ? cNow / Math.max(0.1, s.inst.duty.qReq * 0.55) : sim.on ? 0.6 : 0;
+  const live = { use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
   const reset = () => { setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
@@ -144,7 +148,12 @@ export function SimPage({ s }: { s: Shared }) {
           <h3>Réglages en direct</h3>
           {(kind === 'vessel' || kind === 'vfd' || kind === 'tank' || kind === 'pit') && (
             <div className="drawctl">
-              <Slider label={kind === 'pit' ? 'Arrivée d\'effluents' : 'Consommation (robinets ouverts)'} value={mods.draw < 0 ? Math.round((sim.series.at(-1)?.c ?? 0) / Math.max(0.01, kind === 'pit' ? ctx.h.q * 0.55 : kind === 'tank' ? s.inst.duty.qReq * 0.55 : s.inst.duty.qReq) * 100) : mods.draw} min={0} max={150} unit="%"
+              {fire && (
+                <button type="button" className={`btn full firebtn ${mods.draw > 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: mods.draw > 0 ? 0 : 100 })}>
+                  {mods.draw > 0 ? 'Fermer la lance (fin de l\'essai)' : 'Ouvrir la lance (essai incendie)'}
+                </button>
+              )}
+              <Slider label={kind === 'pit' ? 'Arrivée d\'effluents' : fire ? 'Lances incendie ouvertes (débit)' : 'Consommation (robinets ouverts)'} value={mods.draw < 0 ? Math.round((sim.series.at(-1)?.c ?? 0) / Math.max(0.01, kind === 'pit' ? ctx.h.q * 0.55 : kind === 'tank' ? s.inst.duty.qReq * 0.55 : s.inst.duty.qReq) * 100) : mods.draw} min={0} max={150} unit="%"
                 onChange={(x) => setMods({ ...mods, draw: x })}
                 hint={mods.draw < 0
                   ? `Automatique : suit l'heure de la journée (pointes à 7 h et 19 h30, très faible la nuit)${kind === 'vessel' || kind === 'vfd' ? ` — ${fmt(sim.series.at(-1)?.c ?? 0, 1)} m³/h en ce moment` : ''}`

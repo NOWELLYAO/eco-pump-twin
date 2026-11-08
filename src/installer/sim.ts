@@ -79,7 +79,8 @@ export const KIND_LABEL: Record<SimKind, string> = {
 export function simKind(i: Installation): SimKind {
   if (i.elec.supply === 'solaire') return 'solar';
   if (i.mode === 'immergee' && !isForage(i)) return 'pit';
-  if (i.app === 'surpression' || i.app === 'incendie') {
+  // Réseaux sous pression (immeuble, incendie, mais aussi forage ou irrigation avec pressostat / variateur)
+  if (['surpression', 'incendie', 'forage', 'irrigation', 'transfert'].includes(i.app)) {
     if (effectiveStart(i) === 'variateur' && i.acc.capteur_p?.on) return 'vfd';
     if (i.acc.vessie?.on && i.acc.pressostat?.on) return 'vessel';
   }
