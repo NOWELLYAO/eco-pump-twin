@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Sparkles, Sun, Wrench, Zap } from 'lucide-react';
 import { MONTHS, START_LABEL, SUPPLY_LABEL, effectiveStart, planLabel } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
-import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { losses, pumpHead, systemHeadAt } from '../hydraulics';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
@@ -293,7 +293,25 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const hasVfd = effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire';
   const vfdOk = h.ok && h.q > qN * 1.03 && sVfd > 0.3 && sVfd < 0.995;
   const vfdHz = sVfd * 50;
-  const data = vfdOk ? h.curve.map((p) => { const v = sVfd * sVfd * pumpHead(i, p.q / sVfd); return { ...p, hv: v > 0 ? v : null }; }) : h.curve;
+  // Plusieurs pompes en parallèle : la courbe « pompe » est celle des pompes en service ensemble ; on montre aussi une pompe seule
+  const multi = h.n > 1;
+  const one: Installation = { ...i, pump: { ...i.pump, count: 1, standby: 0 } };
+  const hv = (q: number) => { const v = sVfd * sVfd * pumpHead(i, q / sVfd); return v > 0 ? v : null; };
+  const h1 = (q: number) => { const v = pumpHead(one, q); return v > 0 ? v : null; };
+  const data = h.curve.map((p) => ({ ...p, ...(vfdOk ? { hv: hv(p.q) } : {}), ...(multi ? { h1: h1(p.q) } : {}) }));
+  const qMax = h.curve[h.curve.length - 1]?.q ?? 1;
+  // Curseur maison : la valeur est calculée exactement au débit pointé (doigt ou souris)
+  const [hq, setHq] = useState<number | null>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  const pointTo = (clientX: number) => {
+    const grid = boxRef.current?.querySelector('.recharts-cartesian-grid');
+    const r = grid?.getBoundingClientRect();
+    if (!r || r.width < 10) return;
+    const q = Math.max(0, Math.min(qMax, ((clientX - r.left) / r.width) * qMax));
+    setHq(q);
+  };
+  const tipHp = hq != null ? pumpHead(i, hq) : 0;
+  const tipHs = hq != null ? demandAt(hq) : 0;
   const regPt = vfdOk ? [{ q: qN, y: asksAtNeed }] : [];
   const xReg = qe / (i.pump.qn * sVfd);
   const vs = ev.elec.vfdSpeed;
@@ -303,37 +321,46 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const vfdName = hasVfd ? `Avec le variateur (${fmt(vfdHz, 0)} Hz)` : `Si vous ajoutez un variateur (${fmt(vfdHz, 0)} Hz)`;
   return (
     <figure className="instcurve">
-      <figcaption>Ce que la pompe fournit face à ce que l'installation demande <span>(hauteur en m, débit en m³/h)</span></figcaption>
+      <figcaption>{multi ? `Ce que les ${h.n} pompes en service fournissent ensemble` : 'Ce que la pompe fournit'} face à ce que l'installation demande <span>(hauteur en m, débit en m³/h)</span></figcaption>
+      <div className={`curtip ${hq == null ? 'empty' : ''}`} aria-live="polite">
+        {hq == null ? <span>Touchez ou survolez le graphique pour lire les valeurs à un débit donné.</span> : (
+          <>
+            <b>{fmt(hq, 1)} m³/h</b>
+            <span className="cp">{multi ? `${h.n} pompes` : 'pompe'}{vfdOk ? ' 50 Hz' : ''} : {tipHp > 0 ? `${fmt(tipHp, 1)} m` : '—'}</span>
+            {multi && <span className="c1">1 pompe seule : {h1(hq) != null ? `${fmt(h1(hq)!, 1)} m` : '—'}</span>}
+            {vfdOk && <span className="cv">{fmt(vfdHz, 0)} Hz : {hv(hq) != null ? `${fmt(hv(hq)!, 1)} m` : '—'}</span>}
+            <span className="cn">installation : {fmt(tipHs, 1)} m</span>
+            <span className={`cg ${tipHp >= tipHs ? 'ok' : 'ko'}`}>{tipHp <= 0 ? 'la pompe ne débite pas autant' : tipHp >= tipHs ? `+${fmt(tipHp - tipHs, 1)} m de réserve` : `il manque ${fmt(tipHs - tipHp, 1)} m`}</span>
+          </>
+        )}
+      </div>
+      <div ref={boxRef} className="curbox"
+        onPointerMove={(e) => pointTo(e.clientX)} onPointerDown={(e) => pointTo(e.clientX)}
+        onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHq(null); }}>
       <ResponsiveContainer width="100%" height={330}>
         <ComposedChart data={data} margin={{ top: 34, right: 16, bottom: 4, left: -6 }}>
           <CartesianGrid stroke={c.grid} vertical={false} />
           <XAxis dataKey="q" type="number" domain={[0, 'dataMax']} {...axis} tickFormatter={(v) => fmt(v, 0)} />
           <YAxis domain={[0, Math.ceil(top / 5) * 5]} allowDataOverflow {...axis} width={44} tickFormatter={(v) => fmt(v, 0)} />
-          <Tooltip position={{ y: 0 }} cursor={{ stroke: c.axis, strokeDasharray: '3 3' }} wrapperStyle={{ pointerEvents: 'none', zIndex: 5 }} content={({ active, payload }) => {
-            if (!active || !payload?.length) return null;
-            const p = payload[0].payload as { q: number; hp: number | null; hs: number; hv?: number | null };
-            return (
-              <div className="ctip">
-                <b>{fmt(p.q, 1)} m³/h</b>
-                <span className="cp">pompe {vfdOk ? '50 Hz ' : ''}{p.hp != null ? `${fmt(p.hp, 0)} m` : '—'}</span>
-                {vfdOk && <span className="cv">pompe {fmt(vfdHz, 0)} Hz {p.hv != null ? `${fmt(p.hv, 0)} m` : '—'}</span>}
-                <span className="cn">installation {fmt(p.hs, 0)} m</span>
-              </div>
-            );
-          }} />
           <Legend iconType="plainline" wrapperStyle={{ fontSize: 12.5 }} />
-          <Line name={vfdOk ? 'Ce que la pompe fournit (50 Hz)' : 'Ce que la pompe fournit'} dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} isAnimationActive={false} />
-          {vfdOk && <Line name={vfdName} dataKey="hv" stroke={c.good} strokeWidth={2.5} strokeDasharray={hasVfd ? undefined : '2 4'} dot={false} isAnimationActive={false} connectNulls={false} />}
-          <Line name="Ce que l'installation demande" dataKey="hs" stroke={c.s3} strokeWidth={2.5} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
+          <Line name={`${multi ? `${h.n} pompes en parallèle` : 'Ce que la pompe fournit'}${vfdOk ? ' (50 Hz)' : ''}`} dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} activeDot={false} isAnimationActive={false} />
+          {multi && <Line name="1 pompe seule" dataKey="h1" stroke={c.s1} strokeWidth={1.5} strokeDasharray="3 4" dot={false} activeDot={false} isAnimationActive={false} />}
+          {vfdOk && <Line name={vfdName} dataKey="hv" stroke={c.good} strokeWidth={2.5} strokeDasharray={hasVfd ? undefined : '2 4'} dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} />}
+          <Line name="Ce que l'installation demande" dataKey="hs" stroke={c.s3} strokeWidth={2.5} strokeDasharray="6 4" dot={false} activeDot={false} isAnimationActive={false} />
           <Scatter name="Votre besoin" data={need} dataKey="y" fill={c.ink} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
           <Scatter name={vfdOk ? 'Point à 50 Hz' : 'Point de fonctionnement réel'} data={op} dataKey="y" fill={c.s2} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
           {vfdOk && hasVfd && <Scatter name={`Point réel avec variateur`} data={regPt} dataKey="y" fill={c.good} stroke={c.surface} strokeWidth={2} legendType="diamond" shape="diamond" isAnimationActive={false} />}
+          {hq != null && <ReferenceLine x={hq} stroke={c.axis} strokeDasharray="4 3" ifOverflow="extendDomain" />}
+          {hq != null && tipHp > 0 && <ReferenceDot x={hq} y={tipHp} r={5} fill={c.s1} stroke={c.surface} strokeWidth={2} />}
+          {hq != null && <ReferenceDot x={hq} y={tipHs} r={5} fill={c.s3} stroke={c.surface} strokeWidth={2} />}
+          {hq != null && vfdOk && hv(hq) != null && <ReferenceDot x={hq} y={hv(hq)!} r={4} fill={c.good} stroke={c.surface} strokeWidth={2} />}
         </ComposedChart>
       </ResponsiveContainer>
+      </div>
 
       <div className="howto">
         <h5>Comment lire ce graphique</h5>
-        <p><span className="key k-pump" /> <b>Ce que la pompe fournit</b> : la hauteur que la pompe est capable de donner selon le débit. Plus elle débite, moins elle pousse fort : {fmt(h0, 0)} m vanne fermée, {fmt(i.pump.hn, 0)} m à {fmt(i.pump.qn, 1)} m³/h{h.n > 1 ? ` (par pompe ; ${h.n} pompes en service)` : ''}.</p>
+        <p><span className="key k-pump" /> <b>Ce que la pompe fournit</b> : la hauteur que la pompe est capable de donner selon le débit. Plus elle débite, moins elle pousse fort : {fmt(h0, 0)} m vanne fermée, {fmt(i.pump.hn, 0)} m à {fmt(i.pump.qn, 1)} m³/h{multi ? ` par pompe. Avec ${h.n} pompes identiques en parallèle, les débits s'additionnent à hauteur égale : ${fmt(i.pump.hn, 0)} m à ${fmt(i.pump.qn * h.n, 1)} m³/h (trait plein), contre la pompe seule en pointillés${(i.pump.standby ?? 0) > 0 ? ` ; la pompe de secours n'est pas comptée` : ''}` : ''}.</p>
         <p><span className="key k-net" /> <b>Ce que l'installation demande</b> : la hauteur qu'il faut pour faire passer l'eau dans vos tuyaux jusqu'au point d'utilisation. {h.ok ? 'Au point de fonctionnement' : `À votre besoin (${fmt(qN, 1)} m³/h)`}, elle se compose de :</p>
         <div className="stackbar">{parts.map((p) => <i key={p.cls} className={p.cls} style={{ width: `${(p.v / tot) * 100}%` }} title={`${p.l} : ${fmt(p.v, 1)} m`} />)}</div>
         <ul className="stacklegend">{parts.map((p) => <li key={p.cls}><i className={p.cls} /> {p.l} : <b>{fmt(p.v, 1)} m</b></li>)}</ul>

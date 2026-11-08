@@ -1193,3 +1193,10 @@ html, body { overflow-x: clip; }
 .livescore span { display: flex; flex-direction: column; }
 .livescore span small { color: var(--muted); font-size: .8rem; }
 .relbtn.static { cursor: default; }
+.curtip { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; min-height: 46px; padding: 8px 12px; margin: 6px 0; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); font-size: .88rem; }
+.curtip.empty { color: var(--muted); font-size: .82rem; }
+.curtip b { font-family: var(--f-display); font-size: 1rem; }
+.curtip .cp { color: #1689c6; font-weight: 700; } .curtip .c1 { color: #1689c6; } .curtip .cv { color: var(--good-ink); font-weight: 700; } .curtip .cn { color: #7a5bc4; font-weight: 700; }
+.curtip .cg.ok { color: var(--good-ink); } .curtip .cg.ko { color: var(--crit-ink); font-weight: 700; }
+.curbox { touch-action: pan-y; cursor: crosshair; }
+.curbox .recharts-wrapper:focus, .curbox .recharts-surface:focus, .curbox svg:focus, .curbox :focus-visible { outline: none; }
