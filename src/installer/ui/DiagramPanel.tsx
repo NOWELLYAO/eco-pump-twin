@@ -4,6 +4,7 @@ import { ACC, APPS, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from 
 import type { Evaluation } from '../evaluate';
 import { defaultDn } from '../evaluate';
 import { photoQuery, targetLabel, targetsOf } from '../targets';
+import { grundfosFor, type BrandRange } from '../brands';
 import { posAdvice } from '../positions';
 import { termLines, type TermLive } from '../terminal';
 import type { Installation, Issue } from '../types';
@@ -18,46 +19,65 @@ type View = 'real' | 'pid' | 'curve' | 'cab' | 'wire';
 const LV = { critical: 'critical', warning: 'warning', info: 'info' } as const;
 
 interface Photo { thumb: string; page: string; title: string }
-const photoCache = new Map<string, Photo[]>();
+interface PhotoSet { list: Photo[]; brand: boolean }
+const photoCache = new Map<string, PhotoSet>();
 
-/** Photos réelles libres de droits (Wikimedia Commons), chargées à la demande. */
-export function Photos({ query, label }: { query: string; label: string }) {
-  const [list, setList] = useState<Photo[] | null>(photoCache.get(query) ?? null);
+async function commons(q: string, signal: AbortSignal): Promise<Photo[]> {
+  const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(`filetype:bitmap ${q}`)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&iiurlwidth=360&format=json&origin=*`;
+  const j = await (await fetch(url, { signal })).json();
+  const pages = Object.values(j?.query?.pages ?? {}) as { index: number; title: string; imageinfo?: { thumburl?: string; descriptionurl?: string }[] }[];
+  return pages.sort((a, b) => a.index - b.index)
+    .map((p) => ({ thumb: p.imageinfo?.[0]?.thumburl ?? '', page: p.imageinfo?.[0]?.descriptionurl ?? '', title: p.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, '') }))
+    .filter((p) => p.thumb).slice(0, 6);
+}
+
+/** Photos réelles : d'abord la gamme Grundfos correspondante, sinon des photos libres génériques (Wikimedia Commons). */
+export function Photos({ query, label, brand }: { query: string; label: string; brand?: BrandRange | null }) {
+  const key = `${brand?.q.join('|') ?? ''}#${query}`;
+  const [set, setSet] = useState<PhotoSet | null>(photoCache.get(key) ?? null);
   const [err, setErr] = useState(false);
   useEffect(() => {
-    if (photoCache.has(query)) { setList(photoCache.get(query)!); return; }
-    setList(null); setErr(false);
+    if (photoCache.has(key)) { setSet(photoCache.get(key)!); return; }
+    setSet(null); setErr(false);
     const ctl = new AbortController();
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(`filetype:bitmap ${query}`)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url&iiurlwidth=360&format=json&origin=*`;
-    fetch(url, { signal: ctl.signal })
-      .then((r) => r.json())
-      .then((j) => {
-        const pages = Object.values(j?.query?.pages ?? {}) as { index: number; title: string; imageinfo?: { thumburl?: string; descriptionurl?: string }[] }[];
-        const out = pages.sort((a, b) => a.index - b.index)
-          .map((p) => ({ thumb: p.imageinfo?.[0]?.thumburl ?? '', page: p.imageinfo?.[0]?.descriptionurl ?? '', title: p.title.replace(/^File:/, '').replace(/\.[a-z]+$/i, '') }))
-          .filter((p) => p.thumb).slice(0, 6);
-        photoCache.set(query, out); setList(out);
-      })
+    (async () => {
+      for (const q of brand?.q ?? []) {
+        const l = await commons(q, ctl.signal);
+        if (l.length) return { list: l, brand: true };
+      }
+      return { list: await commons(query, ctl.signal), brand: false };
+    })()
+      .then((r) => { photoCache.set(key, r); setSet(r); })
       .catch((e) => { if (e.name !== 'AbortError') setErr(true); });
     return () => ctl.abort();
-  }, [query]);
-  const google = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(`${label} pompe`)}`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const gq = brand ? `Grundfos ${brand.range.split(' / ')[0]}` : `${label} pompe`;
+  const google = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(gq)}`;
+  const site = brand ? `https://www.google.com/search?q=${encodeURIComponent(`site:grundfos.com ${brand.range.split(' / ')[0]}`)}` : '';
   return (
     <div className="photos">
-      <h5><Camera size={14} aria-hidden /> Photos réelles</h5>
-      {list === null && !err && <div className="ph-grid">{[0, 1, 2].map((k) => <div key={k} className="ph-skel" />)}</div>}
-      {list && list.length > 0 && (
+      <h5><Camera size={14} aria-hidden /> Photos réelles{set?.brand && brand ? ` · Grundfos ${brand.range}` : ''}</h5>
+      {brand && (
+        <p className="brand-box"><b>Grundfos {brand.range}</b><span>{brand.desc}</span></p>
+      )}
+      {set === null && !err && <div className="ph-grid">{[0, 1, 2].map((k) => <div key={k} className="ph-skel" />)}</div>}
+      {set && !set.brand && brand && set.list.length > 0 && <p className="muted small">Pas de photo Grundfos libre de droits pour cette gamme : voici des photos d'éléments équivalents. Les photos officielles sont sur le site Grundfos.</p>}
+      {set && set.list.length > 0 && (
         <div className="ph-grid">
-          {list.map((p) => (
+          {set.list.map((p) => (
             <a key={p.thumb} href={p.page} target="_blank" rel="noreferrer" title={p.title}>
               <img src={p.thumb} alt={p.title} loading="lazy" />
             </a>
           ))}
         </div>
       )}
-      {(err || (list && list.length === 0)) && <p className="muted small">{!navigator.onLine ? 'Hors ligne : les photos s\'afficheront avec une connexion (celles déjà vues restent disponibles).' : 'Pas de photo libre trouvée pour cet élément.'}</p>}
-      <a className="btn sm" href={google} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden /> Plus de photos</a>
-      <small className="muted small">Photos Wikimedia Commons (licences libres, cliquer pour l'auteur).</small>
+      {(err || (set && set.list.length === 0)) && <p className="muted small">{!navigator.onLine ? 'Hors ligne : les photos s\'afficheront avec une connexion (celles déjà vues restent disponibles).' : 'Pas de photo libre trouvée pour cet élément.'}</p>}
+      <div className="row">
+        <a className="btn sm" href={google} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden /> {brand ? `Plus de photos Grundfos ${brand.range.split(' / ')[0]}` : 'Plus de photos'}</a>
+        {brand && <a className="btn sm" href={site} target="_blank" rel="noreferrer"><ExternalLink size={14} aria-hidden /> Fiche sur grundfos.com</a>}
+      </div>
+      <small className="muted small">Photos Wikimedia Commons (licences libres, cliquer pour l'auteur){brand ? '. Grundfos est une marque de Grundfos Holding A/S.' : '.'}</small>
     </div>
   );
 }
@@ -122,7 +142,7 @@ function Detail({ t, i, ev, onIssue, onSet, onClose }: {
             </ul>
           )}
         </div>
-        <Photos query={photoQuery(t, i.pumpType)} label={targetLabel(t)} />
+        <Photos query={photoQuery(t, i.pumpType)} label={targetLabel(t)} brand={grundfosFor(t, i)} />
       </div>
     </section>
   );
