@@ -324,7 +324,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       }
     } else if (kind === 'pit') {
       const area = (i.geo.tankVolume / 1000) / 0.5; // m², 0,5 m entre flotteurs
-      const qin = (0.15 + 0.75 * use(ctx, hr)) * h.q * 0.55;
+      const qin = (0.15 + 0.75 * use(ctx, hr)) * i.duty.qReq * 0.55;
       const hasStart = !!i.acc.flotteur_marche?.on && fx.floatPit !== 'low';
       const hasStop = !!i.acc.flotteur_arret?.on && fx.floatPit !== 'high';
       if (hasStart && st.x >= 0.5) start();
@@ -410,8 +410,13 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (fx.tripAfter != null && st.runT >= fx.tripAfter) trip(fx.tripMsg ?? 'Protection déclenchée', fx.tripKind ?? 'decl_thermique');
     }
 
+    // Pompe qui tourne contre une vanne fermée : pas de débit, l'eau s'échauffe dans le corps
+    if (st.on && !st.hum && !st.noFlow && h.ok && h.q < 0.05) {
+      seen('debit_nul', 'pression_haute', 'courant_bas');
+      if (st.runT >= 120 && st.runT - sub < 120) newEv.push({ t: st.t, sev: 'critical', text: 'La pompe tourne vanne fermée depuis 2 min : aucun débit, l\'eau chauffe dans la pompe (garniture en danger)', target: 'acc:vanne_ref' });
+    }
     if (st.on) {
-      const kw = st.hum ? i.pump.motorKw * 0.3 : st.noFlow ? h.pElec * 0.35 : kind === 'solar' ? Math.min(st.pv, h.pElec / 0.95) : kind === 'vfd' ? h.pElec * Math.max(0.15, st.s ** 3) : h.pElec * (st.q > 0 && h.q > 0 ? Math.max(0.5, Math.min(1.1, st.q / h.q)) : 1);
+      const kw = h.ok && h.q < 0.05 && !st.hum ? (i.pump.motorKw / 0.88) * 0.4 * h.n : st.hum ? i.pump.motorKw * 0.3 : st.noFlow ? h.pElec * 0.35 : kind === 'solar' ? Math.min(st.pv, h.pElec / 0.95) : kind === 'vfd' ? h.pElec * Math.max(0.15, st.s ** 3) : h.pElec * (st.q > 0 && h.q > 0 ? Math.max(0.5, Math.min(1.1, st.q / h.q)) : 1);
       st.kwh += (kw * sub) / 3600;
       st.vol += (st.q * sub) / 3600;
     }
@@ -420,7 +425,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
 
   const hr = hourOf(st.t);
   const a = kind === 'vessel' || kind === 'vfd' ? st.x : kind === 'pit' ? st.x * 100 : kind === 'solar' ? st.pv : kind === 'tank' ? st.x * 100 : liveReadings(ctx, st).pRef;
-  const c = kind === 'vessel' || kind === 'vfd' ? use(ctx, hr) * i.duty.qReq : kind === 'pit' ? (0.15 + 0.75 * use(ctx, hr)) * h.q * 0.55 : kind === 'tank' ? use(ctx, hr) * i.duty.qReq * 0.55 : null;
+  const c = kind === 'vessel' || kind === 'vfd' ? use(ctx, hr) * i.duty.qReq : kind === 'pit' ? (0.15 + 0.75 * use(ctx, hr)) * i.duty.qReq * 0.55 : kind === 'tank' ? use(ctx, hr) * i.duty.qReq * 0.55 : null;
   st.series = [...prev.series, { t: st.t, a, b: st.q, c }].slice(-240);
   if (newEv.length) st.events = [...newEv.reverse(), ...prev.events].slice(0, 80);
   return st;
@@ -437,7 +442,9 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
   if (st.on && st.noFlow) return { ...r, on: true, q: 0, pRef: bar(Math.max(0, suctionZ(i))), pAsp: bar(Math.min(0, suctionZ(i))), kw: h.pElec * 0.35, amps: er.inom * 0.42 };
   if (st.on && !running && kind === 'vessel' && st.runaway) return { ...r, on: true, kw: h.pElec * 0.45, amps: er.inom * 0.5 * (fx.ampsK ?? 1) };
   const out = { ...r };
-  if (running && fx.ampsK) out.amps = r.amps * fx.ampsK;
+  // Vanne fermée : la pompe tourne à débit nul (puissance ≈ 40 % de la nominale, pression maxi de la courbe)
+  if (running && h.q < 0.05) { out.kw = (i.pump.motorKw / 0.88) * 0.4 * h.n; out.amps = er.inom * 0.5; out.q = 0; }
+  if (running && fx.ampsK) out.amps = out.amps * fx.ampsK;
   if (running && st.dd > 0 && i.mode === 'aspiration') out.pAsp = r.pAsp - bar(st.dd);
   return out;
 }

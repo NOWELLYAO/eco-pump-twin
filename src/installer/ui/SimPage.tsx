@@ -163,6 +163,7 @@ export function SimPage({ s }: { s: Shared }) {
           )}
           {(kind === 'vessel' || kind === 'vfd') && <p className="small muted simnote">En surpression, c'est la <b>consommation</b> qui fixe le débit, pas la vanne : la pompe ne fournit que ce que les robinets prélèvent. Ouvrir la vanne ne fait pas couler plus d'eau.</p>}
           <Slider label="Ouverture vanne de refoulement" value={mods.valve} min={5} max={100} unit="%" onChange={(x) => setMods({ ...mods, valve: x })} />
+          {mods.faults.includes('vanne_fermee') && <p className="small cfg-warn">Panne en cours : la vanne de refoulement est fermée (0 %), ce réglage est sans effet tant que la panne n'est pas réparée.</p>}
           {kind === 'vfd' || kind === 'solar'
             ? <Slider label="Vitesse (variateur)" value={sim.on ? Math.round(sim.s * 100) : 0} min={0} max={100} unit="%" disabled onChange={() => undefined}
                 hint={kind === 'vfd' ? `Automatique : réglée par le capteur de pression — ${sim.on ? `${fmt(sim.s * 50, 1)} Hz en ce moment` : 'pompe en veille'}` : `Automatique : suit le soleil — ${fmt(sim.s * 50, 1)} Hz`} />

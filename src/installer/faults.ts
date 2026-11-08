@@ -105,8 +105,8 @@ export const FAULTS: FaultDef[] = [
   },
   {
     id: 'vanne_fermee', cat: 'hydraulique', label: 'Vanne de refoulement fermée par erreur', target: 'acc:vanne_ref',
-    what: 'Quelqu\'un a refermé (ou presque) la vanne de refoulement.',
-    applies: (i, k) => on(i, 'vanne_ref') && k !== 'vfd' && k !== 'solar', effect: { inst: (i) => ({ ...i, acc: { ...i.acc, vanne_ref: { ...i.acc.vanne_ref, on: true, qty: 9000 } } }), ampsK: 0.7 },
+    what: 'Quelqu\'un a refermé la vanne de refoulement : la pompe tourne contre une vanne fermée, sans débit.',
+    applies: (i, k) => on(i, 'vanne_ref') && k !== 'vfd' && k !== 'solar', effect: { inst: (i) => ({ ...i, acc: { ...i.acc, vanne_ref: { ...i.acc.vanne_ref, on: true, qty: 1e12 } } }), ampsK: 0.7 },
     sig: ['debit_nul', 'pression_haute', 'courant_bas'], field: ['Pompe qui chauffe', 'Pression maximale au manomètre, pas d\'eau en sortie'],
     checks: ['Vérifier la position de toutes les vannes', 'Manomètre = pression à débit nul de la courbe'],
     fix: ['Ouvrir la vanne', 'Plomber / étiqueter la vanne en position ouverte'], parts: ['garniture', 'roulements'],

@@ -121,7 +121,7 @@ function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: num
 export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const on = (id: string) => !!i.acc[id]?.on;
-  const flow = live ? live.on && live.r.q > 0 : h.ok && h.q > 0;
+  const flow = live ? live.on && live.r.q > 0.05 : h.ok && h.q > 0.05;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
   const pick = (t: string) => (onPick ? { onClick: (e: MouseEvent) => { e.stopPropagation(); onPick(t); }, className: 'pickable' } : {});
   const forage = i.pumpType === 'immergee_forage';
@@ -525,6 +525,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       <g key={id} {...pick(`acc:${id}`)}>
         <rect x={p.x - 24} y={p.y - 30} width={48} height={60} className="hit" />
         <g transform={`translate(${p.x},${p.y}) rotate(${vertical ? 0 : p.a})`}><RealGlyph kind={a.glyph} /></g>
+        {id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <g className="r-closed"><rect x={p.x - 30} y={p.y + 50} width={60} height={16} rx={4} /><text x={p.x} y={p.y + 62} textAnchor="middle">FERMÉE</text><path d={`M${p.x - 10} ${p.y - 10} L${p.x + 10} ${p.y + 10} M${p.x + 10} ${p.y - 10} L${p.x - 10} ${p.y + 10}`} /></g>}
         <text x={vertical ? p.x + 22 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 88 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) - (upN % 2) * 15 : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : 'middle'} className="r-label">
           <title>{a.label}</title>{SHORT[id] ?? a.label}{dnTxt}
         </text>
