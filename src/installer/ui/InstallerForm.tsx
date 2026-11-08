@@ -60,13 +60,14 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
     <div className="iform">
       <div className="ipreset">
         <button type="button" className="btn primary full wz-open" onClick={() => window.dispatchEvent(new Event('open-wizard'))}><Wand2 size={17} aria-hidden /> Conception guidée, pas à pas</button>
-        <button type="button" className="btn full" onClick={() => document.querySelector<HTMLButtonElement>('.newbtn')?.click()}>Repartir de zéro</button>
+        <button type="button" className="btn full" onClick={() => document.querySelector<HTMLButtonElement>('.newbtn')?.click()}>Nouveau projet vide</button>
         <SelField label="Partir d'un exemple" value="" wide
           options={[{ v: '', l: 'Choisir un exemple…' }, ...PRESETS.map((p) => ({ v: p.id, l: p.label })), ...(Object.keys(APPS) as AppId[]).map((a) => ({ v: `blank:${a}`, l: `Vierge — ${APPS[a].label}` }))]}
           onChange={(v) => {
             if (!v) return;
-            if (v.startsWith('blank:')) set(() => blank(v.slice(6) as AppId));
-            else { const p = PRESETS.find((x) => x.id === v); if (p) set(() => p.build()); }
+            // Un exemple ouvre un nouveau projet : le projet en cours est conservé
+            const n = v.startsWith('blank:') ? blank(v.slice(6) as AppId) : PRESETS.find((x) => x.id === v)?.build();
+            if (n) window.dispatchEvent(new CustomEvent('ecopump-new', { detail: n }));
           }} />
       </div>
 

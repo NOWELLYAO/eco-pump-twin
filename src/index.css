@@ -1201,3 +1201,19 @@ html, body { overflow-x: clip; }
 .curbox { touch-action: pan-y; cursor: crosshair; }
 .curbox .recharts-wrapper:focus, .curbox .recharts-surface:focus, .curbox svg:focus, .curbox :focus-visible { outline: none; }
 .curnote { margin: 2px 0 6px; color: var(--muted); }
+/* ===== Projets ===== */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(90px + env(safe-area-inset-bottom)); z-index: 80; background: #17242e; color: #fff; padding: 10px 16px; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: min(92vw, 520px); font-weight: 600; }
+.projects .proj-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.projects .proj-actions .btn { min-height: 46px; }
+.proj-h { font-size: .98rem; margin: 16px 0 6px; }
+.proj-msg { background: var(--good-bg); color: var(--good-ink); padding: 8px 12px; border-radius: 8px; font-weight: 600; }
+.proj-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.proj-list li { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 10px; padding: 4px 6px 4px 4px; background: var(--panel); }
+.proj-list li.cur { border-color: var(--brand); background: var(--brand-soft); }
+.proj-open { flex: 1; min-width: 0; text-align: left; border: 0; background: none; padding: 8px; display: flex; flex-direction: column; gap: 2px; min-height: 52px; }
+.proj-open b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-open small { color: var(--muted); font-size: .78rem; }
+.proj-open:disabled { opacity: 1; cursor: default; }
+.proj-score { font-family: var(--f-display); font-weight: 800; border-radius: 8px; padding: 4px 8px; font-size: .9rem; }
+.proj-score.ok { background: var(--good-bg); color: var(--good-ink); } .proj-score.warn { background: var(--warn-bg); color: var(--warn-ink); } .proj-score.bad { background: var(--crit-bg); color: var(--crit-ink); }
+.btn.danger { background: var(--crit); color: #fff; border-color: var(--crit); }

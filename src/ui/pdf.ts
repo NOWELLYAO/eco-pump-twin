@@ -67,7 +67,7 @@ export async function buildReportPdf(container: HTMLElement, title: string): Pro
 
 /** Partage (menu du téléphone) ou téléchargement du PDF. */
 export async function shareOrDownload(blob: Blob, filename: string, title: string) {
-  const file = new File([blob], filename, { type: 'application/pdf' });
+  const file = new File([blob], filename, { type: blob.type || 'application/pdf' });
   const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
   if (nav.canShare && nav.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title }); return 'shared'; } catch (e) { if ((e as Error).name === 'AbortError') return 'cancel'; }

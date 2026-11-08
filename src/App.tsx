@@ -8,6 +8,8 @@ import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
 import { UpdateBanner, appVersion } from './ui/Update';
+import { ProjectsButton, ProjectsModal } from './ui/Projects';
+import { createProject, currentId, fromLink, listProjects, loadProject, saveProject, setCurrent } from './projects';
 import { buildReportPdf, shareOrDownload } from './ui/pdf';
 import { DesignPage, DiagPage, MaterialPage, SimPage, type Shared } from './installer/ui/Pages';
 import { CommissionPage, CommissionResults } from './installer/ui/CommissionPage';
@@ -23,14 +25,14 @@ const PAGES: { id: Page; label: string; icon: typeof PencilRuler }[] = [
   { id: 'com', label: 'Mise en service', icon: ClipboardCheck },
   { id: 'mat', label: 'Matériel & rapport', icon: Package },
 ];
-const KEY = 'ecopump-installer-v1';
+const START_HASH = window.location.hash; // lu avant que la navigation ne le remplace (lien de projet partagé)
 
-function load(): Installation {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return ensureElec(JSON.parse(raw) as Installation);
-  } catch { /* ignore */ }
-  return PRESETS[3].build();
+function initial(): { id: string; inst: Installation } {
+  const cur = currentId();
+  const ids = [cur, ...listProjects().map((p) => p.id)].filter(Boolean) as string[];
+  for (const id of ids) { const x = loadProject(id); if (x) return { id, inst: x }; }
+  const inst = PRESETS[3].build();
+  return { id: createProject(inst), inst };
 }
 
 function Guide() {
@@ -52,7 +54,10 @@ function Guide() {
 }
 
 export default function App() {
-  const [inst, setInst] = useState<Installation>(load);
+  const [init] = useState(initial);
+  const [projId, setProjId] = useState<string>(init.id);
+  const [inst, setInst] = useState<Installation>(init.inst);
+  const [projOpen, setProjOpen] = useState(false);
   const [page, setPage] = useState<Page>(() => (PAGES.find((p) => `#${p.id}` === window.location.hash)?.id ?? 'design'));
   const [selected, setSelected] = useState<string | null>(null);
   const [activeIssue, setActiveIssue] = useState<Issue | null>(null);
@@ -62,6 +67,8 @@ export default function App() {
   const [wiz, setWiz] = useState(false);
   useEffect(() => { const o = () => { setReset(false); setWiz(true); }; window.addEventListener('open-wizard', o); return () => window.removeEventListener('open-wizard', o); }, []);
   const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const say = (m: string) => { setToast(m); window.setTimeout(() => setToast(null), 4500); };
   const standaloneIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) && ((navigator as Navigator & { standalone?: boolean }).standalone === true || window.matchMedia('(display-mode: standalone)').matches);
   const exportPdf = async () => {
     const el = document.querySelector<HTMLElement>('.print-report');
@@ -86,7 +93,28 @@ export default function App() {
   const [resetName, setResetName] = useState('');
   const ev = useMemo(() => evaluate(inst), [inst]);
 
-  useEffect(() => { try { localStorage.setItem(KEY, JSON.stringify(inst)); } catch { /* ignore */ } }, [inst]);
+  // Enregistrement automatique du projet ouvert
+  useEffect(() => { if (projId && !saveProject(projId, inst)) say('Mémoire de l\'appareil pleine : exportez puis supprimez d\'anciens projets.'); }, [inst, projId]);
+  const openProject = (id: string) => {
+    const x = id ? loadProject(id) : null;
+    if (!x) return;
+    setProjId(id); setCurrent(id); setInst(x); setSelected(null); setActiveIssue(null); setProjOpen(false);
+  };
+  const newProject = (x: Installation, msg?: string) => {
+    const n = ensureElec(x);
+    const id = createProject(n);
+    setProjId(id); setInst(n); setSelected(null); setActiveIssue(null); setProjOpen(false); setPage('design');
+    if (msg) say(msg);
+  };
+  // Projet reçu par lien, et nouveaux projets demandés par la page Conception (exemples)
+  useEffect(() => {
+    if (START_HASH.startsWith('#projet=')) {
+      fromLink(START_HASH).then((x) => { if (x) newProject(x, `Projet reçu « ${x.name} » : ajouté à vos projets.`); }).catch(() => say('Lien de projet illisible.'));
+    }
+    const onNew = (e: Event) => newProject((e as CustomEvent<Installation>).detail);
+    window.addEventListener('ecopump-new', onNew);
+    return () => window.removeEventListener('ecopump-new', onNew);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { window.history.replaceState(null, '', `#${page}`); window.scrollTo({ top: 0 }); }, [page]);
   // L'alerte sélectionnée disparaît si elle est corrigée
   useEffect(() => { if (activeIssue && !ev.issues.some((x) => x.id === activeIssue.id)) setActiveIssue(null); }, [ev, activeIssue]);
@@ -124,12 +152,14 @@ export default function App() {
         <div className="sp" />
         <OfflineAndInstall />
         <button className={`scorechip lv-${lvl}`} onClick={() => setPage('diag')} title={ev.verdict.label}>{ev.score}<small>/100</small></button>
-        <button className="btn newbtn" onClick={() => { setResetName(''); setReset(true); }} title="Repartir de zéro"><FilePlus2 size={17} aria-hidden /><span>Nouvelle</span></button>
+        <ProjectsButton onClick={() => setProjOpen(true)} />
+        <button className="btn newbtn" onClick={() => { setResetName(''); setReset(true); }} title="Nouveau projet"><FilePlus2 size={17} aria-hidden /><span>Nouvelle</span></button>
         <button className="icon-btn" onClick={() => setRep(true)} aria-label="Rapport PDF / impression"><FileDown size={18} /></button>
         <button className="icon-btn" onClick={() => setGuide(true)} aria-label="Guide"><BookOpen size={18} /></button>
       </header>
 
       <UpdateBanner />
+      {toast && <div className="toast" role="status">{toast}</div>}
       <main className="screen">
         <div className="page-title">
           <h1>{PAGES.find((p) => p.id === page)?.label}</h1>
@@ -180,7 +210,7 @@ export default function App() {
               <Wand2 size={26} aria-hidden />
               <span><b>Conception guidée (conseillé)</b><small>10 questions simples : l'application calcule les tuyaux, choisit les accessoires, propose la pompe et le câble.</small></span>
             </button>
-            <p className="muted small">Ou partez d'une installation vide à remplir vous-même. L'installation actuelle (« {inst.name} ») sera remplacée.</p>
+            <p className="muted small">Ou partez d'une installation vide à remplir vous-même. Le projet actuel (« {inst.name} ») reste enregistré dans « Mes projets ».</p>
             <label className="ifld"><span>Nom du projet</span><input value={resetName} placeholder="Ex. : Forage de Kibera" onChange={(e) => setResetName(e.target.value)} /></label>
             <div className="appgrid">
               {(Object.keys(APPS) as AppId[]).map((a) => (
@@ -194,14 +224,17 @@ export default function App() {
               <button className="btn" onClick={() => setReset(false)}>Annuler</button>
               <button className="btn primary" onClick={() => {
                 const n = empty(resetApp, resetEquip);
-                setInst({ ...n, name: resetName.trim() || `Nouvelle installation — ${APPS[resetApp].label}` });
-                setSelected(null); setActiveIssue(null); setReset(false); setPage('design');
+                newProject({ ...n, name: resetName.trim() || `Nouvelle installation — ${APPS[resetApp].label}` });
+                setReset(false);
               }}><FilePlus2 size={16} aria-hidden /> Vide, en mode libre</button>
             </div>
           </div>
         </div>
       )}
-      {wiz && <Wizard onClose={() => setWiz(false)} onDone={(n) => { setInst(ensureElec(n)); setSelected(null); setActiveIssue(null); setWiz(false); setPage('design'); }} />}
+      {projOpen && <ProjectsModal currentId={projId} inst={inst} onOpen={openProject} onClose={() => setProjOpen(false)}
+        onNew={() => { setProjOpen(false); setResetName(''); setReset(true); }}
+        onImport={(x) => newProject(x, `Projet « ${x.name} » importé.`)} />}
+      {wiz && <Wizard onClose={() => setWiz(false)} onDone={(n) => { newProject(n); setWiz(false); }} />}
       {guide && (
         <div className="backdrop" onClick={() => setGuide(false)}>
           <div className="modal" role="dialog" aria-modal aria-label="Guide" onClick={(e) => e.stopPropagation()}>
