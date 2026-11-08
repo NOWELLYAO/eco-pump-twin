@@ -88,7 +88,7 @@ function Slider({ label, value, min, max, step = 1, unit, onChange, disabled, hi
 
 export function SimPage({ s }: { s: Shared }) {
   const c = useChartColors();
-  const [mods, setMods] = useState<Mods>(NO_MODS);
+  const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100 }));
   const iSim = useMemo(() => applyMods(s.inst, mods), [s.inst, mods]);
   const ctx = useMemo(() => makeCtx(iSim), [iSim]);
   const evSim = useMemo(() => evaluate(iSim), [iSim]);
@@ -98,7 +98,10 @@ export function SimPage({ s }: { s: Shared }) {
   const [playing, setPlaying] = useState(true);
   const [rate, setRate] = useState(600);
 
-  useEffect(() => { setSim(initSim(makeCtx(applyMods(s.inst, NO_MODS)))); setMods(NO_MODS); }, [s.inst]);
+  // Avec un variateur réglé sur le besoin, la simulation démarre à sa fréquence de consigne, pas à 50 Hz.
+  const baseSpeed = s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100;
+  const base: Mods = { ...NO_MODS, speed: baseSpeed };
+  useEffect(() => { setSim(initSim(makeCtx(applyMods(s.inst, base)))); setMods(base); }, [s.inst]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing) return;
     const id = window.setInterval(() => setSim((st) => stepSim(ctxRef.current, st, rate * 0.5)), 500);
@@ -106,10 +109,10 @@ export function SimPage({ s }: { s: Shared }) {
   }, [playing, rate]);
 
   const kind = ctx.kind;
-  const r = readings(iSim, ctx.h, sim.on, ctx.er, sim.on ? sim.q : undefined);
+  const r = readings(iSim, ctx.h, sim.on, ctx.er, sim.on ? sim.q : undefined, kind === 'vfd' && sim.on ? sim.s : 1);
   const live = { on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
-  const reset = () => { setMods(NO_MODS); setSim(initSim(ctx)); };
+  const reset = () => { setMods(base); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
   const sl = SERIES_LABEL[kind];
   const data = sim.series.map((p) => ({ ...p, label: clock(p.t).slice(3) }));
@@ -141,12 +144,16 @@ export function SimPage({ s }: { s: Shared }) {
         <section className="card">
           <h3>Réglages en direct</h3>
           <Slider label="Ouverture vanne de refoulement" value={mods.valve} min={5} max={100} unit="%" onChange={(x) => setMods({ ...mods, valve: x })} />
-          <Slider label="Vitesse (variateur)" value={mods.speed} min={50} max={110} unit="%" disabled={!hasVfd || kind === 'solar' || kind === 'vfd'} onChange={(x) => setMods({ ...mods, speed: x })} hint={!hasVfd ? 'Pas de variateur sur cette installation' : `${fmt((mods.speed / 100) * 50, 1)} Hz`} />
+          {kind === 'vfd' || kind === 'solar'
+            ? <Slider label="Vitesse (variateur)" value={sim.on ? Math.round(sim.s * 100) : 0} min={0} max={100} unit="%" disabled onChange={() => undefined}
+                hint={kind === 'vfd' ? `Automatique : réglée par le capteur de pression — ${sim.on ? `${fmt(sim.s * 50, 1)} Hz en ce moment` : 'pompe en veille'}` : `Automatique : suit le soleil — ${fmt(sim.s * 50, 1)} Hz`} />
+            : <Slider label="Vitesse (variateur)" value={mods.speed} min={50} max={110} unit="%" disabled={!hasVfd} onChange={(x) => setMods({ ...mods, speed: x })}
+                hint={!hasVfd ? 'Pas de variateur sur cette installation' : `${fmt((mods.speed / 100) * 50, 1)} Hz${mods.speed === baseSpeed && baseSpeed < 100 ? ' — consigne calculée pour le besoin' : ''}${mods.speed > 100 ? ' — SURVITESSE : à éviter (moteur et pompe hors limites)' : ''}`} />}
           <Slider label="Niveau d'eau à la source" value={mods.level} min={-5} max={3} step={0.1} unit="m" onChange={(x) => setMods({ ...mods, level: x })} hint="Négatif : le niveau baisse" />
           <Slider label="Colmatage crépine / filtre" value={mods.clog} min={0} max={100} unit="%" disabled={!hasFilter} onChange={(x) => setMods({ ...mods, clog: x })} hint={hasFilter ? undefined : 'Aucun filtre ni crépine'} />
           <Slider label="Usure de la pompe" value={mods.wear} min={0} max={100} unit="%" onChange={(x) => setMods({ ...mods, wear: x })} />
           <div className="scen">
-            {scen.map((x) => <button key={x.l} className="chip" onClick={() => { if (x.stop) setSim((st) => stepSim(ctx, { ...st, master: false }, 5)); else setMods({ ...NO_MODS, ...x.m }); }}>{x.l}</button>)}
+            {scen.map((x) => <button key={x.l} className="chip" onClick={() => { if (x.stop) setSim((st) => stepSim(ctx, { ...st, master: false }, 5)); else setMods({ ...base, ...x.m }); }}>{x.l}</button>)}
             <button className="chip" onClick={reset}><RotateCcw size={13} aria-hidden /> Réinitialiser</button>
           </div>
         </section>

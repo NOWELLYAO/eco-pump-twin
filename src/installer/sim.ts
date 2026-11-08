@@ -39,7 +39,7 @@ export function applyMods(i: Installation, m: Mods): Installation {
 export interface Readings { q: number; pRef: number; pAsp: number; amps: number; kw: number; hmt: number; margin: number; on: boolean }
 
 /** Ce qu'afficheraient les instruments. */
-export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult, qOverride?: number): Readings {
+export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult, qOverride?: number, speed = 1): Readings {
   const rhoG = i.fluid.rho * G;
   const bar = (m: number) => (m * rhoG) / 1e5;
   const z = suctionZ(i);
@@ -51,11 +51,16 @@ export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult,
   const q = qOverride ?? h.q;
   const ratio = h.q > 0 ? q / h.q : 1;
   const L = losses(i, q);
-  const hq = qOverride != null ? pumpHead(i, q) : h.h;
+  // Hauteur réellement fournie : courbe de la pompe à la vitesse du variateur (H = s² · H(q / s))
+  const sp = Math.max(0.2, speed);
+  const hq = qOverride != null ? sp * sp * pumpHead(i, q / sp) : h.h;
   const pAsp = bar(z - L.asp);
   const pRef = isForage(i) ? bar(Math.max(0, hq - i.geo.dynamicLevel - L.ref * (i.geo.pumpDepth / Math.max(1, i.ref.length + i.geo.pumpDepth)))) : bar(z - L.asp + hq);
-  const kw = h.pElec * Math.max(0.3, ratio);
-  const amps = er.inom * Math.max(0.35, Math.min(1.2, kw / h.n / (i.pump.motorKw / 0.88)));
+  const kw = speed < 0.995 && q > 0
+    ? (rhoG * (q / 3600) * Math.max(0, hq)) / Math.max(0.25, h.eta) / 1000 / 0.88
+    : h.pElec * Math.max(0.3, ratio);
+  // Courant moteur : proportionnel à la charge (non plafonné, pour voir les surcharges)
+  const amps = er.inom * Math.max(0.35, Math.min(2, kw / h.n / (i.pump.motorKw / 0.88)));
   return { q, pRef, pAsp, amps, kw, hmt: hq, margin: h.margin, on: true };
 }
 
@@ -193,13 +198,24 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const qd = demand(hr) * i.duty.qReq;
       if (st.master && qd > 0.06 * i.duty.qReq) start();
       if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
-      st.q = st.on ? qd : 0;
-      st.x = st.on ? set + (Math.sin(st.t / 37) * 0.04) : Math.max(set - 0.6, st.x - 0.01);
       const hs = (set * 1e5) / rhoG - suctionZ(i);
-      const h0n = i.pump.hn * i.pump.shutoff;
-      const kq = (h0n - i.pump.hn) / (i.pump.qn ** 2);
-      const qe = st.q / h.n;
-      st.s = st.on ? Math.min(1, Math.sqrt((hs + kq * qe * qe) / h0n)) : 0;
+      const h0n = pumpHead(i, 0);
+      const kq = (h0n - pumpHead(i, i.pump.qn)) / (i.pump.qn ** 2);
+      const qe = qd / h.n;
+      const sNeed = Math.sqrt((hs + kq * qe * qe) / h0n);
+      if (st.on && sNeed > 1) {
+        // Le variateur est à 50 Hz et ne tient plus la consigne : la pression chute sur la courbe de la pompe
+        st.s = 1;
+        const hAt = Math.max(0, h0n - kq * qe * qe);
+        st.x = Math.max(0, (hAt + suctionZ(i)) * rhoG / 1e5);
+        st.q = qd;
+        if (!st.cav) { st.cav = true; newEv.push({ t: st.t, sev: 'warning', text: `Variateur à 50 Hz : consigne ${f1(set)} bar non tenue (${f1(st.x)} bar) — pompe trop faible pour cette consommation`, target: 'pump' }); }
+      } else {
+        st.q = st.on ? qd : 0;
+        st.x = st.on ? set + (Math.sin(st.t / 37) * 0.04) : Math.max(set - 0.6, st.x - 0.01);
+        st.s = st.on ? Math.max(0.3, sNeed) : 0;
+        if (sNeed < 0.95) st.cav = false;
+      }
     } else if (kind === 'pit') {
       const area = (i.geo.tankVolume / 1000) / 0.5; // m², 0,5 m entre flotteurs
       const qin = (0.15 + 0.75 * demand(hr)) * h.q * 0.55;
