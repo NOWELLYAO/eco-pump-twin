@@ -1200,3 +1200,4 @@ html, body { overflow-x: clip; }
 .curtip .cg.ok { color: var(--good-ink); } .curtip .cg.ko { color: var(--crit-ink); font-weight: 700; }
 .curbox { touch-action: pan-y; cursor: crosshair; }
 .curbox .recharts-wrapper:focus, .curbox .recharts-surface:focus, .curbox svg:focus, .curbox :focus-visible { outline: none; }
+.curnote { margin: 2px 0 6px; color: var(--muted); }

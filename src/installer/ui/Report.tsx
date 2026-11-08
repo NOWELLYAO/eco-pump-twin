@@ -295,10 +295,14 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const vfdHz = sVfd * 50;
   // Plusieurs pompes en parallèle : la courbe « pompe » est celle des pompes en service ensemble ; on montre aussi une pompe seule
   const multi = h.n > 1;
+  const total = Math.max(1, i.pump.count ?? 1);
+  const spare = total - h.n; // pompes de secours (non comptées dans le service)
+  const all: Installation = { ...i, pump: { ...i.pump, count: total, standby: 0 } };
+  const hAll = (q: number) => { const v = pumpHead(all, q); return v > 0 ? v : null; };
   const one: Installation = { ...i, pump: { ...i.pump, count: 1, standby: 0 } };
   const hv = (q: number) => { const v = sVfd * sVfd * pumpHead(i, q / sVfd); return v > 0 ? v : null; };
   const h1 = (q: number) => { const v = pumpHead(one, q); return v > 0 ? v : null; };
-  const data = h.curve.map((p) => ({ ...p, ...(vfdOk ? { hv: hv(p.q) } : {}), ...(multi ? { h1: h1(p.q) } : {}) }));
+  const data = h.curve.map((p) => ({ ...p, ...(vfdOk ? { hv: hv(p.q) } : {}), ...(multi ? { h1: h1(p.q) } : {}), ...(spare > 0 ? { ha: hAll(p.q) } : {}) }));
   const qMax = h.curve[h.curve.length - 1]?.q ?? 1;
   // Curseur maison : la valeur est calculée exactement au débit pointé (doigt ou souris)
   const [hq, setHq] = useState<number | null>(null);
@@ -321,13 +325,15 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const vfdName = hasVfd ? `Avec le variateur (${fmt(vfdHz, 0)} Hz)` : `Si vous ajoutez un variateur (${fmt(vfdHz, 0)} Hz)`;
   return (
     <figure className="instcurve">
-      <figcaption>{multi ? `Ce que les ${h.n} pompes en service fournissent ensemble` : 'Ce que la pompe fournit'} face à ce que l'installation demande <span>(hauteur en m, débit en m³/h)</span></figcaption>
+      <figcaption>{multi ? `Ce que les ${h.n} pompes en service fournissent ensemble` : total > 1 ? 'Ce que la pompe en service fournit' : 'Ce que la pompe fournit'} face à ce que l'installation demande <span>(hauteur en m, débit en m³/h)</span></figcaption>
+      {spare > 0 && <p className="small curnote">{total} pompes installées : <b>{h.n} en service</b> et <b>{spare} de secours</b>. La secours ne tourne qu'en cas de panne (ou en permutation) : elle n'ajoute pas de débit. Pointillés : ce que donneraient les {total} pompes si elles tournaient toutes ensemble.</p>}
       <div className={`curtip ${hq == null ? 'empty' : ''}`} aria-live="polite">
         {hq == null ? <span>Touchez ou survolez le graphique pour lire les valeurs à un débit donné.</span> : (
           <>
             <b>{fmt(hq, 1)} m³/h</b>
             <span className="cp">{multi ? `${h.n} pompes` : 'pompe'}{vfdOk ? ' 50 Hz' : ''} : {tipHp > 0 ? `${fmt(tipHp, 1)} m` : '—'}</span>
             {multi && <span className="c1">1 pompe seule : {h1(hq) != null ? `${fmt(h1(hq)!, 1)} m` : '—'}</span>}
+            {spare > 0 && <span className="c1">{total} pompes ensemble : {hAll(hq) != null ? `${fmt(hAll(hq)!, 1)} m` : '—'}</span>}
             {vfdOk && <span className="cv">{fmt(vfdHz, 0)} Hz : {hv(hq) != null ? `${fmt(hv(hq)!, 1)} m` : '—'}</span>}
             <span className="cn">installation : {fmt(tipHs, 1)} m</span>
             <span className={`cg ${tipHp >= tipHs ? 'ok' : 'ko'}`}>{tipHp <= 0 ? 'la pompe ne débite pas autant' : tipHp >= tipHs ? `+${fmt(tipHp - tipHs, 1)} m de réserve` : `il manque ${fmt(tipHs - tipHp, 1)} m`}</span>
@@ -343,7 +349,8 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
           <XAxis dataKey="q" type="number" domain={[0, 'dataMax']} {...axis} tickFormatter={(v) => fmt(v, 0)} />
           <YAxis domain={[0, Math.ceil(top / 5) * 5]} allowDataOverflow {...axis} width={44} tickFormatter={(v) => fmt(v, 0)} />
           <Legend iconType="plainline" wrapperStyle={{ fontSize: 12.5 }} />
-          <Line name={`${multi ? `${h.n} pompes en parallèle` : 'Ce que la pompe fournit'}${vfdOk ? ' (50 Hz)' : ''}`} dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} activeDot={false} isAnimationActive={false} />
+          <Line name={`${multi ? `${h.n} pompes en parallèle` : total > 1 ? '1 pompe en service' : 'Ce que la pompe fournit'}${vfdOk ? ' (50 Hz)' : ''}`} dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} activeDot={false} isAnimationActive={false} />
+          {spare > 0 && <Line name={`${total} pompes ensemble (secours comprise)`} dataKey="ha" stroke={c.s1} strokeWidth={1.5} strokeDasharray="8 5" strokeOpacity={0.6} dot={false} activeDot={false} isAnimationActive={false} />}
           {multi && <Line name="1 pompe seule" dataKey="h1" stroke={c.s1} strokeWidth={1.5} strokeDasharray="3 4" dot={false} activeDot={false} isAnimationActive={false} />}
           {vfdOk && <Line name={vfdName} dataKey="hv" stroke={c.good} strokeWidth={2.5} strokeDasharray={hasVfd ? undefined : '2 4'} dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} />}
           <Line name="Ce que l'installation demande" dataKey="hs" stroke={c.s3} strokeWidth={2.5} strokeDasharray="6 4" dot={false} activeDot={false} isAnimationActive={false} />

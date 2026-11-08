@@ -108,7 +108,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
         </div>
       </Section>
 
-      <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW`}>
+      <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW${(i.pump.standby ?? 0) > 0 ? ` · ${(i.pump.count ?? 1) - (i.pump.standby ?? 0)} en service + ${i.pump.standby} secours` : ''}`}>
         <p className="ihint">Valeurs de la fiche constructeur, au point de meilleur rendement (BEP).</p>
         <div className="igrid">
           <NumField label="Débit nominal" unit="m³/h" value={i.pump.qn} onChange={(v) => v > 0 && pump({ qn: v })} />
