@@ -2,6 +2,7 @@ import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES
 import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
+import { proposePump } from './sizing';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -157,7 +158,8 @@ export function evaluate(input: Installation): Evaluation {
         detail: `Point de fonctionnement à ${f0(xr * 100)} % du débit optimal${at} (plage conseillée 70–120 %).${!vfdPt && !low && effectiveStart(i) === 'variateur' && h.q <= i.duty.qReq * 1.03 ? ' Le variateur ne peut pas corriger : la pompe donne déjà moins que le besoin à 50 Hz, ralentir réduirait encore le débit.' : ''}`,
         consequences: low ? ['Recirculation interne, vibrations', 'Échauffement du liquide', 'Efforts radiaux sur l\'arbre'] : ['Risque de cavitation', 'Surcharge du moteur', 'Bruit et vibrations'],
         parts: low ? ['roulements', 'garniture', 'arbre', 'roue'] : ['roue', 'moteur', 'garniture', 'roulements'],
-        solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : ['Choisir une pompe plus adaptée, ou freiner le débit (vanne, variateur)', 'Vérifier la puissance moteur'] });
+        solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : rightSolutions(i, h, !!vfdPt),
+        fix: low ? undefined : { label: `Pompe adaptée : ${f1(sized(i).pump.qn)} m³/h à ${f0(sized(i).pump.hn)} m`, apply: sized } });
     } else if (xr >= 0.85 && xr <= 1.1) goods.push(`Point de fonctionnement proche du rendement optimal (${f0(xr * 100)} % du débit nominal${at})`);
 
     const share = h.hLoss / h.h;
@@ -593,3 +595,27 @@ export function evaluate(input: Installation): Evaluation {
 }
 
 export { APPS };
+
+/** Pompe redimensionnée sur le besoin (débit demandé, hauteur réelle du réseau) */
+function sized(i: Installation): Installation { return proposePump(i); }
+
+/** Que faire quand la pompe est trop à droite de sa courbe (débit > 120 % de son optimum) */
+function rightSolutions(i: Installation, h: Hydro, vfdHelps: boolean): string[] {
+  const nr = Math.max(1, (i.pump.count ?? 1) - (i.pump.standby ?? 0));
+  const p = sized(i).pump;
+  const f1 = (v: number) => v.toFixed(1).replace('.', ',');
+  const out: string[] = [];
+  out.push(`Choisir une pompe dont le débit optimal est proche du besoin : environ ${f1(p.qn)} m³/h à ${Math.round(p.hn)} m${nr > 1 ? ' par pompe' : ''} (moteur ${String(p.motorKw).replace('.', ',')} kW), au lieu de ${f1(i.pump.qn)} m³/h à ${Math.round(i.pump.hn)} m`);
+  const over = h.q > i.duty.qReq * 1.05;
+  if (over && !vfdHelps) {
+    // Le variateur n'aide que si, ralentie jusqu'au besoin, la pompe revient dans sa plage (70–120 %)
+    const sp = speedFor(i, i.duty.qReq, staticHead(i) + pressureHead(i) + losses(i, i.duty.qReq).total);
+    const xv = Number.isFinite(sp) && sp > 0.3 && sp < 1 ? (i.duty.qReq / h.n) / (i.pump.qn * sp) : NaN;
+    if (xv >= 0.7 && xv <= 1.2) out.push(i.acc.variateur?.on ? 'Régler la consigne du variateur sur le besoin réel' : `Ou ajouter un variateur réglé sur ${f1(i.duty.qReq)} m³/h (≈ ${Math.round(50 * sp)} Hz) : la pompe revient à ${Math.round(xv * 100)} % de son débit optimal`);
+    else out.push(`Un variateur ne suffirait pas : ralentie jusqu'au besoin, la pompe resterait à ${Number.isFinite(xv) ? `${Math.round(xv * 100)} %` : 'plus de 120 %'} de son débit optimal. Une vanne non plus : elle ne ramène le débit qu'au besoin (${Math.round((i.duty.qReq / h.n / i.pump.qn) * 100)} % de l'optimum). Il faut une autre pompe`);
+  }
+  if (over && (i.duty.qReq / h.n) / i.pump.qn <= 1.2) out.push('En dépannage seulement : fermer partiellement la vanne de refoulement jusqu\'au débit demandé (consomme de l\'énergie, à remplacer par une pompe adaptée)');
+  if (!over) out.push(`Le débit obtenu (${f1(h.q)} m³/h) ne dépasse pas le besoin : freiner ne servirait à rien, c'est la pompe qui est trop petite en débit pour ce point`);
+  if (h.pShaft > i.pump.motorKw * 0.95) out.push(`Vérifier la puissance moteur : ${f1(h.pShaft)} kW absorbés pour ${String(i.pump.motorKw).replace('.', ',')} kW installés`);
+  return out;
+}

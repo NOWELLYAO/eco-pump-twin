@@ -33,6 +33,11 @@ const HEIGHTS = ["Hauteur d'aspiration", 'Charge (niveau', 'Niveau dynamique', '
 /** Règles : la première qui correspond au texte de la solution donne la (les) cible(s). */
 const RULES: [RegExp, Target[]][] = [
   [/par défaut/i, [{ sec: S.site, dflt: true, chip: 'Valeurs par défaut' }]],
+  [/débit optimal est proche du besoin/i, [t(S.pump, 'Débit nominal', 'Débit nominal'), t(S.pump, 'Hauteur nominale', 'Hauteur nominale')]],
+  [/fermer partiellement la vanne/i, [acc('vanne_ref', 'Vanne de refoulement')]],
+  [/ajouter un variateur réglé/i, [t(S.elec, 'Mode de démarrage', 'Mode de démarrage')]],
+  [/Un variateur ne suffirait pas/i, [t(S.pump, 'Débit nominal', 'Débit nominal')]],
+  [/freiner ne servirait à rien/i, [t(S.pump, 'Débit nominal', 'Débit nominal')]],
   [/pression résiduelle/i, [t(S.duty, 'Pression demandée', "Pression au point d'utilisation")]],
   [/hauteurs saisies/i, [t(S.site, 'Hauteurs du site', ...HEIGHTS)]],
   [/niveaux mesurés|rabattement/i, [t(S.site, 'Niveau dynamique', 'Niveau dynamique', 'Niveau statique'), t(S.duty, 'Débit demandé', 'Débit demandé')]],
