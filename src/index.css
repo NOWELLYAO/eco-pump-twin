@@ -1418,3 +1418,11 @@ html, body { overflow-x: clip; }
 .r-heat rect { fill: #ef4444; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; transform-box: fill-box; transform-origin: center; }
 .r-lheat circle { fill: #f97316; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; transform-box: fill-box; transform-origin: center; }
 @media (prefers-reduced-motion: reduce) { .r-rotor.spin, .r-rotor.shake { animation-duration: 2s !important; } }
+.r-label.small { font-size: 11px; }
+.r-bk-feed { fill: #b45309; font-weight: 800; }
+
+.r-bk-badge rect{fill:#fff;fill-opacity:.92;stroke:#9aa8b5;stroke-width:1}
+.r-bk-badge text{font-size:10px;font-weight:700;fill:#44515e}
+.r-bk-badge.fill rect{stroke:#2b7fd6}.r-bk-badge.fill text{fill:#1d5fa8}
+.r-bk-badge.on rect{fill:#fff4e0;stroke:#e08a00;animation:bkpulse 1.4s ease-in-out infinite}.r-bk-badge.on text{fill:#a85d00}
+@keyframes bkpulse{50%{stroke-width:2.5}}

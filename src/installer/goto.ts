@@ -24,6 +24,7 @@ const S = {
   duty: 'Besoin et énergie',
   elec: 'Électricité et alimentation',
   acc: "Accessoires d'installation",
+  bk: 'Réservoir de secours',
 };
 const t = (sec: string, chip: string, ...fields: string[]): Target => ({ sec, chip, fields });
 const acc = (id: string, chip: string): Target => ({ sec: S.acc, acc: id, chip });
@@ -33,6 +34,8 @@ const HEIGHTS = ["Hauteur d'aspiration", 'Charge (niveau', 'Niveau dynamique', '
 /** Règles : la première qui correspond au texte de la solution donne la (les) cible(s). */
 const RULES: [RegExp, Target[]][] = [
   [/par défaut/i, [{ sec: S.site, dflt: true, chip: 'Valeurs par défaut' }]],
+  [/réservoir de secours|Baisser le réservoir|Support d'au moins|flotteur réglé pour un remplissage/i, [t(S.bk, 'Réservoir de secours', 'Hauteur sous le réservoir', 'Volume du réservoir', 'Installer un réservoir')]],
+  [/^Réservoir de \d/i, [t(S.bk, 'Volume du réservoir', 'Volume du réservoir')]],
   [/débit optimal est proche du besoin/i, [t(S.pump, 'Débit nominal', 'Débit nominal'), t(S.pump, 'Hauteur nominale', 'Hauteur nominale')]],
   [/fermer partiellement la vanne/i, [acc('vanne_ref', 'Vanne de refoulement')]],
   [/ajouter un variateur réglé/i, [t(S.elec, 'Mode de démarrage', 'Mode de démarrage')]],
@@ -96,7 +99,7 @@ const RULES: [RegExp, Target[]][] = [
 export function targetsFor(x: Issue, sol: string): Target[] {
   // Alertes d'accessoire : manque, conseillé, à éviter, mauvais DN
   const m = /^(miss|rec|avoid|dn)_(.+)$/.exec(x.id);
-  if (m && /^(Ajouter|Retirer|Prendre l'accessoire)/.test(sol)) return [acc(m[2], 'Voir l\'accessoire')];
+  if (m && m[2] !== 'backup' && /^(Ajouter|Retirer|Prendre l'accessoire)/.test(sol)) return [acc(m[2], 'Voir l\'accessoire')];
   for (const [re, ts] of RULES) if (re.test(sol)) return ts;
   return [];
 }

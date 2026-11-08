@@ -3,6 +3,7 @@ import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
 import { proposePump } from './sizing';
+import { backupApplies, backupCalc, backupOf, backupProposal } from './backup';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -561,6 +562,44 @@ export function evaluate(input: Installation): Evaluation {
   const el = electrical(i, h);
   out.push(...el.issues);
   goods.push(...el.goods);
+
+  // ---------- Réservoir de secours en by-pass (forage sous pression) ----------
+  if (backupApplies(i)) {
+    const b = backupOf(i);
+    if (!b) {
+      const pr = backupProposal(i);
+      add({ id: 'rec_backup', sev: 'info', cat: 'accessoires', title: 'Réservoir de secours en by-pass conseillé',
+        detail: `La maison dépend uniquement de la pompe : en cas de panne, de coupure ou de manque d'eau dans le forage, plus une goutte. Un réservoir surélevé de ${pr.volume.toLocaleString('fr-FR')} L, rempli par la pompe en marche normale, donnerait environ ${pr.autonomyH} h d'autonomie.`,
+        consequences: ['Aucune réserve en cas de panne ou de coupure'], parts: [],
+        solutions: [`Ajouter un réservoir de secours de ${pr.volume.toLocaleString('fr-FR')} L sur un support de ${pr.height} m`],
+        fix: { label: `Ajouter ${pr.volume.toLocaleString('fr-FR')} L de secours`, apply: (x) => ({ ...x, backup: backupProposal(x) }) } });
+    } else {
+      const c = backupCalc(i, b);
+      // Pression de redémarrage de la pompe (au pressostat / au capteur), comparée à la pression créée par le réservoir au même endroit
+      const pOn = i.acc.variateur?.on && i.acc.capteur_p?.on ? (el.r.vessel?.pOn ?? 3) + 0.5 : el.r.vessel?.pOn ?? 3;
+      const hMax = Math.max(c.hMin, ((pOn - 0.3) * 1e5) / rhoG - Math.max(0, i.geo.hRef) - 1);
+      if (c.headV >= pOn - 0.2) {
+        add({ id: 'bk_pon', sev: 'critical', cat: 'securite', title: 'Le réservoir de secours se vide en marche normale',
+          detail: `Posé à ${f0(b.height)} m, le réservoir pousse à ${f1(c.headV)} bar au niveau du pressostat, alors que la pompe ne redémarre qu'à ${f1(pOn)} bar : son clapet s'ouvre avant le redémarrage de la pompe et la réserve se vide tous les jours.`,
+          consequences: ['Réserve vide le jour d\'une panne', 'Pompe qui tourne longtemps pour remplir'], parts: [],
+          solutions: [`Baisser le réservoir à ${f0(hMax)} m`, 'Ou relever la pression de marche du pressostat'],
+          fix: { label: `Réservoir à ${f0(hMax)} m`, apply: (x) => ({ ...x, backup: { ...b, height: Math.round(hMax) } }) } });
+      }
+      if (b.height < c.hMin) add({ id: 'bk_low', sev: 'warning', cat: 'hydraulique', title: 'Réservoir de secours trop bas',
+        detail: `Posé à ${f0(b.height)} m, il ne donnerait que ${f1(c.pHouse)} bar aux robinets : un filet d'eau.`,
+        consequences: ['Débit très faible aux robinets pendant une panne'], parts: [],
+        solutions: [`Support d'au moins ${c.hMin} m (conseillé ${c.hRec} m)`], fix: { label: `Support de ${c.hRec} m`, apply: (x) => ({ ...x, backup: { ...b, height: c.hRec } }) } });
+      if (b.volume < c.volRec * 0.7) add({ id: 'bk_small', sev: 'warning', cat: 'hydraulique', title: 'Réservoir de secours trop petit',
+        detail: `${b.volume.toLocaleString('fr-FR')} L tiennent environ ${f1(c.autonomyH)} h à la consommation moyenne (${f1(c.avgM3h, 2)} m³/h), pour ${b.autonomyH} h souhaitées.`,
+        consequences: ['Autonomie insuffisante en cas de panne'], parts: [],
+        solutions: [`Réservoir de ${c.volRec.toLocaleString('fr-FR')} L`], fix: { label: `${c.volRec.toLocaleString('fr-FR')} L`, apply: (x) => ({ ...x, backup: { ...b, volume: c.volRec } }) } });
+      if (h.ok && h.q < i.duty.qReq + c.fillM3h * 0.5) add({ id: 'bk_fill', sev: 'info', cat: 'hydraulique', title: 'Remplissage du réservoir de secours lent',
+        detail: `La pompe donne ${f1(h.q)} m³/h : en pointe, il reste peu de débit pour remplir le réservoir (${f1(c.fillH)} h pour un remplissage complet hors pointe).`,
+        consequences: ['Réserve incomplète après une longue panne'], parts: [], solutions: ['Robinet à flotteur réglé pour un remplissage hors pointe, ou pompe un peu plus forte'] });
+      if (b.height >= c.hMin && b.volume >= c.volRec * 0.7 && c.headV < pOn - 0.2)
+        goods.push(`Réservoir de secours ${b.volume.toLocaleString('fr-FR')} L à ${f0(b.height)} m : ${f1(c.autonomyH)} h d'autonomie, ${f1(c.pHouse)} bar aux robinets en cas de panne`);
+    }
+  }
 
   // ---------- Valeurs par défaut non vérifiées (n'entre pas dans la note) ----------
   const dl = defaultsLeft(i);

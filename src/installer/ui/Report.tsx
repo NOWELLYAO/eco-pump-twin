@@ -145,7 +145,7 @@ export function Alerts({ ev, onFix, onSelect, activeId, compact, printAll }: { e
           <div className="recs">
             {recs.map((x) => (
               <button key={x.id} className="rec" onClick={() => onFix(x)} title={x.detail}>
-                <span>+</span>{ACC[x.id.slice(4)]?.label}
+                <span>+</span>{ACC[x.id.slice(4)]?.label ?? x.fix?.label ?? x.title}
               </button>
             ))}
           </div>

@@ -1,6 +1,7 @@
 import { useId, useRef, type MouseEvent, type ReactNode } from 'react';
 import { useDeclutter } from '../../ui/declutter';
 import { electrodeDepth, type Readings, type SimKind } from '../sim';
+import { backupCalc, backupOf } from '../backup';
 import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
@@ -101,6 +102,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; // réservoir de secours
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -152,7 +154,9 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const availRef = 790 + DX - refX0 - 74;
   const DR = Math.max(0, refIds.length * STEP_R - availRef);
   const REF_END = 790 + DX + DR;
-  const W = 1000 + DX + DR;
+  const bkp = backupOf(i); // réservoir de secours en by-pass (forage)
+  const BKW = bkp ? 200 : 0;
+  const W = 1000 + DX + DR + BKW;
 
   let G = 320;
   let asp: Pt[] | null = null;
@@ -354,7 +358,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const qr = live ? Math.max(0, Math.min(1.6, live.r.q / Math.max(0.1, i.duty.qReq))) : flow ? 1 : 0; // débit relatif
   // Eau disponible aux robinets : la pompe débite, ou le réservoir à vessie contient encore de l'eau sous pression
   const fromVessel = !!live && (live.kind === 'vessel' || live.kind === 'vfd') && (live.vesFill ?? 0) > 0.02 && (live.x ?? 0) > 0.3;
-  const netFlow = live ? flow || fromVessel : flow;
+  const netFlow = live ? flow || fromVessel || !!live.bkFeed : flow;
   const dryTaps = !!live && !netFlow;
   const use = live ? (dryTaps ? 0 : Math.max(0, live.use ?? 0)) : 0.6; // consommation relative (robinets, réseau aval)
   const stream = (k: string, x: number, y1: number, y2: number, w = 6) => (
@@ -363,7 +367,52 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   const pressureMode = live ? live.kind === 'vessel' || live.kind === 'vfd' : !!(i.acc.pressostat?.on || i.acc.capteur_p?.on);
   if (dest === 'reservoir' && pressureMode && i.app !== 'surpression') {
     // Alimentation directe sous pression (pressostat / variateur) : maison avec robinets
-    const hx = ax + 20, hy = destG - 90;
+    const hx = ax + 20 + BKW, hy = destG - 90;
+    if (bkp) {
+      // Réservoir de secours surélevé, en by-pass : remplissage par robinet à flotteur, retour par clapet vers la maison
+      const bc = backupCalc(i, bkp);
+      const fillB = live ? Math.max(0, Math.min(1, live.bk ?? 1)) : 0.85;
+      const tw = 116, th = 58, tx = ax + 48, ty = 34;
+      const teeIn = ax + 22, teeOut = tx + tw - 22;
+      const yTop = ty + 6, yBot = ty + th - 5, yWb = yBot - (yBot - yTop) * fillB;
+      const filling = !!live?.bkFill, feeding = !!live?.bkFeed;
+      destEls.push(
+        <g key="bk" className="r-bk">
+          <path d={`M${tx + 12} ${ty + th} L${tx + 4} ${destG} M${tx + tw - 12} ${ty + th} L${tx + tw - 4} ${destG} M${tx + 8} ${ty + th + 46} H${tx + tw - 8} M${tx + 10} ${ty + th + 4} L${tx + tw - 6} ${ty + th + 46} M${tx + tw - 10} ${ty + th + 4} L${tx + 6} ${ty + th + 46}`} className="r-legs" />
+          {/* montée (remplissage) depuis un té sur la conduite de la maison */}
+          <path d={`M${teeIn} ${ay} V${ty + 12} H${tx + 8}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />
+          {filling && <path d={`M${teeIn} ${ay} V${ty + 12} H${tx + 8}`} className="r-flow" strokeWidth={2.5} />}
+          {/* descente (secours) avec clapet vers la maison */}
+          <path d={`M${teeOut} ${ty + th} V${ay}`} stroke="#8a96a3" strokeWidth={7} className="r-pipe" />
+          {feeding && <path d={`M${teeOut} ${ty + th} V${ay}`} className="r-flow" strokeWidth={3} />}
+          <circle cx={teeIn} cy={ay} r={4} className="e-dot" /><circle cx={teeOut} cy={ay} r={4} className="e-dot" />
+          <rect x={tx} y={ty} width={tw} height={th} rx={8} className="r-tank" />
+          <clipPath id={`bk${uid}`}><rect x={tx + 5} y={yTop} width={tw - 10} height={yBot - yTop} rx={4} /></clipPath>
+          <g clipPath={`url(#bk${uid})`}>
+            <g className="r-anim-level" style={{ transform: `translateY(${yWb - yTop}px)` }}>
+              <rect x={tx + 5} y={yTop} width={tw - 10} height={yBot - yTop + 8} className="r-water" />
+              <rect x={tx + 5} y={yTop} width={tw - 10} height={3} className="r-surface" />
+            </g>
+          </g>
+          {filling && stream('bks', tx + 12, ty + 14, yWb, 3)}
+          {/* robinet à flotteur : bras + boule qui suit le niveau */}
+          <path d={`M${tx + 10} ${ty + 12} L${tx + 34} ${Math.max(ty + 12, yWb - 3)}`} className="r-arm" />
+          <circle cx={tx + 36} cy={Math.max(ty + 12, yWb - 3)} r={5} className="g-float" />
+          <g className="r-obst" transform={`translate(${teeOut},${(ty + th + ay) / 2}) rotate(90)`}><RealGlyph kind="check" /></g>
+          {live && (() => {
+            const msg = feeding ? `Secours · ${bc.pHouse.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} bar` : filling ? 'En remplissage' : 'Plein, en attente';
+            const w = msg.length * 5.6 + 14;
+            return <g className={`r-bk-badge${feeding ? ' on' : filling ? ' fill' : ''}`}>
+              <rect x={tx + tw / 2 - w / 2} y={ty + th / 2 - 2} width={w} height={16} rx={8} />
+              <text x={tx + tw / 2} y={ty + th / 2 + 9.5} textAnchor="middle">{msg}</text>
+            </g>;
+          })()}
+        </g>,
+        <text key="bkl" x={tx + tw / 2} y={ty - 22} textAnchor="middle" className="r-label">Réservoir de secours {bkp.volume.toLocaleString('fr-FR')} L{live ? ` · ${Math.round(fillB * 100)} %` : ` · ${bkp.height} m · ${Math.round(bc.autonomyH)} h`}</text>,
+        <text key="bkf" x={teeIn - 6} y={ty + 30} textAnchor="end" className="r-label small">Robinet à flotteur</text>,
+        <text key="bkc" x={teeOut + 16} y={(ty + th + ay) / 2 + 4} className="r-label small">Clapet</text>,
+      );
+    }
     destEls.push(
       <path key="hp" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} stroke="#8a96a3" strokeWidth={8} className="r-pipe" />,
       netFlow && (use > 0.05 || flow) ? <path key="hpf" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
@@ -373,7 +422,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       <rect key="sink" x={hx + 18} y={hy + 56} width={50} height={12} rx={3} className="r-sink" />,
       <path key="tap" d={`M${hx + 30} ${hy + 40} V${hy + 32} H${hx + 46} V${hy + 40}`} className="r-tap" />,
       use > 0.08 ? stream('ts', hx + 46, hy + 41, hy + 56, 3 + 3 * Math.min(1, use)) : null,
-      <text key="hl" x={hx + 70} y={hy + 106} textAnchor="middle" className="r-label">{dryTaps ? 'Plus d\'eau aux robinets' : `Points d'eau${live ? ` · ${Math.round(use * 100)} %${!flow ? ' (réservoir)' : ''}` : ''}`}</text>,
+      <text key="hl" x={hx + 70} y={hy + 106} textAnchor="middle" className="r-label">{dryTaps ? 'Plus d\'eau aux robinets' : `Points d'eau${live ? ` · ${Math.round(use * 100)} %${live.bkFeed ? ' (réservoir de secours)' : !flow ? ' (réservoir)' : ''}` : ''}`}</text>,
     );
   } else if (dest === 'reservoir') {
     // Château d'eau / grande bâche : arrivée par le haut, niveau, flotteur, départ vers le réseau

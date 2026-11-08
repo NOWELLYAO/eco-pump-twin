@@ -1,4 +1,5 @@
 import { PIPE_MATS, refStatic } from './catalog';
+import { backupCalc, backupOf } from './backup';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
@@ -124,6 +125,9 @@ export interface SimState {
   sealGone?: boolean; // garniture détruite (vaporisation, marche à sec)
   cavT?: number; // temps de marche en cavitation (s)
   dryRun?: number; // durée de marche à sec en cours (s)
+  bk?: number; // réservoir de secours : remplissage (0 à 1)
+  bkFeed?: boolean; // le réservoir de secours alimente la maison (pompe arrêtée)
+  bkFill?: boolean; // le réservoir de secours se remplit par le robinet à flotteur
   lowLevel?: boolean; // forage : électrodes / sonde hors de l'eau, pompe arrêtée en attendant que le niveau remonte
   faultT?: Record<string, number>; // instant d'apparition de chaque panne (pour les pannes qui s'aggravent)
   flags?: Record<string, boolean>; // événements déjà signalés
@@ -160,6 +164,7 @@ export function initSim(ctx: SimCtx): SimState {
   const x = kind === 'vessel' ? (er.vessel?.pOn ?? 3) + 0.4 : kind === 'vfd' ? (er.vessel?.pOn ?? 3) + 0.5 : kind === 'pit' ? 0.2 : kind === 'tank' ? 0.6 : 0;
   return {
     t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [],
+    bk: backupOf(ctx.i) ? 1 : undefined,
     trip: null, tripKind: null, recent: {}, hum: false, primed: true, noFlow: false, runT: 0, outageUntil: 0, dd: 0, startLog: [], runaway: false, blocked: false, backDrop: false, isolated: null,
   };
 }
@@ -256,6 +261,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const hasDryProt = !!i.acc.marche_sec?.on;
   const avail = submergence(i);
   let dryT = 0;
+  // ---- Réservoir de secours en by-pass ----
+  const bkp = kind === 'vessel' || kind === 'vfd' ? backupOf(i) : null;
+  const bc = bkp ? backupCalc(i, bkp) : null;
+  const bkVol = bkp ? Math.max(0.1, bkp.volume / 1000) : 1;
+  if (bkp && st.bk == null) st.bk = 1;
   // ---- Constantes physiques ----
   const imm = i.mode === 'immergee';
   const tAmb = imm ? i.fluid.temp : 32; // moteur immergé : refroidi par le liquide ; en surface : air ambiant
@@ -355,9 +365,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     const leakQ = ((fx.leak ?? 0) + (st.burst === 'rupture' ? 0.7 : st.burst === 'fuite' ? 0.2 : 0) + (st.sealGone ? 0.03 : 0)) * i.duty.qReq;
     st.backDrop = false;
 
+    // Robinet à flotteur : tant que le réseau est sous pression et le réservoir de secours pas plein, il se remplit
+    const fillQ = bc && (st.bk ?? 1) < 0.999 && st.x > bc.headV + 0.05 ? bc.fillM3h : 0;
     if (kind === 'vessel' && v) {
       const vt = (v.vol / 1000) * (fx.vesselK ?? 1); // m³ utiles
-      const qd = use(ctx, hr) * i.duty.qReq + leakQ;
+      const qd = use(ctx, hr) * i.duty.qReq + leakQ + fillQ;
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
       if (st.x <= v.pOn) start();
       if (st.on && st.x >= v.pOff) {
@@ -412,7 +424,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
           if (sNeed < 0.95) st.cav = false;
         } else {
           st.q = 0;
-          st.x = Math.max(fx.backflow ? 0 : set - 0.6, st.x - (fx.backflow ? 0.12 : 0.01) - (qd > 0 && !power ? 0.2 : 0));
+          const dead = qd > 0.02 * i.duty.qReq && (!power || !!st.trip); // plus de pompe : les robinets vident le réseau
+          st.x = Math.max(fx.backflow || dead ? 0 : set - 0.6, st.x - (fx.backflow ? 0.12 : 0.01) - (dead ? 0.4 : 0));
           if (fx.backflow) st.backDrop = true;
         }
       }
@@ -473,6 +486,24 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     } else {
       start();
       st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
+    }
+
+    // ----- Réservoir de secours : remplissage, puis alimentation de la maison si la pompe ne suit plus -----
+    if (bc) {
+      const qHouse = use(ctx, hr) * i.duty.qReq + leakQ;
+      const wasFeed = !!st.bkFeed, wasFull = (st.bk ?? 1) >= 0.999;
+      if (fillQ > 0 && st.x > bc.headV) { st.bk = Math.min(1, (st.bk ?? 1) + (fillQ * sub) / 3600 / bkVol); st.bkFill = true; } else st.bkFill = false;
+      if (st.x <= bc.headV && (st.bk ?? 0) > 0.002) {
+        // La pression du réseau est tombée sous la charge du réservoir : le clapet de sortie s'ouvre
+        st.x = bc.headV; st.bkFeed = true;
+        st.bk = Math.max(0, (st.bk ?? 0) - (qHouse * sub) / 3600 / bkVol);
+        if (!wasFeed) newEv.push({ t: st.t, sev: 'warning', text: `La pompe ne suit plus : le réservoir de secours alimente la maison (${f1(bc.pHouse)} bar, ${Math.round((st.bk ?? 0) * 100)} % plein, ≈ ${f1(((st.bk ?? 0) * bkVol) / Math.max(0.05, bc.avgM3h), 0)} h d'autonomie)`, target: 'dest' });
+        if ((st.bk ?? 0) <= 0.002) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir de secours vide : plus d\'eau à la maison', target: 'dest' });
+      } else {
+        if (wasFeed) newEv.push({ t: st.t, sev: 'ok', text: `La pompe a repris : le clapet du réservoir de secours se referme (${Math.round((st.bk ?? 0) * 100)} % plein), il se remplit à nouveau`, target: 'dest' });
+        st.bkFeed = false;
+      }
+      if (!wasFull && (st.bk ?? 0) >= 0.999) newEv.push({ t: st.t, sev: 'ok', text: 'Réservoir de secours plein : le robinet à flotteur se ferme', target: 'dest' });
     }
 
     // ----- Rabattement de la source -----

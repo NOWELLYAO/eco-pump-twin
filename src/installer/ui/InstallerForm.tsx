@@ -1,4 +1,5 @@
 import { MapPin, Wand2 } from 'lucide-react';
+import { BACKUP_SIZES, backupApplies, backupCalc, backupProposal } from '../backup';
 import { posAdvice } from '../positions';
 import { SolarSite } from './SolarSite';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES } from '../catalog';
@@ -287,6 +288,43 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           </div>
         ))}
       </Section>
+
+      {forage && <BackupSection i={i} set={set} n={imm ? 9 : 10} />}
     </div>
+  );
+}
+
+/** Réservoir de secours en by-pass : dimensionnement et réglages (forage). */
+function BackupSection({ i, set, n }: { i: Installation; set: (fn: (i: Installation) => Installation) => void; n: number }) {
+  const ok = backupApplies(i);
+  const b = i.backup;
+  const on = !!b?.on && ok;
+  const c = backupCalc(i, b ?? backupProposal(i));
+  const upd = (p: Partial<NonNullable<Installation['backup']>>) => set((x) => ({ ...x, backup: { ...(x.backup ?? backupProposal(x)), ...p } }));
+  const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
+  return (
+    <Section n={n} title="Réservoir de secours (by-pass)" summary={on ? `${b!.volume.toLocaleString('fr-FR')} L à ${b!.height} m · ${f1(c.autonomyH, 0)} h d'autonomie` : ok ? 'Non installé' : 'Sans objet ici'}>
+      {!ok ? (
+        <p className="ihint">Sans pressostat ni variateur, le forage remplit déjà un réservoir qui alimente le réseau par gravité : pas besoin de by-pass. Le réservoir de secours sert quand le forage alimente directement la maison sous pression.</p>
+      ) : (
+        <>
+          <p className="ihint">En marche normale, la pompe alimente la maison et remplit un réservoir surélevé par un robinet à flotteur. Si la pompe s'arrête (panne, coupure, manque d'eau), la pression tombe : le clapet de sortie du réservoir s'ouvre et la maison est alimentée par gravité.</p>
+          <Toggle label="Installer un réservoir de secours en by-pass" checked={on} onChange={(v) => set((x) => ({ ...x, backup: v ? { ...(x.backup ?? backupProposal(x)), on: true } : { ...(x.backup ?? backupProposal(x)), on: false } }))} />
+          {on && b && (
+            <div className="igrid">
+              <NumField label="Autonomie souhaitée" unit="h" value={b.autonomyH} onChange={(v) => v > 0 && upd({ autonomyH: Math.min(96, v) })} hint={`consommation moyenne ≈ ${f1(c.avgM3h, 2)} m³/h (${f1(c.dailyM3, 0)} m³/jour)`} />
+              <SelField label="Volume du réservoir" value={b.volume} options={[...new Set([...BACKUP_SIZES, b.volume])].sort((p, q) => p - q).map((v) => ({ v, l: `${v.toLocaleString('fr-FR')} L${v === c.volRec ? ' (conseillé)' : ''}` }))} onChange={(v) => upd({ volume: v })} />
+              <NumField label="Hauteur sous le réservoir" unit="m" value={b.height} onChange={(v) => v >= 0 && upd({ height: Math.min(30, v) })} hint={`mini ${c.hMin} m · conseillé ${c.hRec} m (château d'eau, tour ou toit)`} />
+              <div className="vrec wide2">
+                <b>Résultat</b>
+                <span>Autonomie {f1(c.autonomyH, 1)} h · {f1(c.pHouse, 1)} bar aux robinets en secours · remplissage complet ≈ {f1(c.fillH, 1)} h</span>
+                <small>Robinet à flotteur DN{c.fillDn} sur le by-pass ({f1(c.fillM3h, 1)} m³/h) · sortie DN{c.outDn} avec clapet anti-retour vers la maison · trop-plein et vidange</small>
+                {(b.volume !== c.volRec || b.height < c.hMin) && <button type="button" className="btn primary sm" onClick={() => upd({ volume: c.volRec, height: Math.max(b.height, c.hRec) })}>Appliquer le dimensionnement conseillé</button>}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </Section>
   );
 }

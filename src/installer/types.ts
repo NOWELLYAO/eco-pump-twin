@@ -116,6 +116,7 @@ export interface Installation {
   commissioning?: import('./commissioning').Commissioning;
   quote?: import('./quote').QuoteMeta;
   touched?: string[]; // champs saisis par l'utilisateur (les autres sont des valeurs par défaut)
+  backup?: { on: boolean; volume: number; height: number; autonomyH: number }; // réservoir de secours en by-pass (forage)
 }
 
 export type Need = 'required' | 'recommended' | 'optional' | 'avoid' | 'na';
