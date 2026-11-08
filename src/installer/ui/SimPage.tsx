@@ -9,6 +9,7 @@ import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
 import { DiagramPanel } from './DiagramPanel';
 import type { Shared } from './Pages';
+import type { AccState } from '../types';
 
 /* ============================ Simulation ============================ */
 function Slider({ label, value, min, max, step = 1, unit, onChange, disabled, hint }: { label: string; value: number; min: number; max: number; step?: number; unit: string; onChange: (v: number) => void; disabled?: boolean; hint?: string }) {
@@ -59,6 +60,8 @@ export function SimPage({ s }: { s: Shared }) {
   }, [playing, rate]);
 
   const kind = ctx.kind;
+  // Cycles courts (fosse, pressostat) : vitesse lente par défaut pour voir l'eau et les flotteurs bouger
+  useEffect(() => { setRate(kind === 'pit' || kind === 'vessel' ? 60 : 600); }, [kind]);
   const r = liveReadings(ctx, sim);
   const obs = observe(ctx, nctx, sim);
   const note = (sev: 'info' | 'warning' | 'critical' | 'ok', text: string, target?: string) => (st: SimState): SimState => ({ ...st, events: [{ t: st.t, sev, text, target }, ...st.events].slice(0, 80) });
@@ -208,6 +211,13 @@ export function SimPage({ s }: { s: Shared }) {
 
         <DiagramPanel i={iView} ev={evSim} highlight={s.highlight} selected={s.selected} onPick={s.pick} onIssue={s.selectIssue} onSet={s.set} live={live} banner={s.activeIssue} onCloseBanner={s.clearIssue} />
 
+        {kind === 'pit' && (!s.inst.acc.flotteur_marche?.on || !s.inst.acc.flotteur_arret?.on) && (
+          <div className="cfg-block">
+            <b>La pompe ne peut pas fonctionner en automatique</b>
+            <span>{!s.inst.acc.flotteur_marche?.on ? 'Aucun flotteur de marche : la pompe ne démarre jamais et la fosse déborde.' : 'Aucun flotteur d\'arrêt : la pompe vide la fosse puis tourne à sec.'} Ce n'est pas une panne : il manque un équipement.</span>
+            <button type="button" className="btn primary sm" onClick={() => s.set((x) => ({ ...x, acc: { ...x.acc, flotteur_marche: { ...((x.acc.flotteur_marche as AccState | undefined) ?? { dn: 0, qty: 1 }), on: true }, flotteur_arret: { ...((x.acc.flotteur_arret as AccState | undefined) ?? { dn: 0, qty: 1 }), on: true }, flotteur_alarme: { ...((x.acc.flotteur_alarme as AccState | undefined) ?? { dn: 0, qty: 1 }), on: true } } }))}>Ajouter les flotteurs (marche, arrêt, alarme)</button>
+          </div>
+        )}
         <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} isolated={sim.isolated} spare={(s.inst.pump.standby ?? 0) > 0} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery}
           onToggle={toggleFault} onMystery={startMystery} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
           onRepair={(id) => { repair(id); if (mystery?.id === id) setMystery(null); }} onRepairAll={repairAll} onRearm={rearm}

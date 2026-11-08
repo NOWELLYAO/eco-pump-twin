@@ -463,7 +463,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
 
   if (cntP > 1 && !forage) {
     const sb = Math.max(0, i.pump.standby ?? 0);
-    dims.push(<text key="npump" x={pit ? 225 : pxp - 40} y={pit ? G - 18 : G + 46} textAnchor={pit ? 'middle' : 'start'} className="r-label par">{`${cntP} pompes en parallèle · ${cntP - sb} en service${sb ? ` + ${sb} secours` : ''}`}</text>);
+    dims.push(<text key="npump" x={pit ? 225 : pxp - 40} y={pit ? G - 18 : G + 46} textAnchor={pit ? 'middle' : 'start'} className="r-label par">{sb ? `${cntP} pompes · ${cntP - sb} en service + ${sb} de secours` : `${cntP} pompes en parallèle`}</text>);
   }
   anchors.pump = { x: pxp + (forage || pit ? 0 : 30), y: pyp, r: forage ? 50 : 62 };
   anchors.source = forage ? { x: 195, y: (G + 540) / 2, r: 90 } : pit ? { x: 225, y: 420, r: 110 } : asp && i.mode === 'aspiration' ? { x: 165, y: 470, r: 90 } : { x: 135, y: 230, r: 100 };

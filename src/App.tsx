@@ -3,7 +3,7 @@ import { BookOpen, ClipboardCheck, Wand2, FileDown, FilePlus2, FlaskConical, Pac
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
 import { ensureElec } from './installer/electrical';
-import { PRESETS, empty } from './installer/presets';
+import { PRESETS, empty, sanitizeAcc } from './installer/presets';
 import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
@@ -33,7 +33,7 @@ const START_HASH = window.location.hash; // lu avant que la navigation ne le rem
 function initial(): { id: string; inst: Installation } {
   const cur = currentId();
   const ids = [cur, ...listProjects().map((p) => p.id)].filter(Boolean) as string[];
-  for (const id of ids) { const x = loadProject(id); if (x) return { id, inst: x }; }
+  for (const id of ids) { const x = loadProject(id); if (x) return { id, inst: sanitizeAcc(x) }; }
   const inst = PRESETS[3].build();
   return { id: createProject(inst), inst };
 }
@@ -109,10 +109,10 @@ export default function App() {
   const openProject = (id: string) => {
     const x = id ? loadProject(id) : null;
     if (!x) return;
-    setProjId(id); setCurrent(id); setInst(x); setSelected(null); setActiveIssue(null); setProjOpen(false);
+    setProjId(id); setCurrent(id); setInst(sanitizeAcc(x)); setSelected(null); setActiveIssue(null); setProjOpen(false);
   };
   const newProject = (x: Installation, msg?: string) => {
-    const n = ensureElec(x);
+    const n = ensureElec(sanitizeAcc(x));
     const id = createProject(n);
     setProjId(id); setInst(n); setSelected(null); setActiveIssue(null); setProjOpen(false); setPage('design');
     if (msg) say(msg);
@@ -139,10 +139,10 @@ export default function App() {
   }, 30);
   const s: Shared = {
     inst, ev, highlight, selected, activeIssue,
-    set: (fn) => setInst((i) => ensureElec(fn(i))),
+    set: (fn) => setInst((i) => ensureElec(sanitizeAcc(fn(i)))),
     pick: (t) => { setSelected(t); setActiveIssue(null); },
     selectIssue: (x) => { setActiveIssue(x); setSelected(targetsOf(x.id)[0] ?? null); showDiagram(); },
-    fix: (x) => { if (x.fix) setInst((i) => ensureElec(x.fix!.apply(i))); },
+    fix: (x) => { if (x.fix) setInst((i) => ensureElec(sanitizeAcc(x.fix!.apply(i)))); },
     clearIssue: () => setActiveIssue(null),
   };
   const lvl = ev.verdict.level === 'excellent' || ev.verdict.level === 'good' ? 'ok' : ev.verdict.level === 'fair' ? 'warning' : 'critical';

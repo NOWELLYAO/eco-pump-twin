@@ -1279,3 +1279,5 @@ html, body { overflow-x: clip; }
 .closedtest { background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 10px; padding: 10px 12px; }
 .closedtest ol { margin: 6px 0; padding-left: 20px; font-size: .88rem; display: flex; flex-direction: column; gap: 3px; }
 .closedtest small { color: var(--muted); }
+.cfg-block { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; background: var(--crit-bg); border: 1px solid var(--crit); border-left: 5px solid var(--crit); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; color: var(--crit-ink); }
+.cfg-block span { color: var(--fg); }

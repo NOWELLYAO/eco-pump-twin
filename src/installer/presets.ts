@@ -155,3 +155,17 @@ export function empty(app: AppId, equip = false): Installation {
   const i = { ...mk({ ...base(app, pumpType, mode), name: 'Nouvelle installation', acc: {} }), touched: [] as string[] };
   return equip ? autoEquip(i, false) : i;
 }
+
+/** Retire les accessoires qui n'ont pas de sens pour l'application (ex. pressostat sur un drainage). */
+export function sanitizeAcc(i: Installation): Installation {
+  let cur = i;
+  for (let pass = 0; pass < 2; pass++) {
+    let changed = false;
+    const acc = { ...cur.acc };
+    for (const a of ACCESSORIES) if (acc[a.id]?.on && a.need(cur) === 'na') { acc[a.id] = { ...acc[a.id], on: false }; changed = true; }
+    if (!changed) break;
+    cur = { ...cur, acc };
+  }
+  return cur;
+}
+

@@ -129,6 +129,8 @@ const isImm = (i: Installation) => i.mode === 'immergee';
 const solids = (i: Installation) => i.fluid.solidsPct > 0.2 || i.fluid.particleMm > 3;
 const surpr = (i: Installation) => i.app === 'surpression' || i.app === 'incendie';
 const lift = (i: Installation) => (i.app === 'relevage' || i.app === 'drainage');
+/** Applications à réseau sous pression : les seules où pressostat, réservoir à vessie et capteur de pression ont un sens. */
+const PRESSURE_APPS = new Set<Installation['app']>(['surpression', 'incendie', 'irrigation', 'forage', 'transfert']);
 
 /** Catalogue d'accessoires, dans l'ordre de montage depuis la source vers l'utilisation. */
 export const ACCESSORIES: AccDef[] = [
@@ -140,9 +142,9 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'vanne_asp', label: 'Vanne d\'isolement aspiration', side: 'asp', k: 0.2, glyph: 'gate', tag: 'HV', desc: 'Isole la pompe pour la maintenance. Toujours grande ouverte en service.', inline: true,
     need: (i) => isImm(i) ? 'na' : i.mode === 'charge' ? 'required' : 'optional' },
   { id: 'filtre_asp', label: 'Filtre à tamis en Y', side: 'asp', k: 3.0, glyph: 'ystrainer', desc: 'Protège la pompe des particules.', inline: true,
-    need: (i) => isImm(i) || i.app === 'piscine' ? 'na' : i.app === 'incendie' ? 'avoid' : i.mode === 'charge' && (i.app === 'carburant' || solids(i)) ? 'recommended' : 'optional' },
+    need: (i) => isImm(i) || i.app === 'piscine' || lift(i) || i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : i.app === 'incendie' ? 'avoid' : i.mode === 'charge' && (i.app === 'carburant' || solids(i)) ? 'recommended' : 'optional' },
   { id: 'prefiltre', label: 'Préfiltre à panier', side: 'asp', k: 1.5, glyph: 'basket', desc: 'Retient cheveux et feuilles avant la pompe.', inline: true,
-    need: (i) => isImm(i) ? 'na' : i.app === 'piscine' ? 'required' : 'optional' },
+    need: (i) => isImm(i) || i.app === 'carburant' || i.app === 'incendie' || i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : i.app === 'piscine' ? 'required' : 'optional' },
   { id: 'manchon_asp', label: 'Manchon anti-vibratile (aspiration)', side: 'asp', k: 0.1, glyph: 'flex', desc: 'Évite de transmettre vibrations et efforts à la pompe.', inline: true,
     need: (i) => isImm(i) ? 'na' : surpr(i) ? 'recommended' : 'optional' },
   { id: 'vacuometre', label: 'Manovacuomètre + robinet', side: 'asp', k: 0, glyph: 'gauge', tag: 'PI', desc: 'Mesure la pression à l\'aspiration (indispensable au diagnostic).', inline: false,
@@ -157,25 +159,25 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'manchon_ref', label: 'Manchon anti-vibratile (refoulement)', side: 'ref', k: 0.1, glyph: 'flex', desc: 'Découple la pompe du réseau.', inline: true,
     need: (i) => isImm(i) ? 'na' : surpr(i) ? 'recommended' : 'optional' },
   { id: 'clapet_ar', label: 'Clapet anti-retour à ressort', side: 'ref', k: 2.0, glyph: 'check', desc: 'Empêche le retour d\'eau et la rotation inverse.', inline: true,
-    need: (i) => lift(i) || i.fluid.type === 'boues' ? 'avoid' : 'required' },
+    need: (i) => i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : lift(i) ? 'avoid' : 'required' },
   { id: 'clapet_boule', label: 'Clapet à boule', side: 'ref', k: 1.0, glyph: 'ball', desc: 'Anti-retour à passage intégral pour eaux chargées.', inline: true,
-    need: (i) => lift(i) || i.fluid.type === 'boues' ? 'required' : 'optional' },
+    need: (i) => lift(i) || i.fluid.type === 'boues' ? 'required' : solids(i) || i.fluid.type === 'eaux_usees' ? 'optional' : 'na' },
   { id: 'vanne_ref', label: 'Vanne d\'isolement / réglage', side: 'ref', k: 0.2, glyph: 'gate', tag: 'HV', desc: 'Isole et permet d\'ajuster le point de fonctionnement.', inline: true,
     need: () => 'required' },
   { id: 'debitmetre', label: 'Débitmètre / compteur', side: 'ref', k: 0.05, glyph: 'flowmeter', tag: 'FT', desc: 'Suivi du débit (5 DN droits avant, 3 DN après).', inline: true,
     need: (i) => i.app === 'incendie' || i.app === 'forage' ? 'required' : i.app === 'irrigation' || i.app === 'carburant' ? 'recommended' : 'optional' },
   { id: 'capteur_p', label: 'Capteur de pression 4-20 mA', side: 'ref', k: 0, glyph: 'ptx', tag: 'PT', desc: 'Pilote le variateur et alimente le jumeau numérique.', inline: false,
-    need: (i) => i.acc.variateur?.on && (surpr(i) || i.app === 'irrigation') ? 'required' : 'optional' },
+    need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.acc.variateur?.on && (surpr(i) || i.app === 'irrigation') ? 'required' : 'optional' },
   { id: 'pressostat', label: 'Pressostat marche / arrêt', side: 'ref', k: 0, glyph: 'pswitch', tag: 'PS', desc: 'Démarre et arrête la pompe selon la pression.', inline: false,
-    need: (i) => i.app === 'surpression' && !i.acc.variateur?.on ? 'required' : 'optional' },
+    need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.app === 'surpression' && !i.acc.variateur?.on ? 'required' : i.app === 'incendie' ? 'recommended' : 'optional' },
   { id: 'vessie', label: 'Réservoir à vessie', side: 'ref', k: 0, glyph: 'vessel', desc: 'Limite les démarrages et amortit les variations de pression.', inline: false,
-    need: (i) => i.app === 'surpression' ? 'required' : i.acc.pressostat?.on ? 'required' : 'optional' },
+    need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.app === 'surpression' ? 'required' : i.acc.pressostat?.on ? 'required' : 'optional' },
   { id: 'anti_belier', label: 'Anti-bélier (ballon ou soupape)', side: 'ref', k: 0, glyph: 'surge', desc: 'Protège la conduite des surpressions à l\'arrêt brutal.', inline: false,
-    need: (i) => refLen(i) > 150 || refStatic(i) > 30 ? 'recommended' : 'optional' },
+    need: (i) => i.app === 'piscine' ? 'na' : refLen(i) > 150 || refStatic(i) > 30 ? 'recommended' : 'optional' },
   { id: 'ventouse', label: 'Ventouse / purgeur d\'air', side: 'ref', k: 0, glyph: 'airvalve', desc: 'Évacue l\'air aux points hauts.', inline: false,
-    need: (i) => i.geo.highPoint ? 'required' : refLen(i) > 300 ? 'recommended' : 'optional' },
+    need: (i) => i.app === 'piscine' ? 'na' : i.geo.highPoint ? 'required' : refLen(i) > 300 ? 'recommended' : 'optional' },
   { id: 'soupape', label: 'Soupape de décharge / by-pass', side: 'ref', k: 0, glyph: 'relief', desc: 'Limite la pression maximale (vanne fermée).', inline: false,
-    need: (i) => i.app === 'carburant' ? 'recommended' : 'optional' },
+    need: (i) => lift(i) || i.app === 'piscine' ? 'na' : i.app === 'carburant' ? 'recommended' : 'optional' },
   { id: 'vidange', label: 'Robinet de vidange', side: 'ref', k: 0, glyph: 'drain', desc: 'Vidange et purge pour la maintenance.', inline: false,
     need: () => 'optional' },
   // ----- Commande & protection -----
@@ -192,7 +194,7 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'flotteur_alarme', label: 'Flotteur d\'alarme (niveau très haut)', side: 'ctrl', k: 0, glyph: 'float', tag: 'LAHH', desc: 'Prévient d\'un débordement imminent.', inline: false,
     need: (i) => i.app === 'relevage' ? 'required' : i.app === 'drainage' ? 'recommended' : 'na' },
   { id: 'flotteur_res', label: 'Flotteur / sonde du réservoir d\'arrivée', side: 'ctrl', k: 0, glyph: 'float', tag: 'LSH', desc: 'Arrête la pompe quand le réservoir est plein.', inline: false,
-    need: (i) => i.app === 'forage' || i.app === 'transfert' || i.app === 'carburant' ? 'recommended' : 'na' },
+    need: (i) => i.app === 'forage' || i.app === 'transfert' || i.app === 'carburant' ? 'recommended' : i.app === 'irrigation' ? 'optional' : 'na' },
   { id: 'sonde_niveau', label: 'Sonde de niveau piézométrique', side: 'ctrl', k: 0, glyph: 'probe', tag: 'LT', desc: 'Suit le niveau dynamique du forage.', inline: false,
     need: (i) => i.app === 'forage' ? 'recommended' : 'na' },
   { id: 'chemise', label: 'Chemise de refroidissement', side: 'ctrl', k: 0, glyph: 'jacket', desc: 'Force l\'eau à longer le moteur immergé.', inline: false,

@@ -5,7 +5,7 @@ import { evaluate, withPipe } from '../evaluate';
 import { ensureElec, SUPPLY_LABEL, START_LABEL } from '../electrical';
 import { fluidAt, staticHead, systemHeadAt, vel } from '../hydraulics';
 import { posAdvice } from '../positions';
-import { autoEquip, empty, makeFluid } from '../presets';
+import { autoEquip, empty, makeFluid, sanitizeAcc } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { HealthRing, LevelIcon } from '../../ui/Status';
 import { touch, trackedFields } from '../defaults';
@@ -225,7 +225,7 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
   const [equipped, setEquipped] = useState(false);
   const [ownPump, setOwnPump] = useState(false);
   const [secManual, setSecManual] = useState(false);
-  const set = (fn: (x: Installation) => Installation) => setD((x) => ensureElec(fn(x)));
+  const set = (fn: (x: Installation) => Installation) => setD((x) => ensureElec(sanitizeAcc(fn(x))));
   const geo = (p: Partial<Installation['geo']>) => set((x) => ({ ...x, geo: { ...x.geo, ...p } }));
   const duty = (p: Partial<Installation['duty']>) => set((x) => ({ ...x, duty: { ...x.duty, ...p } }));
   const pump = (p: Partial<Installation['pump']>) => set((x) => ({ ...x, pump: { ...x.pump, ...p } }));

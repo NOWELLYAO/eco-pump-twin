@@ -173,7 +173,7 @@ export const FAULTS: FaultDef[] = [
   {
     id: 'flotteur_haut', cat: 'accessoire', label: 'Flotteur d\'arrêt bloqué en haut', target: 'acc:flotteur_arret',
     what: 'Le flotteur d\'arrêt est coincé (câble emmêlé, graisses) : il ne commande plus l\'arrêt quand la fosse est vide.',
-    applies: (_i, k) => k === 'pit', effect: { floatPit: 'high' },
+    applies: (i, k) => k === 'pit' && on(i, 'flotteur_arret'), effect: { floatPit: 'high' },
     sig: ['ne_s_arrete_pas', 'marche_a_sec', 'courant_bas'], field: ['Pompe qui tourne fosse vide', 'Bruit d\'aspiration d\'air (« slurp »)', 'Moteur chaud'],
     checks: ['Ouvrir la fosse et regarder le flotteur', 'Basculer le flotteur à la main : la pompe doit s\'arrêter'],
     fix: ['Dégager / nettoyer le flotteur', 'Fixer les câbles sur un support', 'Ajouter un flotteur de sécurité'], parts: ['garniture', 'moteur'],
@@ -181,7 +181,7 @@ export const FAULTS: FaultDef[] = [
   {
     id: 'flotteur_bas', cat: 'accessoire', label: 'Flotteur de marche bloqué en bas', target: 'acc:flotteur_marche',
     what: 'Le flotteur de marche est coincé en bas : il ne commande plus le démarrage.',
-    applies: (_i, k) => k === 'pit', effect: { floatPit: 'low' },
+    applies: (i, k) => k === 'pit' && on(i, 'flotteur_marche'), effect: { floatPit: 'low' },
     sig: ['ne_demarre_pas', 'debordement'], field: ['La fosse se remplit sans que la pompe démarre', 'Alarme niveau très haut'],
     checks: ['Soulever le flotteur à la main : la pompe doit démarrer', 'Mesurer la continuité du flotteur'],
     fix: ['Dégager ou remplacer le flotteur', 'Tester l\'alarme de niveau haut'], parts: [],
