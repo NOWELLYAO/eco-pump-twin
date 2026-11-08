@@ -39,6 +39,8 @@ export interface InstPump {
   count?: number; // pompes installées en parallèle
   standby?: number; // dont pompes de secours
   alternate?: boolean; // permutation automatique
+  pts?: import('./pumpcurve').PPt[]; // courbe constructeur (une pompe, vitesse nominale)
+  usePts?: boolean; // utiliser la courbe constructeur plutôt que le modèle à un point
 }
 
 export interface Geometry {

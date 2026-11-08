@@ -1217,3 +1217,20 @@ html, body { overflow-x: clip; }
 .proj-score { font-family: var(--f-display); font-weight: 800; border-radius: 8px; padding: 4px 8px; font-size: .9rem; }
 .proj-score.ok { background: var(--good-bg); color: var(--good-ink); } .proj-score.warn { background: var(--warn-bg); color: var(--warn-ink); } .proj-score.bad { background: var(--crit-bg); color: var(--crit-ink); }
 .btn.danger { background: var(--crit); color: #fff; border-color: var(--crit); }
+/* ===== Courbe du fabricant ===== */
+.pce { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.pce .isub { display: flex; align-items: center; gap: 6px; }
+.pce-table { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.pce-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) 34px; gap: 4px; align-items: center; }
+.pce-row.head span { font-size: .72rem; font-weight: 700; color: var(--muted); }
+.pce-row input { width: 100%; min-width: 0; background: var(--input); border: 1px solid var(--input-bd); border-radius: 7px; padding: 8px 6px; font-size: .92rem; }
+.pce .row { display: flex; gap: 6px; flex-wrap: wrap; }
+.pce-plot { width: 100%; max-width: 420px; height: auto; display: block; margin: 8px 0; background: var(--panel-2); border-radius: 8px; }
+.pce-axis { fill: none; stroke: var(--muted); stroke-width: 1; }
+.pce-t { font-size: 9px; fill: var(--muted); }
+.pce-fit { fill: none; stroke: #1689c6; stroke-width: 2; }
+.pce-eta { fill: none; stroke: #0a8f2e; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.pce-pt { fill: #fff; stroke: #1689c6; stroke-width: 2; }
+.pce-bep { fill: #0a8f2e; stroke: #fff; stroke-width: 1.5; }
+.ihint.warn { color: var(--warn-ink); font-weight: 600; }
+.ihint.ok { color: var(--good-ink); }

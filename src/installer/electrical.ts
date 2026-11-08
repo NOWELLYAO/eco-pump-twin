@@ -1,5 +1,4 @@
-import { etaAt } from '../engine/physics';
-import { losses, pumpHead, specOf, staticHead, pressureHead, suctionZ, type Hydro } from './hydraulics';
+import { losses, pumpEta, pumpHead, speedFor, staticHead, pressureHead, suctionZ, type Hydro } from './hydraulics';
 import { refStatic } from './catalog';
 import type { Elec, Installation, Issue, StartId } from './types';
 
@@ -232,13 +231,11 @@ function vfdSpeed(i: Installation, h: Hydro) {
   if (!h.ok || h.q < i.duty.qReq * 1.08) return null;
   const q = i.duty.qReq;
   const hs = staticHead(i) + pressureHead(i) + losses(i, q).total;
-  const h0 = i.pump.hn * i.pump.shutoff;
-  const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
   const n = h.n;
   const qe = q / n;
-  const s = Math.sqrt((hs + k * qe * qe) / h0);
+  const s = speedFor(i, q, hs);
   if (!Number.isFinite(s) || s >= 0.99 || s < 0.5) return null;
-  const eta = Math.max(0.1, etaAt(specOf(i), qe, s));
+  const eta = Math.max(0.1, pumpEta(i, qe / s)); // similitude : même rendement au débit q / s
   const pNew = (i.fluid.rho * 9.81 * (q / 3600) * hs) / eta / 1000 / 0.88 / 0.97;
   const pNow = h.pElec;
   // Même volume pompé : comparer l'énergie par m³.

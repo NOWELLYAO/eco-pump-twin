@@ -1,5 +1,5 @@
 import type { Evaluation } from './evaluate';
-import { isForage, losses, pumpHead, refLen, viscCorr } from './hydraulics';
+import { isForage, losses, pumpHead, pumpQZero, refLen } from './hydraulics';
 import { readings } from './sim';
 import type { Installation } from './types';
 
@@ -50,9 +50,10 @@ export function analyzeCommissioning(i: Installation, ev: Evaluation, c: Commiss
   // Débit estimé sur la courbe si non mesuré
   let qEst: number | null = null;
   if (!has(c.q) && hM != null) {
-    const h0 = i.pump.hn * i.pump.shutoff * viscCorr(i.fluid.nu).ch;
-    const k = ((i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn)) * viscCorr(i.fluid.nu).ch;
-    qEst = h0 > hM ? h.n * Math.sqrt((h0 - hM) / k) : 0;
+    // Débit lu sur la courbe (modèle ou courbe constructeur) à la hauteur mesurée
+    const hm = hM;
+    if (pumpHead(i, 0) <= hm) qEst = 0;
+    else { let lo = 0, hi = pumpQZero(i) * h.n; for (let k = 0; k < 50; k++) { const m = (lo + hi) / 2; if (pumpHead(i, m) > hm) lo = m; else hi = m; } qEst = lo; }
     qUsed = qEst;
   }
   const hExpAtQ = pumpHead(i, qUsed);

@@ -1,5 +1,5 @@
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
-import { isForage, losses, pressureHead, solve, staticHead, type Hydro } from './hydraulics';
+import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
@@ -101,14 +101,12 @@ export function evaluate(input: Installation): Evaluation {
   // jusqu'au débit demandé : c'est ce point régulé qu'il faut juger (rendement, puissance moteur).
   let vfdPt: { hz: number; x: number; pShaft: number; hzMax: number } | null = null;
   if (h.ok && effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire' && h.q > i.duty.qReq * 1.03) {
-    const h0 = i.pump.hn * i.pump.shutoff;
-    const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
     const etaP = Math.max(0.3, h.eta);
     // Vitesse et puissance par pompe pour un débit total q réglé par le variateur
     const at = (q: number) => {
       const qe = q / h.n;
       const hs = staticHead(i) + pressureHead(i) + losses(i, q).total;
-      const sp = Math.sqrt((hs + k * qe * qe) / h0);
+      const sp = speedFor(i, q, hs);
       return { sp, p: (i.fluid.rho * 9.81 * (qe / 3600) * hs) / etaP / 1000 };
     };
     const r = at(i.duty.qReq);

@@ -3,7 +3,7 @@ import { CheckCircle2, ChevronDown, Eye, ListChecks, Package, ShieldAlert, Spark
 import { MONTHS, START_LABEL, SUPPLY_LABEL, effectiveStart, planLabel } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
 import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
-import { losses, pumpHead, systemHeadAt } from '../hydraulics';
+import { losses, pumpHead, speedFor, systemHeadAt } from '../hydraulics';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import { CAT_LABEL, type Evaluation } from '../evaluate';
 import type { Category, Installation, Issue, Sev } from '../types';
@@ -286,9 +286,8 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   ];
   const tot = parts.reduce((a, b) => a + b.v, 0) || 1;
   // Vitesse de variateur qui amènerait le point sur le besoin
-  const kq = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
   const qe = qN / h.n;
-  const sVfd = Math.sqrt((asksAtNeed + kq * qe * qe) / (i.pump.hn * i.pump.shutoff));
+  const sVfd = speedFor(i, qN, asksAtNeed);
   // Variateur : courbe de la pompe à vitesse réduite (lois de similitude H(q, s) = s² · H(q / s))
   const hasVfd = effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire';
   const vfdOk = h.ok && h.q > qN * 1.03 && sVfd > 0.3 && sVfd < 0.995;
@@ -354,6 +353,7 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
           {multi && <Line name="1 pompe seule" dataKey="h1" stroke={c.s1} strokeWidth={1.5} strokeDasharray="3 4" dot={false} activeDot={false} isAnimationActive={false} />}
           {vfdOk && <Line name={vfdName} dataKey="hv" stroke={c.good} strokeWidth={2.5} strokeDasharray={hasVfd ? undefined : '2 4'} dot={false} activeDot={false} isAnimationActive={false} connectNulls={false} />}
           <Line name="Ce que l'installation demande" dataKey="hs" stroke={c.s3} strokeWidth={2.5} strokeDasharray="6 4" dot={false} activeDot={false} isAnimationActive={false} />
+          {i.pump.usePts && (i.pump.pts?.length ?? 0) > 0 && <Scatter name={`Points du fabricant${h.n > 1 ? ' (1 pompe)' : ''}`} data={(i.pump.pts ?? []).filter((p) => p.h > 0 && Number.isFinite(p.q)).map((p) => ({ q: p.q, y: p.h }))} dataKey="y" fill={c.surface} stroke={c.s1} strokeWidth={2} legendType="circle" isAnimationActive={false} />}
           <Scatter name="Votre besoin" data={need} dataKey="y" fill={c.ink} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
           <Scatter name={vfdOk ? 'Point à 50 Hz' : 'Point de fonctionnement réel'} data={op} dataKey="y" fill={c.s2} stroke={c.surface} strokeWidth={2} legendType="circle" isAnimationActive={false} />
           {vfdOk && hasVfd && <Scatter name={`Point réel avec variateur`} data={regPt} dataKey="y" fill={c.good} stroke={c.surface} strokeWidth={2} legendType="diamond" shape="diamond" isAnimationActive={false} />}

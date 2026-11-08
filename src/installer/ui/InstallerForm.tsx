@@ -8,6 +8,7 @@ import { fluidAt } from '../hydraulics';
 import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
+import { PumpCurveEditor } from './PumpCurveEditor';
 
 const dnOpts = DN_LIST.map((d) => ({ v: d, l: `DN${d}` }));
 const pnOpts = [4, 6, 10, 16, 25, 40].map((p) => ({ v: p, l: `PN${p}` }));
@@ -110,7 +111,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
       </Section>
 
       <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW${(i.pump.standby ?? 0) > 0 ? ` · ${(i.pump.count ?? 1) - (i.pump.standby ?? 0)} en service + ${i.pump.standby} secours` : ''}`}>
-        <p className="ihint">Valeurs de la fiche constructeur, au point de meilleur rendement (BEP).</p>
+        <p className="ihint">{i.pump.usePts ? 'Courbe du fabricant active (plus bas) : débit, hauteur, rendement et NPSH nominaux sont recalculés à partir des points.' : 'Valeurs de la fiche constructeur, au point de meilleur rendement (BEP). Pour plus de précision, saisissez la courbe du fabricant plus bas.'}</p>
         <div className="igrid">
           <NumField label="Débit nominal" unit="m³/h" value={i.pump.qn} onChange={(v) => v > 0 && pump({ qn: v })} />
           <NumField label="Hauteur nominale" unit="m" value={i.pump.hn} onChange={(v) => v > 0 && pump({ hn: v })} />
@@ -135,6 +136,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           )}
           {forage && <NumField label="Diamètre de la pompe" unit="mm" value={i.pump.diameterMm} onChange={(v) => pump({ diameterMm: v })} hint="4 pouces ≈ 98 mm, 6 pouces ≈ 142 mm" />}
         </div>
+        <PumpCurveEditor pump={i.pump} onChange={(p) => set((x) => ({ ...x, pump: p }))} />
       </Section>
 
       <Section n={4} title="Site, niveaux et distances" summary={forage ? `Pompe à ${i.geo.pumpDepth} m` : imm ? `Fosse ${i.geo.tankVolume} L` : i.mode === 'aspiration' ? `Aspiration ${i.geo.suctionLift} m` : `En charge ${i.geo.chargeHead} m`}>

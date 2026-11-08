@@ -1,6 +1,6 @@
 import { refStatic } from './catalog';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
-import { isForage, losses, pumpHead, solve, suctionZ, type Hydro } from './hydraulics';
+import { isForage, losses, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
 import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
 
@@ -289,26 +289,23 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     } else if (kind === 'vfd') {
       const set = (v0?.pOn ?? 3) + 0.5;
       const qd = use(ctx, hr) * i.duty.qReq + leakQ;
-      const h0n = pumpHead(i, 0);
-      const kq = (h0n - pumpHead(i, i.pump.qn)) / (i.pump.qn ** 2);
-      const qe = qd / h.n;
       if (fx.sensorZero) {
         // Le variateur croit la pression nulle : il reste à 50 Hz et ne se met jamais en veille
         start();
         if (st.on && !st.hum && !st.noFlow) {
           st.s = 1; st.q = qd;
-          st.x = Math.max(0, (h0n - kq * qe * qe + suctionZ(i)) * rhoG / 1e5);
+          st.x = Math.max(0, (pumpHead(i, qd) + suctionZ(i)) * rhoG / 1e5);
           if (qd < 0.06 * i.duty.qReq) { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: 'Consommation nulle mais le variateur reste à 50 Hz (capteur lu à 0 bar)', target: 'acc:capteur_p' }); st.runaway = true; }
         } else { st.q = 0; }
       } else {
         if (qd > 0.06 * i.duty.qReq) start();
         if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
         const hs = (set * 1e5) / rhoG - suctionZ(i);
-        const sNeed = Math.sqrt((hs + kq * qe * qe) / h0n);
+        const sNeed = speedFor(i, qd, hs);
         if (st.on && (st.hum || st.noFlow)) { st.q = 0; st.s = 1; st.x = Math.max(0, st.x - 0.05); }
         else if (st.on && sNeed > 1) {
           st.s = 1;
-          const hAt = Math.max(0, h0n - kq * qe * qe);
+          const hAt = Math.max(0, pumpHead(i, qd));
           st.x = Math.max(0, (hAt + suctionZ(i)) * rhoG / 1e5);
           st.q = qd;
           if (!st.cav) { st.cav = true; newEv.push({ t: st.t, sev: 'warning', text: `Variateur à 50 Hz : consigne ${f1(set)} bar non tenue (${f1(st.x)} bar) — pompe trop faible pour cette consommation`, target: 'pump' }); }

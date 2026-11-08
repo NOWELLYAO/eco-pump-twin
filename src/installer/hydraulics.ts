@@ -1,4 +1,5 @@
 import { etaAt, npshrAt } from '../engine/physics';
+import { fitCurve, type Fit } from './pumpcurve';
 import type { PumpSpec } from '../engine/types';
 import { ACC, ACCESSORIES, FLUIDS, PIPE_MATS, refLen, refStatic } from './catalog';
 import type { FluidId, Installation, PipeRun } from './types';
@@ -124,18 +125,48 @@ export function specOf(i: Installation): PumpSpec {
 export const nRun = (i: Installation) => Math.max(1, Math.round((i.pump.count ?? 1) - (i.pump.standby ?? 0)));
 
 /** Courbe de l'ensemble des pompes en service (en parallèle : débits additionnés à hauteur égale). */
+/** Courbe constructeur active (si saisie et valide). */
+export const pumpFit = (i: Installation): Fit | null => (i.pump.usePts ? fitCurve(i.pump.pts) : null);
+
 export function pumpHead(i: Installation, q: number) {
+  const qe = q / nRun(i);
+  const f = pumpFit(i);
+  if (f) return viscCorr(i.fluid.nu).ch * f.H(qe);
   const h0 = i.pump.hn * i.pump.shutoff;
   const k = (h0 - i.pump.hn) / (i.pump.qn * i.pump.qn);
-  const qe = q / nRun(i);
   return viscCorr(i.fluid.nu).ch * (h0 - k * qe * qe);
+}
+
+/** Rendement d'une pompe au débit qe (par pompe), vitesse nominale. */
+export function pumpEta(i: Installation, qe: number) {
+  const f = pumpFit(i);
+  return f?.E ? f.E(qe) : etaAt(specOf(i), qe, 1);
+}
+export function pumpNpshr(i: Installation, qe: number) {
+  const f = pumpFit(i);
+  return f?.N ? f.N(qe) : npshrAt(specOf(i), qe, 1);
+}
+/** Débit maxi d'une pompe (hauteur nulle). */
+export function pumpQZero(i: Installation) {
+  const f = pumpFit(i);
+  if (f) return f.qZero;
+  const k = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
+  return Math.sqrt((i.pump.hn * i.pump.shutoff) / k);
+}
+/** Vitesse relative (variateur) pour que l'ensemble donne la hauteur hTarget au débit total q : H(q, s) = s² · H(q / s). */
+export function speedFor(i: Installation, q: number, hTarget: number) {
+  const g = (s: number) => s * s * pumpHead(i, q / s) - hTarget;
+  if (g(1.3) < 0) return Infinity;
+  let lo = 0.05, hi = 1.3;
+  for (let k = 0; k < 40; k++) { const m = (lo + hi) / 2; if (g(m) > 0) hi = m; else lo = m; }
+  return hi;
 }
 
 export const pressureHead = (i: Installation) => (i.duty.pRes * 1e5) / (i.fluid.rho * G);
 export const systemHeadAt = (i: Installation, q: number) => staticHead(i) + pressureHead(i) + losses(i, q).total;
 
 export function shaftPower(i: Installation, q: number, h: number) {
-  const eta = Math.max(0.05, etaAt(specOf(i), q, 1) * viscCorr(i.fluid.nu).ceta);
+  const eta = Math.max(0.05, pumpEta(i, q) * viscCorr(i.fluid.nu).ceta);
   return { eta, kw: (i.fluid.rho * G * (q / 3600) * h) / eta / 1000 };
 }
 
@@ -166,9 +197,8 @@ export function solve(i: Installation): Hydro {
   const hPress = pressureHead(i);
   const f = (q: number) => pumpHead(i, q) - systemHeadAt(i, q);
   const h0 = pumpHead(i, 0);
-  const k = (i.pump.hn * i.pump.shutoff - i.pump.hn) / (i.pump.qn * i.pump.qn);
   const n = nRun(i);
-  const qMaxPump = Math.sqrt((i.pump.hn * i.pump.shutoff) / k) * n;
+  const qMaxPump = pumpQZero(i) * n;
   let q = 0;
   const ok = f(0) > 0;
   if (ok) {
@@ -182,7 +212,7 @@ export function solve(i: Installation): Hydro {
   const pa = patm(i.geo.altitude);
   const pv = vaporPressure(i);
   const npsha = ((pa - pv) * 1000) / rhoG + suctionZ(i) - L.asp;
-  const npshr = ok ? npshrAt(specOf(i), q / n, 1) : i.pump.npshr;
+  const npshr = ok ? pumpNpshr(i, q / n) : i.pump.npshr;
   const pw = shaftPower(i, Math.max(q / n, 0.01), h);
   const qRun = Math.min((qMaxPump / n) * 0.95, i.pump.qn * 1.3);
   const pMax = shaftPower(i, qRun, pumpHead(i, qRun * n)).kw;
