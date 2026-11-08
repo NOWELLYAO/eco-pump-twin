@@ -122,6 +122,7 @@ export interface SimState {
   burnt?: boolean; // bobinage grillé
   sealGone?: boolean; // garniture détruite (vaporisation, marche à sec)
   cavT?: number; // temps de marche en cavitation (s)
+  dryRun?: number; // durée de marche à sec en cours (s)
   flags?: Record<string, boolean>; // événements déjà signalés
   outageUntil: number; // coupure secteur jusqu'à t
   dd: number; // rabattement supplémentaire du niveau (m)
@@ -452,7 +453,10 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
 
     // ===== Physique : moteur, liquide dans la pompe, pression =====
     {
-      const closedNow = st.on && !st.hum && !st.noFlow && h.ok && st.q < 0.05;
+      // Débit nul pompe en marche : vanne fermée, hauteur inatteignable, rotation inversée…
+      // (en solaire, un débit nul au lever du soleil est normal : le contrôleur tourne lentement)
+      const spd = kind === 'vfd' || kind === 'solar' ? st.s : 1;
+      const closedNow = st.on && !st.hum && !st.noFlow && st.q < 0.05 && (kind !== 'solar' || spd > 0.85);
       if (st.on && st.dry) seen('marche_a_sec');
       const iR = !st.on ? 0 : st.hum ? (i.elec.supply === 'mono' ? 4.5 : 3.2) : st.noFlow ? 0.42 : closedNow ? 0.5 * (fx.ampsK ?? 1)
         : iBase * (fx.ampsK ?? 1) * (kind === 'vfd' || kind === 'solar' ? Math.max(0.35, st.s ** 2) : 1);
@@ -484,11 +488,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       }
       // Liquide dans le corps de pompe : à débit nul, toute la puissance chauffe le liquide
       const tf = i.fluid.temp;
-      if (closedNow) st.tl = (st.tl ?? tf) + ((kwM * 0.35 * 1000) / (mCase * 4186)) * sub;
+      if (closedNow) st.tl = (st.tl ?? tf) + ((kwM * 0.35 * spd ** 3 * 1000) / (mCase * 4186)) * sub;
       else if (st.on && !st.noFlow && !st.hum) st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 30;
       else st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 900;
       const ts = tSat(pShut + 1);
-      if (st.tl > 60 && closedNow) once('tl60', { t: st.t, sev: 'warning', text: `Le liquide chauffe dans la pompe : ${f1(st.tl, 0)} °C (débit nul, vanne fermée)`, target: 'pump' });
+      if (st.tl > 60 && closedNow) once('tl60', { t: st.t, sev: 'warning', text: `Le liquide chauffe dans la pompe : ${f1(st.tl, 0)} °C (la pompe tourne sans débit)`, target: 'pump' });
       if (st.tl >= ts - 2) {
         st.tl = ts;
         if (!st.sealGone) {
@@ -497,11 +501,17 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         }
       }
       if (st.tl < 50) delete st.flags!.tl60;
+      // Marche à sec d'une pompe de surface : la garniture n'est plus lubrifiée et se détruit en quelques minutes
+      if (st.on && (st.noFlow || st.dry) && !imm) {
+        st.dryRun = (st.dryRun ?? 0) + sub;
+        if (st.dryRun >= 60) once('dry60', { t: st.t, sev: 'warning', text: 'Marche à sec : la garniture mécanique frotte sans eau, elle chauffe', target: 'pump' });
+        if (st.dryRun >= 300 && !st.sealGone) { st.sealGone = true; seen('fuite_visible', 'bruit'); newEv.push({ t: st.t, sev: 'critical', text: 'Garniture mécanique détruite par 5 min de marche à sec : fuite au niveau de l\'arbre', target: 'pump' }); }
+      } else if (!st.on) st.dryRun = 0;
       // Pression à débit nul contre la conduite
-      if (closedNow && pShut > pn * 0.8 && !st.flags!.pshut) {
+      if (closedNow && pShut * spd * spd > pn * 0.8 && !st.flags!.pshut) {
         st.flags!.pshut = true;
         if (i.acc.soupape?.on) { newEv.push({ t: st.t, sev: 'warning', text: `La soupape de décharge s'ouvre : elle limite la pression à environ ${f1(Math.min(pShut, pn * 0.9))} bar`, target: 'acc:soupape' }); st.pPeak = Math.min(pShut, pn * 0.9); st.pPeakT = st.t; }
-        else hit(pShut, 'Pression à débit nul');
+        else hit(pShut * spd * spd, 'Pression à débit nul');
       }
       if (!closedNow) delete st.flags!.pshut;
       // Cavitation
@@ -529,7 +539,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // Pompe qui tourne contre une vanne fermée : pas de débit, l'eau s'échauffe dans le corps
     if (st.on && !st.hum && !st.noFlow && h.ok && h.q < 0.05) {
       seen('debit_nul', 'pression_haute', 'courant_bas');
-      if (st.runT >= 120 && st.runT - sub < 120) newEv.push({ t: st.t, sev: 'critical', text: 'La pompe tourne vanne fermée depuis 2 min : aucun débit, l\'eau chauffe dans la pompe (garniture en danger)', target: 'acc:vanne_ref' });
+      if (st.runT >= 120 && st.runT - sub < 120) newEv.push({ t: st.t, sev: 'critical', text: 'La pompe tourne contre une vanne fermée depuis 2 min : aucun débit, l\'eau chauffe dans la pompe (garniture en danger)', target: 'acc:vanne_ref' });
     }
     if (st.on) {
       const kw = h.ok && h.q < 0.05 && !st.hum ? (i.pump.motorKw / 0.88) * 0.4 * h.n : st.hum ? i.pump.motorKw * 0.3 : st.noFlow ? h.pElec * 0.35 : kind === 'solar' ? Math.min(st.pv, h.pElec / 0.95) : kind === 'vfd' ? h.pElec * Math.max(0.15, st.s ** 3) : h.pElec * (st.q > 0 && h.q > 0 ? Math.max(0.5, Math.min(1.1, st.q / h.q)) : 1);
@@ -552,14 +562,21 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
   const { i, h, er, kind, fx } = ctx;
   const rhoG = i.fluid.rho * G;
   const bar = (m: number) => (m * rhoG) / 1e5;
+  // Pompe qui tourne sans pouvoir débiter (vanne fermée, hauteur inatteignable, rotation inversée) : point à débit nul
+  if (st.on && !st.hum && !st.noFlow && (!h.ok || st.q < 0.05) && kind !== 'solar') {
+    const sp = kind === 'vfd' ? Math.max(0.3, st.s) : 1;
+    const h0 = sp * sp * pumpHead(i, 0);
+    const z = suctionZ(i);
+    const pRef = isForage(i) ? bar(Math.max(0, h0 - i.geo.dynamicLevel)) : bar(Math.max(0, z + h0));
+    const kw = (i.pump.motorKw / 0.88) * 0.4 * h.n * sp ** 3;
+    return { q: 0, pRef, pAsp: bar(z), amps: er.inom * 0.5 * Math.max(0.5, sp ** 2) * (fx.ampsK ?? 1), kw, hmt: h0, margin: h.margin, on: true };
+  }
   const running = st.on && st.q > 0 && !st.hum && !st.noFlow;
   const r = readings(i, h, running, er, running ? st.q : undefined, kind === 'vfd' && running ? st.s : 1);
   if (st.on && st.hum) return { ...r, on: true, q: 0, kw: i.pump.motorKw * 0.3, amps: er.inom * (i.elec.supply === 'mono' ? 4.5 : 3.2) };
   if (st.on && st.noFlow) return { ...r, on: true, q: 0, pRef: bar(Math.max(0, suctionZ(i))), pAsp: bar(Math.min(0, suctionZ(i))), kw: h.pElec * 0.35, amps: er.inom * 0.42 };
   if (st.on && !running && kind === 'vessel' && st.runaway) return { ...r, on: true, kw: h.pElec * 0.45, amps: er.inom * 0.5 * (fx.ampsK ?? 1) };
   const out = { ...r };
-  // Vanne fermée : la pompe tourne à débit nul (puissance ≈ 40 % de la nominale, pression maxi de la courbe)
-  if (running && h.q < 0.05) { out.kw = (i.pump.motorKw / 0.88) * 0.4 * h.n; out.amps = er.inom * 0.5; out.q = 0; }
   if (running && fx.ampsK) out.amps = out.amps * fx.ampsK;
   if (running && st.dd > 0 && i.mode === 'aspiration') out.pAsp = r.pAsp - bar(st.dd);
   return out;

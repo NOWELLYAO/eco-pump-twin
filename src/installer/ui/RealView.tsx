@@ -99,6 +99,7 @@ export interface Live {
   inflow?: number; // arrivée dans la fosse (m³/h)
   syms?: string[]; runTot?: number; startLog?: number[]; simT?: number; // pour le coffret en direct
   phys?: Phys;
+  overflow?: boolean; backDrop?: boolean;
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -226,6 +227,15 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
         </g>
       </g>,
       <rect key="lid" x={96} y={G - 10} width={258} height={10} rx={2} className="r-plinth" />,
+      ...(live?.kind === 'pit' && live.overflow ? [
+        <g key="povf" className="r-ovf">
+          <rect x={92} y={G - 15} width={266} height={6} rx={3} className="r-water" />
+          <path d={`M92 ${G - 12} q -14 2 -18 14`} className="r-stream" strokeWidth={4} />
+          <path d={`M358 ${G - 12} q 14 2 18 14`} className="r-stream" strokeWidth={4} />
+          <ellipse cx={70} cy={G + 2} rx={26} ry={4} className="r-puddle" />
+          <ellipse cx={382} cy={G + 2} rx={26} ry={4} className="r-puddle" />
+        </g>,
+      ] : []),
       <path key="inlet" d={`M0 ${G + 40} H114`} stroke="#8a96a3" strokeWidth={14} className="r-pipe" />,
       ...(live?.kind === 'pit' && (live.inflow ?? 0) > 0.02 ? [
         <path key="inf" d={`M0 ${G + 40} H114`} className="r-flow slow" strokeWidth={4} />,
@@ -358,6 +368,17 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       <clipPath key="dc" id={`dest${uid}`}><rect x={tx + 6} y={ty + 6} width={tw - 12} height={th - 12} rx={6} /></clipPath>,
     );
     const fill = live && live.kind === 'tank' ? Math.min(1.04, live.x) : 0.7;
+    if (live?.kind === 'tank' && live.overflow) {
+      // Débordement : l'eau passe par-dessus le bord et ruisselle jusqu'au sol
+      const ox = tx + tw;
+      destEls.push(
+        <g key="ovf" className="r-ovf">
+          <path d={`M${ox - 4} ${ty + 4} q 14 4 14 24 V${destG - 2}`} className="r-stream-body" strokeWidth={6} />
+          <path d={`M${ox - 4} ${ty + 4} q 14 4 14 24 V${destG - 2}`} className="r-stream" strokeWidth={3} />
+          <ellipse cx={ox + 18} cy={destG + 2} rx={30} ry={5} className="r-puddle" />
+        </g>,
+      );
+    }
     const yTop = ty + 12, yBot = ty + th - 6;
     const yW = yBot - (yBot - yTop) * fill;
     // conduite d'arrivée qui monte et se déverse par le haut
@@ -643,9 +664,9 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       const an = anchors[k];
       if (!an || !t) continue;
       const w = t.length * 7.6 + 12;
-      const side = ['acc:manometre', 'acc:vacuometre', 'acc:capteur_p'].includes(k);
-      const y = k === 'acc:vessie' ? an.y + 44 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
-      const cx = side ? an.x + 16 + w / 2 : an.x;
+      const side = ['acc:manometre', 'acc:vacuometre', 'acc:capteur_p', 'acc:vessie'].includes(k);
+      const y = k === 'acc:vessie' ? an.y - 14 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
+      const cx = side ? an.x + (k === 'acc:vessie' ? 22 : 16) + w / 2 : an.x;
       lcd.push(<g key={`lcd-${k}`} className="lcd"><rect x={cx - w / 2} y={y - 13} width={w} height={19} rx={4} /><text x={cx} y={y + 1} textAnchor="middle">{t}</text></g>);
     }
     const ves = anchors['acc:vessie'];
@@ -679,6 +700,20 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
         lcd.push(<g key="burst" className="r-burst"><path d={`M${bx0 - 6} ${by0 - 6} l12 12 M${bx0 + 6} ${by0 - 6} l-12 12`} className="r-crack" />{(big ? [-40, -20, 0, 20, 40] : [-10, 10]).map((a, k) => <path key={k} d={`M${bx0} ${by0} q ${a * 0.6} ${-30 - (big ? 20 : 0)} ${a} ${big ? -10 : 4}`} className="r-sprayjet" style={{ animationDelay: `${k * 0.12}s` }} />)}<text x={bx0} y={by0 + 26} textAnchor="middle" className="r-label crit">{big ? 'CONDUITE ROMPUE' : 'fuite au raccord'}</text></g>);
       }
     }
+    // Fuites visibles : réseau (panne « fuite »), garniture usée
+    const fl = live.faults ?? [];
+    if (fl.includes('fuite_reseau') && ref.length > 1) {
+      const a2 = ref[ref.length - 2], b2 = ref[ref.length - 1];
+      const lx = a2[0] + (b2[0] - a2[0]) * 0.6, ly = a2[1] + (b2[1] - a2[1]) * 0.6;
+      const strong = live.on && live.r.q > 0.05;
+      lcd.push(<g key="leak" className="r-leak">{(strong ? [-14, 0, 14] : [0]).map((a3, k) => <path key={k} d={`M${lx} ${ly} q ${a3 * 0.5} ${strong ? -22 : -6} ${a3} ${strong ? -4 : 8}`} className="r-sprayjet" style={{ animationDelay: `${k * 0.15}s` }} />)}<ellipse cx={lx} cy={Math.max(ly + 14, G + 2)} rx={22} ry={4} className="r-puddle" /></g>);
+    }
+    if (fl.includes('garniture') && !(P && P.sealGone)) lcd.push(<g key="gar">{[0, 1].map((k) => <circle key={k} cx={pxp + 20} cy={pyp + 10} r={2.2} className="r-drop" style={{ animationDelay: `${k * 0.6}s` }} />)}<ellipse cx={pxp + 22} cy={pyp + 34} rx={14} ry={3} className="r-puddle" /></g>);
+    // Retour d'eau pompe arrêtée (clapet anti-retour non étanche)
+    if (!live.on && live.backDrop) lcd.push(<path key="back" d={`M${ref.map((q) => q.join(' ')).join(' L')}`} className="r-flow back" strokeWidth={3} />);
+    // Voyants du coffret : vert = marche, rouge = défaut, éteints = hors tension
+    const cab = anchors.cable;
+    if (cab) lcd.push(<g key="leds"><circle cx={cab.x + 12} cy={cab.y - 17} r={3.6} className={`r-led g ${live.powered !== false && live.on ? 'lit' : ''}`} /><circle cx={cab.x + 12} cy={cab.y - 6} r={3.6} className={`r-led r ${live.trip || live.isolated ? 'lit' : ''}`} />{live.powered === false && <rect x={cab.x - 16} y={cab.y - 22} width={20} height={10} rx={1} className="r-scr-off" />}</g>);
     const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : 'ARRÊT';
     lcd.push(<g key="state" className={live.trip || live.hum || live.noFlow ? 'state fault' : live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{stTxt}</text></g>);
   }
