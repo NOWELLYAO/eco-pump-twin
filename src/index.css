@@ -1275,3 +1275,7 @@ html, body { overflow-x: clip; }
 .dflt-banner span { color: var(--fg); }
 .dflt-banner small { color: var(--muted); }
 .chart-wait { padding: 30px 12px; text-align: center; color: var(--muted); font-size: .9rem; }
+.elec-svg .e-dot { fill: #33404a; }
+.closedtest { background: var(--brand-soft); border: 1px solid var(--brand); border-radius: 10px; padding: 10px 12px; }
+.closedtest ol { margin: 6px 0; padding-left: 20px; font-size: .88rem; display: flex; flex-direction: column; gap: 3px; }
+.closedtest small { color: var(--muted); }

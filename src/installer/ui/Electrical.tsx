@@ -435,10 +435,44 @@ function PowerCircuit({ i, ev, cfg, L }: { i: Installation; ev: Evaluation; cfg:
     y += 56; liveAt.v = liveAt.v && !tripQ1;
   }
   els.push(...seg(y, y + 14)); y += 14;
+  // Étoile-triangle complet : KM1 ligne → U1 V1 W1 ; KM2 triangle → W2 U2 V2 ; KM3 étoile court-circuite U2 V2 W2
+  if (cfg.start === 'etoile') {
+    const rx = xs.map((_, k) => 330 + k * 46);
+    const yb = y - 8;
+    const lv0 = liveAt.v;
+    const run = !!L?.on; // en service : triangle (KM1 + KM2 fermés, KM3 ouvert)
+    xs.forEach((x, k) => els.push(<path key={`br${k}`} d={`M${x} ${yb} H${rx[k]} V${y}`} className={lv0 ? 'w live' : 'w'} />, <circle key={`bd${k}`} cx={x} cy={yb} r={3} className="e-dot" />));
+    xs.forEach((x) => els.push(<VContact key={`km1${x}`} x={x} y={y} closed={run} live={lv0} />));
+    rx.forEach((x) => els.push(<VContact key={`km2${x}`} x={x} y={y} closed={run} live={lv0} />));
+    els.push(link(y), <path key="lk2" d={`M${rx[0] - 6} ${y + 22} H${rx[2] - 6}`} className="mech" />, label('KM1', 'ligne', y));
+    els.push(<text key="km2t" x={rx[2] + 22} y={y + 20} className="e-tag">KM2</text>, <text key="km2s" x={rx[2] + 22} y={y + 35} className="e-sub">triangle</text>);
+    y += 44;
+    const lvL = lv0 && run;
+    // Bornier 6 fils
+    const yT = y + 26;
+    xs.forEach((x, k) => els.push(<path key={`l1${k}`} d={`M${x} ${y} V${yT}`} className={lvL ? 'w live' : 'w'} />, <circle key={`t1${k}`} cx={x} cy={yT} r={4} className="e-term" />, <text key={`tt1${k}`} x={x + 7} y={yT - 5} className="e-sub">{['U1', 'V1', 'W1'][k]}</text>));
+    rx.forEach((x, k) => els.push(<path key={`l2${k}`} d={`M${x} ${y} V${yT}`} className={lvL ? 'w live' : 'w'} />, <circle key={`t2${k}`} cx={x} cy={yT} r={4} className="e-term" />, <text key={`tt2${k}`} x={x + 7} y={yT - 5} className="e-sub">{['W2', 'U2', 'V2'][k]}</text>));
+    // KM3 étoile : à partir des bornes U2 V2 W2, vers le point étoile
+    const yS = yT + 14;
+    rx.forEach((x, k) => els.push(<path key={`s${k}`} d={`M${x} ${yT} V${yS + k * 0}`} className="w" />));
+    const kx = [470, 492, 514];
+    kx.forEach((x, k) => els.push(<path key={`sk${k}`} d={`M${rx[k]} ${yS + k * 6} H${x} V${yS + 24}`} className="w" />, <circle key={`skd${k}`} cx={rx[k]} cy={yS + k * 6} r={3} className="e-dot" />, <VContact key={`km3${k}`} x={x} y={yS + 24} closed={false} live={false} />));
+    els.push(<path key="star" d={`M${kx[0]} ${yS + 68} H${kx[2]}`} className="w" />, <text key="km3t" x={kx[2] + 10} y={yS + 44} className="e-tag">KM3</text>, <text key="km3s" x={kx[0] - 10} y={yS + 86} className="e-sub">étoile (démarrage)</text>, <path key="lk3" d={`M${kx[0] - 6} ${yS + 46} H${kx[2] - 6}`} className="mech" />);
+    // Câble 6 conducteurs vers le moteur
+    y = yT;
+    const cxm = (xs[0] + rx[2]) / 2 - 40;
+    const yM = yS + 150;
+    [...xs, ...rx].forEach((x, k) => els.push(<path key={`mc${k}`} d={`M${x} ${y} V${yM - 40} L${cxm + (k - 2.5) * 9} ${yM - 30}`} className={lvL ? 'w live' : 'w'} />));
+    els.push(<text key="cab6" x={xs[0] - 30} y={yM - 50} textAnchor="end" className="e-sub">câble 7G {String(i.elec.cableSec).replace('.', ',')} mm² · {i.elec.cableLen} m</text>);
+    els.push(<circle key="mot" cx={cxm} cy={yM} r={32} className={`e-motor ${run && !L?.hum ? 'run' : ''} ${L?.hum ? 'hum' : ''}`} />, <text key="mt" x={cxm} y={yM - 2} textAnchor="middle" className="e-motor-t">M</text>, <text key="mt2" x={cxm} y={yM + 14} textAnchor="middle" className="e-sub">3~ Δ/Y</text>);
+    els.push(<text key="mp" x={cxm} y={yM + 50} textAnchor="middle" className="e-tag">{fmt(i.pump.motorKw, 1)} kW · {fmt(ev.elec.inom, 1)} A</text>, <path key="pem" d={`M${cxm + 30} ${yM + 12} H${xs[n - 1] + 52}`} className="w pe" />);
+    els.push(<text key="seq" x={20} y={yM + 76} className="e-sub"><tspan x={20}>Démarrage : KM1 + KM3 (étoile, courant ÷ 3) pendant 3 à 8 s (KT1),</tspan><tspan x={20} dy={14}>puis KM3 s'ouvre et KM2 se ferme (triangle). KM2 et KM3 ne sont jamais fermés ensemble.</tspan></text>);
+    return <svg viewBox={`0 0 560 ${yM + 104}`} className="elec-svg" role="img" aria-label="Schéma de puissance étoile-triangle">{els}</svg>;
+  }
   // Organe de commande du moteur
-  if (cfg.start === 'direct' || cfg.start === 'etoile' || cfg.start === 'progressif') {
+  if (cfg.start === 'direct' || cfg.start === 'progressif') {
     xs.forEach((x) => els.push(<VContact key={`km${x}`} x={x} y={y} closed={kmClosed} live={liveAt.v} />));
-    els.push(link(y), label('KM1', cfg.start === 'etoile' ? 'contacteur de ligne' : 'contacteur', y));
+    els.push(link(y), label('KM1', 'contacteur', y));
     y += 44; liveAt.v = liveAt.v && kmClosed;
     if (cfg.start === 'progressif') block('U1', 'démarreur progressif');
   } else {
@@ -455,13 +489,7 @@ function PowerCircuit({ i, ev, cfg, L }: { i: Installation; ev: Evaluation; cfg:
   // bornier X1
   mxs.forEach((x, k) => els.push(<circle key={`x${x}`} cx={x} cy={y} r={4} className="e-term" />, <text key={`xt${x}`} x={x + 7} y={y - 5} className="e-sub">{cfg.mono ? ['L', 'N'][k] : ['U', 'V', 'W'][k]}</text>));
   els.push(<text key="x1" x={mxs[motorN - 1] + 26} y={y + 4} className="e-tag">X1</text>);
-  if (cfg.start === 'etoile') {
-    // Étoile-triangle : 6 fils, KM2 (triangle) et KM3 (étoile)
-    const yb = y + 10;
-    mxs.forEach((x) => els.push(<path key={`m6${x}`} d={`M${x} ${y} V${yb + 60}`} className={liveAt.v ? 'w live' : 'w'} />));
-    els.push(<text key="et" x={mxs[2] + 26} y={yb + 30} className="e-sub">+ KM2 (triangle) et KM3 (étoile) sur U2 V2 W2</text>);
-    y = yb + 60;
-  } else { mxs.forEach((x) => els.push(<path key={`mc${x}`} d={`M${x} ${y} V${y + 40}`} className={liveAt.v ? 'w live' : 'w'} />)); y += 40; }
+  { mxs.forEach((x) => els.push(<path key={`mc${x}`} d={`M${x} ${y} V${y + 40}`} className={liveAt.v ? 'w live' : 'w'} />)); y += 40; }
   els.push(<text key="cab" x={mxs[0] - 30} y={y - 16} textAnchor="end" className="e-sub">câble {ev.elec.cores} {String(i.elec.cableSec).replace('.', ',')} mm² · {i.elec.cableLen} m</text>);
   // moteur
   const cx = (mxs[0] + mxs[motorN - 1]) / 2;
@@ -481,7 +509,7 @@ function ControlCircuit({ i, cfg, L }: { i: Installation; cfg: ECfg; L?: ELive }
   const coil = !!L?.coilOn;
   const dryOk = L?.tripKind !== 'decl_manque_eau';
   const phOk = !(L?.faults.includes('perte_phase') || L?.faults.includes('rotation'));
-  const left = 40, right = 520;
+  const left = 40, right = cfg.start === 'etoile' && cfg.pumps === 1 && !cfg.vfd ? 700 : 520;
   const els: ReactNode[] = [];
   els.push(<path key="rl" d={`M${left} 40 V${cfg.vfd ? 330 : 400}`} className={powered ? 'w live' : 'w'} />, <path key="rr" d={`M${right} 40 V${cfg.vfd ? 330 : 400}`} className="w" />);
   els.push(<text key="tl" x={left} y={26} textAnchor="middle" className="e-tag">{cfg.mono ? 'L 230 V' : cfg.solar ? '24 V DC' : '24 V (T1)'}</text>, <text key="tr" x={right} y={26} textAnchor="middle" className="e-tag">{cfg.mono ? 'N' : '0 V'}</text>);
@@ -544,6 +572,16 @@ function ControlCircuit({ i, cfg, L }: { i: Installation; cfg: ECfg; L?: ELive }
       const onk = lv2 && run.includes(k);
       els.push(<path key={`o${k}`} d={`M${bx + 228} ${r1} L${right - 70} ${yk} H${right - 50}`} className={onk ? 'w live' : 'w'} />, <rect key={`cl${k}`} x={right - 50} y={yk - 7} width={30} height={14} className={`e-coil ${onk ? 'on' : ''}`} />, <text key={`ct${k}`} x={right - 54} y={yk + 4} textAnchor="end" className="e-sub">KM1.{k}</text>, <path key={`cr${k}`} d={`M${right - 20} ${yk} H${right}`} className="w" />);
     }
+  } else if (cfg.start === 'etoile') {
+    // Étoile-triangle : KM1 et KT1 alimentés ensemble ; KM3 (étoile) puis KM2 (triangle) après la temporisation, verrouillés entre eux
+    const bus = bx + 180, ys = [r1 - 34, r1 - 4, r1 + 26, r1 + 56];
+    const run = coil; // régime établi : triangle
+    els.push(<path key="toc" d={`M${bx + 150} ${r1} H${bus}`} className={lv2 ? 'w live' : 'w'} />, <path key="ebus" d={`M${bus} ${ys[0]} V${ys[3]}`} className={lv2 ? 'w live' : 'w'} />);
+    const coilAt = (k: number, lab: string, sub: string, on: boolean) => els.push(<Coil key={`ec${k}`} x={right - 50} y={ys[k]} on={on} label="" sub="" />, <text key={`et${k}`} x={right - 54} y={ys[k] + 4} textAnchor="end" className="e-tag">{lab}</text>, <text key={`es${k}`} x={right - 33} y={ys[k] + 4} textAnchor="middle" className="e-sub">{sub}</text>, <path key={`er${k}`} d={`M${right - 16} ${ys[k]} H${right}`} className="w" />);
+    els.push(<path key="e0" d={`M${bus} ${ys[0]} H${right - 70}`} className={lv2 ? 'w live' : 'w'} />); coilAt(0, 'KM1', 'ligne', run);
+    els.push(<path key="e1" d={`M${bus} ${ys[1]} H${right - 70}`} className={lv2 ? 'w live' : 'w'} />); coilAt(1, 'KT1', 'tempo', run);
+    els.push(<HContact key="e2a" x={bus} y={ys[2]} closed={!run} nc live={lv2} />, <HContact key="e2b" x={bus + 50} y={ys[2]} closed nc live={lv2 && !run} />, <path key="e2w" d={`M${bus + 94} ${ys[2]} H${right - 70}`} className="w" />, <text key="e2t" x={bus + 47} y={ys[2] + 18} textAnchor="middle" className="e-sub">KT1 · KM2</text>); coilAt(2, 'KM3', 'étoile', false);
+    els.push(<HContact key="e3a" x={bus} y={ys[3]} closed={run} live={lv2} />, <HContact key="e3b" x={bus + 50} y={ys[3]} closed nc live={lv2 && run} />, <path key="e3w" d={`M${bus + 94} ${ys[3]} H${right - 70}`} className={lv2 && run ? 'w live' : 'w'} />, <text key="e3t" x={bus + 47} y={ys[3] + 18} textAnchor="middle" className="e-sub">KT1 · KM3</text>); coilAt(3, 'KM2', 'triangle', run);
   } else {
     els.push(<path key="toc" d={`M${bx + 150} ${r1} H${right - 50}`} className={lv2 ? 'w live' : 'w'} />);
     els.push(<Coil key="km1" x={right - 50} y={r1} on={coil} label="KM1" sub="bobine" />, <path key="kmr" d={`M${right - 16} ${r1} H${right}`} className="w" />);
@@ -560,7 +598,7 @@ function ControlCircuit({ i, cfg, L }: { i: Installation; cfg: ECfg; L?: ELive }
   lr(260, 'H2', !!L?.on, 'g', 'marche', { lab: 'KM1', ok: !!L?.on });
   lr(320, 'H3', trip, 'r', 'défaut', { lab: 'Q1 / KA', ok: trip });
   if (cfg.auto === 'flotteurs' && i.acc.flotteur_alarme?.on) lr(380, 'H4', false, 'o', 'alarme niveau haut', { lab: 'B3', ok: false });
-  return <svg viewBox="0 0 560 410" className="elec-svg" role="img" aria-label="Schéma de commande">{els}</svg>;
+  return <svg viewBox={`0 0 ${right + 40} 410`} className="elec-svg" role="img" aria-label="Schéma de commande">{els}</svg>;
 }
 
 export function WiringView({ i, ev, live }: { i: Installation; ev: Evaluation; live?: ELive }) {

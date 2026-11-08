@@ -44,6 +44,9 @@ function Guide() {
       <p><b>Conception guidée</b> : bouton « Nouvelle » → « Conception guidée » : l'application vous pose les questions une par une et dimensionne tout.</p>
       <p><b>Conception</b> : décrivez l'installation étape par étape (ou partez d'un exemple). La vue réelle, le schéma P&ID et la note se mettent à jour à chaque saisie.</p>
       <p><b>Simulation</b> : mettez la pompe en marche ou à l'arrêt, faites défiler le temps et jouez sur la vanne, la vitesse, le niveau d'eau, le colmatage ou l'usure. Les instruments, les courbes, les alertes et le journal des événements réagissent en direct.</p>
+      <p><b>Mes projets</b> (icône dossier) : tous vos projets sont enregistrés sur l'appareil ; ouvrez, dupliquez, exportez en fichier ou partagez un lien (WhatsApp).</p>
+      <p><b>Courbe du fabricant</b> (Conception, étape Pompe) : saisissez 3 à 8 points de la fiche pour des calculs exacts.</p>
+      <p><b>Demande de devis</b> (Matériel & rapport) : liste complète de tous les éléments, modifiable, en PDF, Excel ou WhatsApp.</p>
       <p><b>Pannes</b> (page Simulation) : provoquez une panne (hydraulique, manque d'eau, accessoire, électrique, réseau, pompe/moteur) ou une « panne mystère » : l'application relève les symptômes, classe les causes probables et donne les vérifications et la réparation.</p>
       <p><b>Coffret et schéma électrique</b> : onglets « Coffret » (composants cliquables, réglages, état en direct) et « Schéma élec. » (puissance et commande, conducteurs sous tension en orange).</p>
       <p><b>Diagnostic</b> : cliquez sur une alerte pour voir l'élément concerné clignoter sur le schéma, puis corrigez-la en un clic.</p>

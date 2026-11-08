@@ -123,6 +123,21 @@ export function CommissionPage({ i, ev, set }: { i: Installation; ev: Evaluation
                 <option value="normal">Normal</option><option value="bruit">Léger</option><option value="fort">Anormal / fort</option>
               </select>
             </label>
+            <div className="ifld wide closedtest">
+              <b>Essai vanne fermée (conseillé)</b>
+              <ol>
+                <li>Pompe en marche, fermez lentement la vanne de refoulement <i>après</i> le manomètre.</li>
+                <li>Lisez la pression au bout de 5 secondes (30 s maximum : l'eau chauffe dans la pompe).</li>
+                <li>Rouvrez la vanne.</li>
+              </ol>
+              <small>Cet essai isole la pompe du réseau : il distingue une pompe usée, bouchée, qui prend l'air ou qui tourne à l'envers, d'un problème de tuyauterie.</small>
+            </div>
+            <OptNum label="Pression lue vanne fermée" unit="bar" value={c.pClosed} onChange={(v) => up({ pClosed: v })} hint={`attendu ≈ ${fmt(r.closedBar, 1)} bar`} />
+            <label className="ifld"><span>Aiguille pendant l'essai</span>
+              <select value={c.needle ?? 'stable'} onChange={(e) => up({ needle: e.target.value as Commissioning['needle'] })}>
+                <option value="stable">Stable</option><option value="oscille">Oscille / instable</option>
+              </select>
+            </label>
             <label className="ifld wide"><span>Observations</span><textarea rows={3} value={c.notes ?? ''} onChange={(e) => up({ notes: e.target.value })} /></label>
           </div>
           <div className="row mt-xs">

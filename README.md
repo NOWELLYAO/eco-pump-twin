@@ -92,3 +92,11 @@ calculée, solaire) → résultat (note, alertes et corrections en un clic).
 - **Coffret** : composants déduits de l'installation (sectionneur, parafoudre, différentiel, disjoncteur moteur, contacteurs, variateur / démarreur, relais, voyants, sélecteur…), états en direct.
 - **Schéma électrique** : circuit de puissance et circuit de commande, adaptés au mode de démarrage.
 
+## Projets, courbe constructeur, devis
+
+- **Mes projets** : projets multiples enregistrés sur l'appareil (localStorage), ouverture, duplication, suppression, export / import de fichier `.ecopump.json`, lien de partage compressé (`#projet=`).
+- **Courbe du fabricant** : 3 à 8 points (Q, H, rendement, NPSHr), ajustement par moindres carrés (degré 2 ou 3), utilisée par tous les calculs ; point nominal (BEP) recalculé ; vitesse variateur par similitude sur la courbe réelle.
+- **Rapport PDF complet** : synthèse, vue d'ensemble, P&ID, courbes, alertes, électricité, coffret (calibres), schéma électrique, pertes, montage, matériel, liste pour devis, guide de dépannage, mise en service.
+- **Demande de devis** : liste détaillée de tous les éléments (pompes, tuyauterie, raccords, robinetterie, instruments, câbles, coffret, solaire, fournitures, prestations), quantités modifiables, lignes ajoutées ; PDF, CSV (Excel), WhatsApp.
+- **Assistant** : nombre de pompes et secours, démarrage ; **valeurs par défaut** signalées « à vérifier » ; **arrivée générale** du coffret dimensionnée ; **essai vanne fermée** guidé en mise en service ; schéma **étoile-triangle** complet.
+

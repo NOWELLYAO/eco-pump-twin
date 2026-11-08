@@ -13,6 +13,8 @@ export interface Commissioning {
   level?: number; // niveau dynamique mesuré (forage, m)
   noise?: 'normal' | 'bruit' | 'fort';
   rotation?: 'ok' | 'non' | 'inconnu';
+  pClosed?: number; // pression lue vanne de refoulement fermée (bar)
+  needle?: 'stable' | 'oscille'; // aiguille du manomètre pendant l'essai
   notes?: string;
 }
 
@@ -122,6 +124,25 @@ export function analyzeCommissioning(i: Installation, ev: Evaluation, c: Commiss
     if (c.level > i.geo.pumpDepth - 3) D({ sev: c.level > i.geo.pumpDepth - 1 ? 'critical' : 'warning', title: 'Niveau dynamique trop proche de la pompe', detail: `Niveau à ${f(c.level)} m pour une pompe à ${f(i.geo.pumpDepth)} m.`,
       causes: ['Le forage débite moins que prévu', 'Pompe trop puissante pour ce forage'], checks: ['Réduire le débit (vanne ou variateur)', 'Descendre la pompe si possible', 'Installer une protection manque d\'eau'] });
   }
+  // ----- Essai vanne fermée : la pompe seule, sans le réseau -----
+  // Pression lue vanne fermée = hauteur de la pompe + charge (ou − aspiration) côté entrée, liquide immobile
+  const offset = isForage(i) ? -i.geo.staticLevel : pit ? -Math.max(1.5, i.geo.wetLevel + 1.5) : i.mode === 'aspiration' ? -i.geo.suctionLift : i.geo.chargeHead;
+  const expBar = Math.max(0, ((pumpHead(i, 0) + offset) * rhoG) / 1e5);
+  if (has(c.pClosed)) {
+    const H0 = pumpHead(i, 0);
+    const hMeas = (c.pClosed * 1e5) / rhoG - offset;
+    const r = hMeas / Math.max(1, H0);
+    const osc = c.needle === 'oscille';
+    rows.push({ label: 'Pression vanne fermée', meas: `${f(c.pClosed)} bar`, exp: `${f(expBar)} bar`, dev: `${f((r - 1) * 100, 0)} %`, sev: r >= 0.9 ? 'ok' : r >= 0.8 ? 'warning' : 'critical' });
+    if (r >= 0.9) D({ sev: 'ok', title: 'Essai vanne fermée : la pompe est saine', detail: `Hauteur à débit nul ${f(hMeas, 0)} m pour ${f(H0, 0)} m attendus (${f(r * 100, 0)} %). Si le débit est faible, la cause est dans le réseau, pas dans la pompe.`,
+      causes: ['Vanne partiellement fermée, crépine ou filtre colmaté', 'Fuite ou piquage oublié sur le réseau', 'Pertes de charge plus fortes que prévu (diamètre, longueur, coudes)'], checks: ['Ouvrir toutes les vannes', 'Nettoyer crépine et filtres', 'Mesurer la pression en bout de réseau'] });
+    else if (osc) D({ sev: 'critical', title: 'Essai vanne fermée : aiguille instable → air dans la pompe', detail: `${f(r * 100, 0)} % de la hauteur attendue avec une aiguille qui oscille : la pompe aspire de l'air ou n'est pas bien amorcée.`,
+      causes: ['Prise d\'air à l\'aspiration (joint, raccord, presse-étoupe)', 'Pompe mal purgée / désamorcée', 'Vortex : crépine pas assez immergée', 'Cavitation'], checks: ['Purger la pompe', 'Arroser les raccords d\'aspiration pompe en marche', 'Vérifier l\'immersion de la crépine'] });
+    else if (r < 0.7 && tri && c.rotation !== 'ok') D({ sev: 'critical', title: 'Essai vanne fermée : sens de rotation inversé très probable', detail: `Seulement ${f(r * 100, 0)} % de la hauteur à débit nul, aiguille stable : signature d'un moteur triphasé qui tourne à l'envers.`,
+      causes: ['Deux phases inversées'], checks: ['Inverser deux phases au coffret et refaire l\'essai : la pression doit nettement augmenter'] });
+    else D({ sev: r < 0.8 ? 'critical' : 'warning', title: `Essai vanne fermée : la pompe ne donne que ${f(r * 100, 0)} % de sa hauteur`, detail: `${f(hMeas, 0)} m à débit nul pour ${f(H0, 0)} m attendus, aiguille stable.`,
+      causes: ['Roue usée, bagues d\'usure usées (jeu interne)', 'Roue partiellement bouchée', tri ? 'Sens de rotation (à confirmer)' : 'Condensateur affaibli (moteur qui ne prend pas sa vitesse)', 'Vitesse plus basse que prévu (variateur, tension)', 'Pompe différente de la fiche'], checks: ['Démonter et inspecter la roue', 'Mesurer la vitesse ou la fréquence du variateur', 'Comparer avec la plaque signalétique de la pompe'] });
+  }
   if (c.noise === 'fort') D({ sev: 'warning', title: 'Bruit ou vibrations anormaux', detail: 'Signalés lors de la mise en service.',
     causes: ['Cavitation (bruit de gravier)', 'Désalignement pompe-moteur', 'Fixations ou massif insuffisants', 'Roulement endommagé', 'Tuyauteries qui reposent sur la pompe'],
     checks: ['Fermer légèrement la vanne : si le bruit disparaît, c\'est de la cavitation', 'Contrôler l\'alignement et le serrage des pieds', 'Vérifier les supports de tuyauteries et les manchons anti-vibratiles'] });
@@ -133,6 +154,6 @@ export function analyzeCommissioning(i: Installation, ev: Evaluation, c: Commiss
   const verdict = !filled ? null : n.critical ? { sev: 'critical' as CSev, label: 'Non conforme', text: 'Des écarts importants : corriger avant de réceptionner l\'installation.' }
     : n.warning ? { sev: 'warning' as CSev, label: 'Conforme avec réserves', text: 'L\'installation fonctionne, mais des points sont à corriger ou à surveiller.' }
       : { sev: 'ok' as CSev, label: 'Conforme', text: 'Les mesures correspondent au calcul : installation réceptionnable.' };
-  return { rows, diags, verdict, exp, closedBar: (pumpHead(i, 0) * rhoG) / 1e5 };
+  return { rows, diags, verdict, exp, closedBar: expBar };
 }
 
