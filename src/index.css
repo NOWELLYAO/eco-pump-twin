@@ -1373,3 +1373,20 @@ html, body { overflow-x: clip; }
 .r-closed text { fill: #fff; font-size: 11px; font-weight: 800; letter-spacing: .05em; }
 .r-closed path { stroke: #d03b3b; stroke-width: 4; stroke-linecap: round; fill: none; }
 .cfg-warn { color: #b42318; margin: -4px 0 8px; }
+.livekpis > div.warn { border-color: var(--warn, #d97706); background: var(--warn-bg, #fff7e6); }
+/* Physique : chaleur moteur, fumée, vapeur, surpression, rupture */
+.r-heat circle { fill: #ef4444; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; }
+@keyframes heatPulse { from { transform: scale(.94); } to { transform: scale(1.06); } }
+.r-heat circle { transform-box: fill-box; transform-origin: center; }
+.r-tbadge rect { fill: #b45309; }
+.r-tbadge.crit rect { fill: #d03b3b; }
+.r-tbadge text { fill: #fff; font-size: 11px; font-weight: 700; }
+.r-smoke circle { fill: #6b7280; opacity: 0; animation: smoke 2s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes smoke { 0% { opacity: .7; transform: translateY(0) scale(.6); } 100% { opacity: 0; transform: translateY(-40px) scale(2.2); } }
+.r-vapor { fill: none; stroke: #cbd5e1; stroke-width: 2.5; stroke-linecap: round; opacity: 0; animation: vapor 1.6s ease-out infinite; }
+@keyframes vapor { 0% { opacity: .9; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-18px); } }
+.r-overp { fill: none; stroke: #ef4444; stroke-width: 9; stroke-linejoin: round; stroke-linecap: round; opacity: .5; animation: overp .5s ease-in-out infinite alternate; pointer-events: none; }
+@keyframes overp { from { opacity: .15; } to { opacity: .65; } }
+.r-crack { stroke: #7f1d1d; stroke-width: 3; stroke-linecap: round; }
+.r-label.crit { fill: #d03b3b; font-weight: 800; }
+.r-closed-t { fill: #d03b3b; font-weight: 800; }

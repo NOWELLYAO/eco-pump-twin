@@ -1,4 +1,4 @@
-import { refStatic } from './catalog';
+import { PIPE_MATS, refStatic } from './catalog';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
@@ -111,6 +111,18 @@ export interface SimState {
   noFlow: boolean; // en marche sans débit (désamorcée, à sec)
   runT: number; // temps de marche depuis le démarrage (s)
   runTot?: number; // temps de marche cumulé (s), compteur horaire
+  // ---- Physique ----
+  tm?: number; // température du bobinage moteur (°C)
+  tl?: number; // température du liquide dans le corps de pompe (°C)
+  relay?: number; // image thermique du relais du disjoncteur moteur (1 = courant de réglage permanent)
+  pPeak?: number; // dernière pointe de pression (coup de bélier ou vanne fermée), bar
+  pPeakT?: number; // instant de cette pointe
+  fatigue?: number; // sollicitations au-delà de la PN
+  burst?: 'fuite' | 'rupture' | null; // dommage sur la conduite de refoulement
+  burnt?: boolean; // bobinage grillé
+  sealGone?: boolean; // garniture détruite (vaporisation, marche à sec)
+  cavT?: number; // temps de marche en cavitation (s)
+  flags?: Record<string, boolean>; // événements déjà signalés
   outageUntil: number; // coupure secteur jusqu'à t
   dd: number; // rabattement supplémentaire du niveau (m)
   startLog: number[]; // instants des démarrages
@@ -171,16 +183,10 @@ function startEvent(ctx: SimCtx, st: SimState): SimEvent[] {
   return ev;
 }
 function stopEvent(ctx: SimCtx, st: SimState, why: string): SimEvent[] {
-  const { i, h } = ctx;
+  const { i } = ctx;
   const ev: SimEvent[] = [{ t: st.t, sev: 'info', text: `Arrêt — ${why}` }];
   const check = i.acc.clapet_ar?.on || i.acc.clapet_boule?.on;
   if (!check && refStatic(i) > 3) ev.push({ t: st.t, sev: 'critical', text: 'Sans clapet : la colonne d\'eau redescend, la pompe tourne à l\'envers', target: 'acc:clapet_ar' });
-  else if (h.ok) {
-    const prot = i.acc.anti_belier?.on || i.acc.vessie?.on;
-    const surge = h.surge * (prot ? 0.35 : 1);
-    const p = ((refStatic(i) + surge) * i.fluid.rho * G) / 1e5;
-    if (p > i.ref.pn * 0.8) ev.push({ t: st.t, sev: p > i.ref.pn ? 'critical' : 'warning', text: `Coup de bélier : pointe de ${f1(p)} bar dans la conduite (PN${i.ref.pn})${prot ? '' : ' — pas d\'anti-bélier'}`, target: 'ref' });
-  }
   return ev;
 }
 
@@ -191,6 +197,18 @@ function submergence(i: Installation) {
   if (i.mode === 'charge') return Math.max(0.3, i.geo.chargeHead + i.geo.immersion);
   return Math.max(0.2, i.geo.wetLevel);
 }
+
+
+/** Pointe de pression d'un arrêt (coup de bélier, formule de Joukowsky ΔH = c·Δv / g), en bar au refoulement de la pompe. */
+export function surgePeak(i: Installation, h: Hydro, q: number, soft: boolean): { p: number; dH: number } {
+  const v = h.q > 0 ? h.vRef * Math.min(1.5, q / h.q) : 0;
+  const c = PIPE_MATS[i.ref.material].celerity;
+  const prot = i.acc.anti_belier?.on || i.acc.vessie?.on;
+  const dH = (c * v) / G * (prot ? 0.35 : 1) * (soft ? 0.3 : 1);
+  return { p: ((refStatic(i) + dH) * i.fluid.rho * G) / 1e5, dH };
+}
+/** Température de vaporisation de l'eau à la pression absolue p (bar), approchée. */
+export const tSat = (pAbsBar: number) => 100 * Math.max(0.3, pAbsBar) ** 0.25;
 
 /** Avance la simulation de dt secondes (par pas internes de 5 s). */
 export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
@@ -209,6 +227,38 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const hasDryProt = !!i.acc.marche_sec?.on;
   const avail = submergence(i);
   let dryT = 0;
+  // ---- Constantes physiques ----
+  const imm = i.mode === 'immergee';
+  const tAmb = imm ? i.fluid.temp : 32; // moteur immergé : refroidi par le liquide ; en surface : air ambiant
+  const kwM = Math.max(0.37, i.pump.motorKw);
+  const tauM = 60 * (10 + 4 * Math.sqrt(kwM)); // constante de temps thermique du moteur (s)
+  const iBase = h.ok ? readings(i, h, true, er).amps / Math.max(0.1, er.inom) : 0.5; // courant en marche normale / In
+  const soft = effectiveStart(i) !== 'direct' && effectiveStart(i) !== 'etoile';
+  const pn = i.ref.pn;
+  const mCase = 2 + 0.6 * kwM; // kg de liquide dans le corps de pompe
+  const pShut = Math.max(0, ((pumpHead(i, 0) + suctionZ(i)) * rhoG) / 1e5); // pression à débit nul (bar)
+  if (st.tm == null) st.tm = tAmb;
+  if (st.tl == null) st.tl = i.fluid.temp;
+  st.flags = { ...(st.flags ?? {}) };
+  const once = (k: string, e: SimEvent) => { if (!st.flags![k]) { st.flags![k] = true; newEv.push(e); } };
+  const hit = (p: number, why: string) => {
+    st.pPeak = p; st.pPeakT = st.t;
+    if (p > pn * 1.5 && st.burst !== 'rupture') {
+      st.burst = 'rupture'; seen('fuite_visible', 'pression_basse');
+      newEv.push({ t: st.t, sev: 'critical', text: `RUPTURE de la conduite : ${why} ${f1(p)} bar pour une conduite PN${pn} (plus de 1,5 × PN)`, target: 'ref' });
+    } else if (p > pn) {
+      st.fatigue = (st.fatigue ?? 0) + 1;
+      newEv.push({ t: st.t, sev: 'critical', text: `${why} ${f1(p)} bar : au-dessus de la PN${pn} de la conduite (sollicitation n° ${st.fatigue})`, target: 'ref' });
+      if ((st.fatigue ?? 0) >= 5 && !st.burst) { st.burst = 'fuite'; seen('fuite_visible'); newEv.push({ t: st.t, sev: 'critical', text: 'Un raccord a lâché après des surpressions répétées : fuite sur le refoulement', target: 'ref' }); }
+    } else if (p > pn * 0.8) newEv.push({ t: st.t, sev: 'warning', text: `${why} ${f1(p)} bar : proche de la PN${pn} de la conduite`, target: 'ref' });
+  };
+  // Coup de bélier quand la pompe s'arrête en débitant (brutal si coupure, déclenchement ou démarrage direct)
+  const hammer = (sudden: boolean) => {
+    if (st.q < 0.1 || !h.ok) return;
+    const sp = surgePeak(i, h, st.q, soft && !sudden);
+    if (sp.p > pn * 0.8) hit(sp.p, `Coup de bélier à l'arrêt${sudden ? ' brutal' : ''} (${i.acc.anti_belier?.on || i.acc.vessie?.on ? 'atténué par l\'anti-bélier' : 'sans anti-bélier'}) :`);
+    else { st.pPeak = sp.p; st.pPeakT = st.t; }
+  };
 
   const seen = (...xs: Sym[]) => { st.recent = { ...st.recent }; for (const x of xs) st.recent[x] = st.t; };
   const trip = (msg: string, kind: Sym = 'decl_thermique') => {
@@ -221,6 +271,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       newEv.push({ t: st.t, sev: 'critical', text: `${msg} — pompe 1 isolée, ${sb ? 'basculement automatique sur la pompe de secours' : 'les autres pompes continuent (débit réduit)'}`, target: 'cable' });
       return;
     }
+    if (st.on) hammer(true);
     st.trip = msg; st.tripKind = kind; seen(kind); st.on = false; st.hum = false; st.noFlow = false; st.q = 0;
     newEv.push({ t: st.t, sev: 'critical', text: `${msg} — la pompe est arrêtée, réarmement nécessaire`, target: 'cable' });
   };
@@ -231,7 +282,10 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (!power || st.trip) { st.blocked = true; return; }
     st.blocked = false;
     if (fx.tripAtStart) { st.starts++; st.startLog = [...st.startLog, st.t].slice(-60); trip(fx.tripAtStart, fx.tripKind ?? 'decl_diff'); return; }
+    if (st.burnt) { st.blocked = true; return; }
     st.on = true; st.starts++; st.runT = 0; st.startLog = [...st.startLog, st.t].slice(-60);
+    // Chaque démarrage chauffe le bobinage (courant de démarrage pendant ~1 à 3 s)
+    st.tm = (st.tm ?? tAmb) + 2.5 * Math.min(4, (er.istart / Math.max(0.1, er.inom) / 6) ** 2) * (soft ? 0.5 : 1);
     st.hum = !!fx.noStart;
     st.noFlow = !st.hum && !st.primed;
     newEv.push(...startEvent(ctx, st));
@@ -246,6 +300,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Arrêt demandé (${why}) mais le moteur reste alimenté`, target: 'cable' });
       st.runaway = true; seen('ne_s_arrete_pas', 'marche_sans_commande'); return;
     }
+    hammer(false);
     st.on = false; st.hum = false; st.noFlow = false; st.runaway = false;
     if (fx.primeLoss) st.primed = false;
     newEv.push(...stopEvent(ctx, st, why));
@@ -254,12 +309,12 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   for (let k = 0; k < n; k++) {
     const hr = hourOf(st.t);
     const power = st.t >= st.outageUntil;
-    if (!power && st.on) { st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: 'Coupure secteur : plus de tension, la pompe s\'arrête', target: 'cable' }); }
+    if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: 'Coupure secteur : plus de tension, la pompe s\'arrête', target: 'cable' }); }
     if (power && prev.outageUntil > 0 && st.t - sub < st.outageUntil && st.t >= st.outageUntil) newEv.push({ t: st.t, sev: 'ok', text: 'Retour du courant : redémarrage automatique possible', target: 'cable' });
     if (!st.master) { stop('arrêt manuel', true); st.q = 0; st.blocked = false; }
     // Moteur déjà lancé quand la panne apparaît : il cale et ronfle (rotor bloqué)
     if (fx.noStart && st.on && !st.hum) { st.hum = true; st.runT = 0; seen('ronfle', 'ne_demarre_pas', 'courant_haut'); newEv.push({ t: st.t, sev: 'critical', text: 'Le moteur cale et ronfle — courant de rotor bloqué', target: 'cable' }); }
-    const leakQ = (fx.leak ?? 0) * i.duty.qReq;
+    const leakQ = ((fx.leak ?? 0) + (st.burst === 'rupture' ? 0.7 : st.burst === 'fuite' ? 0.2 : 0) + (st.sealGone ? 0.03 : 0)) * i.duty.qReq;
     st.backDrop = false;
 
     if (kind === 'vessel' && v) {
@@ -394,6 +449,67 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       }
     }
 
+
+    // ===== Physique : moteur, liquide dans la pompe, pression =====
+    {
+      const closedNow = st.on && !st.hum && !st.noFlow && h.ok && st.q < 0.05;
+      if (st.on && st.dry) seen('marche_a_sec');
+      const iR = !st.on ? 0 : st.hum ? (i.elec.supply === 'mono' ? 4.5 : 3.2) : st.noFlow ? 0.42 : closedNow ? 0.5 * (fx.ampsK ?? 1)
+        : iBase * (fx.ampsK ?? 1) * (kind === 'vfd' || kind === 'solar' ? Math.max(0.35, st.s ** 2) : 1);
+      // Refroidissement : moteur immergé = liquide qui le longe ; moteur de surface = ventilateur (arrêté avec le moteur)
+      let cool = 1;
+      if (st.on && imm) {
+        if (st.noFlow || st.dry) cool = 8; // moteur dans l'air : plus aucun refroidissement par l'eau
+        else if (closedNow) cool = 2; // eau immobile autour du moteur
+        else if (isForage(i) && !i.acc.chemise?.on && i.geo.boreDia > i.pump.diameterMm) {
+          const ann = (Math.PI / 4) * ((i.geo.boreDia / 1000) ** 2 - (i.pump.diameterMm / 1000) ** 2);
+          const vc = st.q / 3600 / Math.max(1e-4, ann);
+          if (vc < 0.08) cool = 1.35; // vitesse de refroidissement insuffisante
+        }
+      }
+      const tEq = tAmb + 80 * iR * iR * cool;
+      const tau = st.hum ? tauM / 3 : !st.on && !imm ? tauM * 2.5 : tauM;
+      st.tm = (st.tm ?? tAmb) + ((tEq - (st.tm ?? tAmb)) * sub) / tau;
+      if (st.tm > 130) once('tm130', { t: st.t, sev: 'warning', text: `Moteur chaud : bobinage à ${f1(st.tm, 0)} °C`, target: 'pump' });
+      if (st.tm > 155) { once('tm155', { t: st.t, sev: 'critical', text: `Bobinage à ${f1(st.tm, 0)} °C : au-delà de la classe d'isolation F (155 °C), le vernis se dégrade`, target: 'pump' }); seen('bruit'); }
+      if (st.tm > 180 && !st.burnt) {
+        st.burnt = true;
+        trip(`Moteur grillé : bobinage à ${f1(st.tm, 0)} °C, court-circuit entre spires`, 'decl_thermique');
+      }
+      if (st.tm < 100) { delete st.flags!.tm130; }
+      // Relais thermique du disjoncteur moteur (classe 10, réglé au courant nominal)
+      if (i.elec.supply !== 'solaire') {
+        st.relay = (st.relay ?? 0) + ((iR * iR - (st.relay ?? 0)) * sub) / 250;
+        if (st.on && st.relay >= 1.44) trip(`Disjoncteur moteur Q1 déclenché (relais thermique) : ${f1(iR * er.inom)} A pour un réglage de ${f1(er.inom)} A`, 'decl_thermique');
+      }
+      // Liquide dans le corps de pompe : à débit nul, toute la puissance chauffe le liquide
+      const tf = i.fluid.temp;
+      if (closedNow) st.tl = (st.tl ?? tf) + ((kwM * 0.35 * 1000) / (mCase * 4186)) * sub;
+      else if (st.on && !st.noFlow && !st.hum) st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 30;
+      else st.tl = (st.tl ?? tf) + ((tf - (st.tl ?? tf)) * sub) / 900;
+      const ts = tSat(pShut + 1);
+      if (st.tl > 60 && closedNow) once('tl60', { t: st.t, sev: 'warning', text: `Le liquide chauffe dans la pompe : ${f1(st.tl, 0)} °C (débit nul, vanne fermée)`, target: 'pump' });
+      if (st.tl >= ts - 2) {
+        st.tl = ts;
+        if (!st.sealGone) {
+          st.sealGone = true; seen('fuite_visible', 'bruit');
+          newEv.push({ t: st.t, sev: 'critical', text: `Vaporisation dans la pompe (${f1(ts, 0)} °C) : la garniture mécanique est détruite, fuite au niveau de l'arbre`, target: 'pump' });
+        }
+      }
+      if (st.tl < 50) delete st.flags!.tl60;
+      // Pression à débit nul contre la conduite
+      if (closedNow && pShut > pn * 0.8 && !st.flags!.pshut) {
+        st.flags!.pshut = true;
+        if (i.acc.soupape?.on) { newEv.push({ t: st.t, sev: 'warning', text: `La soupape de décharge s'ouvre : elle limite la pression à environ ${f1(Math.min(pShut, pn * 0.9))} bar`, target: 'acc:soupape' }); st.pPeak = Math.min(pShut, pn * 0.9); st.pPeakT = st.t; }
+        else hit(pShut, 'Pression à débit nul');
+      }
+      if (!closedNow) delete st.flags!.pshut;
+      // Cavitation
+      if (st.on && h.ok && !st.noFlow && h.margin < 0.5) {
+        st.cavT = (st.cavT ?? 0) + sub; seen('bruit');
+        if (st.cavT >= 600) once('cav', { t: st.t, sev: 'critical', text: 'Cavitation prolongée : bruit de gravier, la roue s\'érode (piqûres)', target: 'pump' });
+      }
+    }
     // ----- Marche sans débit : protection manque d'eau -----
     if (st.on && st.noFlow) {
       st.dry = true; dryT += sub;
@@ -403,7 +519,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (st.runaway) seen('ne_s_arrete_pas');
     if (st.backDrop) seen('pression_tombe_arret');
     if (st.on && st.noFlow) seen('debit_nul', 'marche_a_sec');
-    if (st.blocked && !st.on) seen('ne_demarre_pas');
+    if (st.blocked && !st.on && !st.trip) seen('ne_demarre_pas'); // après un déclenchement, c'est la protection qui empêche le démarrage
     // ----- Déclenchement thermique / défaut -----
     if (st.on) {
       st.runT += sub; st.runTot = (st.runTot ?? 0) + sub;

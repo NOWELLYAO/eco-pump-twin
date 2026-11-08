@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Timer, Zap } from 'lucide-react';
+import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
 import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadings, makeCtx, observe, simKind, stepSim, type Mods, type SimState } from '../sim';
@@ -67,7 +67,7 @@ export function SimPage({ s }: { s: Shared }) {
   const r = liveReadings(ctx, sim);
   const obs = observe(ctx, nctx, sim);
   const note = (sev: 'info' | 'warning' | 'critical' | 'ok', text: string, target?: string) => (st: SimState): SimState => ({ ...st, events: [{ t: st.t, sev, text, target }, ...st.events].slice(0, 80) });
-  const cleared = (st: SimState): SimState => ({ ...st, isolated: null, trip: null, tripKind: null, recent: {}, primed: true, dd: 0, runaway: false, blocked: false, hum: false, noFlow: false, on: false });
+  const cleared = (st: SimState): SimState => ({ ...st, burnt: false, sealGone: false, burst: null, fatigue: 0, cavT: 0, relay: 0, tm: undefined, tl: undefined, flags: {}, isolated: null, trip: null, tripKind: null, recent: {}, primed: true, dd: 0, runaway: false, blocked: false, hum: false, noFlow: false, on: false });
   // La panne apparaît : chrono de déclenchement remis à zéro ; un moteur qui ne peut plus démarrer
   // s'arrête (micro-coupure) et retente aussitôt de démarrer.
   const inject = (st: SimState, e: NonNullable<ReturnType<typeof faultById>>['effect']): SimState => ({
@@ -110,7 +110,8 @@ export function SimPage({ s }: { s: Shared }) {
   const vesFill = vf == null ? undefined : ctx.fx.vesselK ? 1 - (1 - vf) * ctx.fx.vesselK : vf;
   const cNow = sim.series.at(-1)?.c ?? 0;
   const useRel = kind === 'vessel' || kind === 'vfd' ? cNow / Math.max(0.1, s.inst.duty.qReq) : kind === 'tank' ? cNow / Math.max(0.1, s.inst.duty.qReq * 0.55) : sim.on ? 0.6 : 0;
-  const live = { syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const phys = { tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
+  const live = { phys, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
   const reset = () => { setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
@@ -216,6 +217,9 @@ export function SimPage({ s }: { s: Shared }) {
           <div><small>Volume pompé</small><b>{fmt(sim.vol, 1)}<span>m³</span></b></div>
           <div><small>Énergie</small><b>{fmt(sim.kwh, 1)}<span>kWh</span></b><em>{money(sim.kwh * s.inst.duty.pricePerKwh, s.inst.duty.currency)}</em></div>
           <div className={sim.starts / hours > s.inst.pump.maxStarts ? 'bad' : ''}><small>Démarrages</small><b>{sim.starts}</b><em>{fmt(sim.starts / hours, 1)} /h (maxi {s.inst.pump.maxStarts})</em></div>
+          <div className={phys.tm > 155 ? 'bad' : phys.tm > 130 ? 'warn' : ''}><small><Thermometer size={13} aria-hidden /> Moteur</small><b>{fmt(phys.tm, 0)}<span>°C</span></b><em>{phys.burnt ? 'GRILLÉ' : `bobinage · relais ${fmt(Math.min(100, (phys.relay / 1.44) * 100), 0)} %`}</em></div>
+          {(phys.tl > s.inst.fluid.temp + 4 || phys.sealGone) && <div className={phys.sealGone ? 'bad' : phys.tl > 60 ? 'warn' : ''}><small><Thermometer size={13} aria-hidden /> Liquide dans la pompe</small><b>{fmt(phys.tl, 0)}<span>°C</span></b><em>{phys.sealGone ? 'garniture détruite' : 'débit nul : il chauffe'}</em></div>}
+          {phys.pPeak != null && <div className={phys.pPeak > s.inst.ref.pn ? 'bad' : phys.pPeak > s.inst.ref.pn * 0.8 ? 'warn' : ''}><small>Pointe de pression</small><b>{fmt(phys.pPeak, 1)}<span>bar</span></b><em>PN{s.inst.ref.pn}{phys.burst ? ` · ${phys.burst === 'rupture' ? 'CONDUITE ROMPUE' : 'fuite à un raccord'}` : ''}</em></div>}
           {(kind === 'solar' || kind === 'vfd' || mods.speed !== 100) && <div><small>Vitesse</small><b>{fmt((kind === 'solar' || kind === 'vfd' ? sim.s : mods.speed / 100) * 50, 1)}<span>Hz</span></b></div>}
         </div>
 

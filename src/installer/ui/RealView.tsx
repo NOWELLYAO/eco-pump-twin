@@ -1,4 +1,5 @@
-import { useId, type MouseEvent, type ReactNode } from 'react';
+import { useId, useRef, type MouseEvent, type ReactNode } from 'react';
+import { useDeclutter } from '../../ui/declutter';
 import type { Readings, SimKind } from '../sim';
 import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
@@ -97,7 +98,10 @@ export interface Live {
   use?: number; // consommation relative (robinets, réseau aval)
   inflow?: number; // arrivée dans la fosse (m³/h)
   syms?: string[]; runTot?: number; startLog?: number[]; simT?: number; // pour le coffret en direct
+  phys?: Phys;
 }
+/** Grandeurs physiques simulées */
+export interface Phys { tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
 
 /** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */
 function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: number; waterY: number; L?: number; stuck?: 'up' | 'down'; title: string }) {
@@ -119,6 +123,8 @@ function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: num
 }
 
 export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  useDeclutter(svgRef, ['.r-note text', '.r-dim text', 'g.lcd', 'g.r-closed', 'g.r-tbadge', 'text.r-label', 'text.r-stuck', 'g.state'], '.r-legend, g.term');
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const on = (id: string) => !!i.acc[id]?.on;
   const flow = live ? live.on && live.r.q > 0.05 : h.ok && h.q > 0.05;
@@ -525,9 +531,9 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       <g key={id} {...pick(`acc:${id}`)}>
         <rect x={p.x - 24} y={p.y - 30} width={48} height={60} className="hit" />
         <g transform={`translate(${p.x},${p.y}) rotate(${vertical ? 0 : p.a})`}><RealGlyph kind={a.glyph} /></g>
-        {id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <g className="r-closed"><rect x={p.x - 30} y={p.y + 50} width={60} height={16} rx={4} /><text x={p.x} y={p.y + 62} textAnchor="middle">FERMÉE</text><path d={`M${p.x - 10} ${p.y - 10} L${p.x + 10} ${p.y + 10} M${p.x + 10} ${p.y - 10} L${p.x - 10} ${p.y + 10}`} /></g>}
+        {id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <g className="r-closed"><path d={`M${p.x - 10} ${p.y - 10} L${p.x + 10} ${p.y + 10} M${p.x + 10} ${p.y - 10} L${p.x - 10} ${p.y + 10}`} /></g>}
         <text x={vertical ? p.x + 22 : p.x} y={vertical ? p.y + 4 : down ? p.y + (a.glyph === 'vessel' ? 88 : 40) : up ? p.y - (a.glyph === 'surge' ? 78 : 50) - (upN % 2) * 15 : p.y + 32 + (inlineN % 2) * 17} textAnchor={vertical ? 'start' : 'middle'} className="r-label">
-          <title>{a.label}</title>{SHORT[id] ?? a.label}{dnTxt}
+          <title>{a.label}</title>{SHORT[id] ?? a.label}{dnTxt}{id === 'vanne_ref' && live?.faults?.includes('vanne_fermee') && <tspan className="r-closed-t"> FERMÉE</tspan>}
         </text>
       </g>,
     );
@@ -656,6 +662,23 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
         </g>,
       );
     }
+    // Physique : moteur qui chauffe / grillé, garniture qui fuit, conduite en surpression / rompue
+    const P = live.phys;
+    if (P) {
+      const hot = Math.max(0, Math.min(1, (P.tm - 95) / 70));
+      if (hot > 0 || P.burnt) lcd.push(<g key="heat" className="r-heat"><circle cx={pxp} cy={pyp} r={30 + 10 * hot} style={{ opacity: P.burnt ? 0.25 : 0.15 + 0.5 * hot }} /><title>Moteur à {Math.round(P.tm)} °C</title></g>);
+      if (P.tm > 110 || P.burnt) lcd.push(<g key="tm" className={`r-tbadge ${P.burnt || P.tm > 155 ? 'crit' : 'warn'}`}><rect x={pxp - 42} y={pyp + 30} width={84} height={18} rx={9} /><text x={pxp} y={pyp + 43} textAnchor="middle">{P.burnt ? 'MOTEUR GRILLÉ' : `moteur ${Math.round(P.tm)} °C`}</text></g>);
+      if (P.burnt) lcd.push(<g key="smoke" className="r-smoke">{[0, 1, 2].map((k) => <circle key={k} cx={pxp - 8 + k * 8} cy={pyp - 20} r={6} style={{ animationDelay: `${k * 0.6}s` }} />)}</g>);
+      if (P.sealGone || P.tl > 90) lcd.push(<g key="seal" className="r-seal">{P.sealGone && [0, 1, 2].map((k) => <circle key={k} cx={pxp + 22} cy={pyp + 8} r={2.4} className="r-drop" style={{ animationDelay: `${k * 0.4}s` }} />)}{P.tl > 90 && [0, 1].map((k) => <path key={`v${k}`} d={`M${pxp + 14 + k * 10} ${pyp - 24} q -5 -8 0 -16 q 5 -8 0 -16`} className="r-vapor" style={{ animationDelay: `${k * 0.7}s` }} />)}</g>);
+      const mid = ref[Math.min(ref.length - 1, Math.max(1, Math.floor(ref.length / 2)))];
+      const recent = P.pPeak != null && (P.peakAge ?? 1e9) < 600 && P.pPeak > i.ref.pn * 0.8;
+      if (recent) lcd.push(<g key="ham"><path d={`M${ref.map((q) => q.join(' ')).join(' L')}`} className="r-overp" /><g className={`r-tbadge ${P.pPeak! > i.ref.pn ? 'crit' : 'warn'}`}><rect x={mid[0] - 70} y={mid[1] - 46} width={140} height={18} rx={9} /><text x={mid[0]} y={mid[1] - 33} textAnchor="middle">pointe {P.pPeak!.toFixed(1).replace('.', ',')} bar · PN{i.ref.pn}</text></g></g>);
+      if (P.burst) {
+        const [bx0, by0] = mid;
+        const big = P.burst === 'rupture';
+        lcd.push(<g key="burst" className="r-burst"><path d={`M${bx0 - 6} ${by0 - 6} l12 12 M${bx0 + 6} ${by0 - 6} l-12 12`} className="r-crack" />{(big ? [-40, -20, 0, 20, 40] : [-10, 10]).map((a, k) => <path key={k} d={`M${bx0} ${by0} q ${a * 0.6} ${-30 - (big ? 20 : 0)} ${a} ${big ? -10 : 4}`} className="r-sprayjet" style={{ animationDelay: `${k * 0.12}s` }} />)}<text x={bx0} y={by0 + 26} textAnchor="middle" className="r-label crit">{big ? 'CONDUITE ROMPUE' : 'fuite au raccord'}</text></g>);
+      }
+    }
     const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : 'ARRÊT';
     lcd.push(<g key="state" className={live.trip || live.hum || live.noFlow ? 'state fault' : live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{stTxt}</text></g>);
   }
@@ -709,7 +732,7 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
   dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68 }} className="realview" role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68 }} className="realview" role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
       <rect x={0} y={0} width={W} height={G} className="r-sky" />
       <g {...pick('source')}>{scene}</g>
       <g {...pick('dest')}>{destEls}</g>
