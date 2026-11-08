@@ -1399,3 +1399,7 @@ html, body { overflow-x: clip; }
 .realview.sandy .r-flow, .realview.sandy .r-stream, .realview.sandy .r-sprayjet { stroke: #c9a063; }
 .realview.sandy .r-water { fill: #b9a27a; }
 .r-tangle { fill: none; stroke: #2d3748; stroke-width: 2.5; stroke-linecap: round; }
+/* Barre du haut : tout reste visible entre 1100 et 1650 px */
+@media (max-width: 1650px) and (min-width: 761px) { .brand span { display: none; } }
+@media (max-width: 1450px) and (min-width: 761px) { .newbtn span, .installbtn span { display: none; } .pagenav button { padding: 9px 10px; } .pagenav { margin-left: 4px; } }
+@media (max-width: 1280px) and (min-width: 761px) { .pagenav span { display: none; } }
