@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, Camera, ExternalLink, Eye, Network, Plus, Trash2, X } from 'lucide-react';
+import { Activity, Camera, CircuitBoard, ExternalLink, Eye, Network, Plus, Trash2, X, Zap } from 'lucide-react';
 import { ACC, APPS, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import type { Evaluation } from '../evaluate';
 import { defaultDn } from '../evaluate';
@@ -12,8 +12,9 @@ import { fmt } from '../../ui/util';
 import { RealView, type Live } from './RealView';
 import { PidView } from './PidView';
 import { InstCurve } from './Report';
+import { CabinetView, WiringView, type ELive } from './Electrical';
 
-type View = 'real' | 'pid' | 'curve';
+type View = 'real' | 'pid' | 'curve' | 'cab' | 'wire';
 const LV = { critical: 'critical', warning: 'warning', info: 'info' } as const;
 
 interface Photo { thumb: string; page: string; title: string }
@@ -134,6 +135,10 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
 }) {
   const term = termLines(i, ev, live ? { on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz } : undefined);
   const [view, setView] = useState<View>('real');
+  const elive: ELive | undefined = live ? {
+    powered: live.powered ?? true, on: live.on, trip: live.trip ?? null, tripKind: live.tripKind ?? null, hum: !!live.hum, amps: live.r.amps, faults: live.faults ?? [],
+    coilOn: live.on && !(live.runaway && (live.faults ?? []).includes('contacteur_colle')),
+  } : undefined;
   return (
     <div className="diagram" id="diagram">
       <section className="card views">
@@ -141,6 +146,8 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
           <button role="tab" aria-selected={view === 'real'} onClick={() => setView('real')}><Eye size={15} aria-hidden /> Vue réelle</button>
           <button role="tab" aria-selected={view === 'pid'} onClick={() => setView('pid')}><Network size={15} aria-hidden /> Schéma P&ID</button>
           <button role="tab" aria-selected={view === 'curve'} onClick={() => setView('curve')}><Activity size={15} aria-hidden /> Courbes</button>
+          <button role="tab" aria-selected={view === 'cab'} onClick={() => setView('cab')}><CircuitBoard size={15} aria-hidden /> Coffret</button>
+          <button role="tab" aria-selected={view === 'wire'} onClick={() => setView('wire')}><Zap size={15} aria-hidden /> Schéma élec.</button>
           <span className="vhint">Cliquez sur un élément pour sa fiche</span>
         </div>
         {banner && (
@@ -154,6 +161,8 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
           {view === 'real' && <RealView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} live={live} term={term} />}
           {view === 'pid' && <PidView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} />}
           {view === 'curve' && <InstCurve i={i} ev={ev} />}
+          {view === 'cab' && <CabinetView i={i} ev={ev} live={elive} />}
+          {view === 'wire' && <WiringView i={i} ev={ev} live={elive} />}
         </div>
       </section>
       {selected && <Detail t={selected} i={i} ev={ev} onIssue={onIssue} onSet={onSet} onClose={() => onPick(null)} />}

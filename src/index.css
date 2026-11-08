@@ -1011,3 +1011,176 @@ html, body { overflow-x: clip; }
 .drawctl .chip { align-self: flex-start; }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 .simnote { margin: 2px 0 8px; line-height: 1.4; }
+.power.fault { background: repeating-linear-gradient(135deg, #b42626 0 14px, #d03b3b 14px 28px); box-shadow: 0 6px 18px rgba(208, 59, 59, .35); }
+
+/* ===== Pannes et dépannage ===== */
+.faults h3 { display: flex; align-items: center; gap: 8px; }
+.faults .fh { margin: 16px 0 8px; font-size: .95rem; }
+.fstate { display: flex; gap: 10px; align-items: center; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+.fstate.trip { background: var(--crit-bg); color: var(--crit-ink); border: 1px solid var(--crit); }
+.fstate.out { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn); }
+.fstate span { flex: 1; }
+.fstate .btn { min-height: 42px; }
+.syms { display: flex; flex-wrap: wrap; gap: 6px; }
+.sym { font-size: .82rem; font-weight: 700; padding: 5px 10px; border-radius: 999px; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn); }
+.sym.crit { background: var(--crit-bg); color: var(--crit-ink); border-color: var(--crit); }
+.ok-line { display: flex; gap: 6px; align-items: center; }
+.causes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.causes li { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); overflow: hidden; }
+.cause { width: 100%; display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; text-align: left; border: 0; background: none; padding: 10px 12px; min-height: 56px; }
+.cbar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.cbar i { display: block; height: 100%; background: var(--brand); }
+.ctxt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ctxt small { color: var(--muted); font-size: .78rem; }
+.causes li.open .chev { transform: rotate(180deg); }
+.fi { padding: 4px 14px 14px; font-size: .9rem; }
+.fi h6 { margin: 12px 0 4px; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.fi ul, .fi ol { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 3px; }
+.fi ul.fix { list-style: none; padding-left: 0; }
+.fi ul.fix li { display: flex; gap: 6px; align-items: baseline; color: var(--brand-ink); }
+.fi-what { margin: 6px 0; font-weight: 600; }
+.fi .parts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.fi .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.mystery { margin-top: 12px; border: 2px dashed var(--brand); border-radius: 12px; padding: 12px; background: var(--brand-soft); }
+.mystery.good { border-style: solid; border-color: var(--good); background: var(--good-bg); }
+.mystery.bad { border-style: solid; border-color: var(--crit); background: var(--crit-bg); }
+.mystery h4 { margin: 0 0 6px; display: flex; gap: 6px; align-items: center; }
+.mystery .verdict { display: flex; gap: 6px; align-items: center; font-weight: 800; font-size: 1.05rem; margin: 4px 0; }
+.mystery .fi { padding: 0; }
+.qopts { display: grid; grid-template-columns: 1fr; gap: 8px; }
+@media (min-width: 640px) { .qopts { grid-template-columns: 1fr 1fr; } }
+.qopt { justify-content: flex-start; text-align: left; min-height: 50px; background: var(--panel); }
+.fcats { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.flist { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 210px), 1fr)); gap: 8px; margin-bottom: 10px; }
+.fbtn { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; min-height: 54px; border-radius: 10px; border: 1.5px solid var(--line); background: var(--panel); }
+.fbtn small { color: var(--muted); font-size: .76rem; }
+.fbtn.on { border-color: var(--crit); background: var(--crit-bg); }
+.fbtn.on b { color: var(--crit-ink); }
+
+/* ===== Eau et flotteurs animés ===== */
+.r-anim-level { transition: transform 1.6s cubic-bezier(.4, .1, .3, 1); }
+.r-anim-slow { transition: transform 1.2s cubic-bezier(.4, .1, .3, 1); }
+.r-surface { fill: #ffffff; opacity: .45; animation: ripple 2.6s ease-in-out infinite; }
+@keyframes ripple { 0%, 100% { opacity: .25; } 50% { opacity: .6; } }
+.r-air { fill: #e9eef3; }
+.g-float.closed { fill: #29a329; }
+.g-float.stuck { stroke: #d03b3b; stroke-width: 2.5; }
+.r-stuck { fill: #d03b3b; font-size: 12px; font-weight: 800; }
+.state.fault circle { fill: #d03b3b; animation: blink 0.8s steps(2) infinite; }
+.state.fault text { fill: #d03b3b; font-weight: 800; }
+@keyframes blink { 50% { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .r-anim-level, .r-anim-slow { transition: none; } .r-surface, .state.fault circle { animation: none; } }
+
+/* ===== Coffret électrique ===== */
+.cabinet svg, .wiring svg { display: block; width: 100%; height: auto; }
+.cabinet svg text, .wiring svg text { font-family: var(--f-body); }
+.cab-box { fill: #c9d1d8; stroke: #8a96a3; stroke-width: 2; }
+.cab-plate { fill: #f3f1ea; stroke: #b9b2a0; }
+.cab-rail { fill: #b8c0c8; stroke: #8a96a3; }
+.cab-duct { fill: #8f9ba6; opacity: .55; }
+.cab-row { font-size: 13px; font-weight: 800; fill: #3a4650; text-transform: uppercase; letter-spacing: .05em; }
+.cab-foot { font-size: 11px; fill: #3a4650; }
+.cab-door { fill: #d8dee3; stroke: #8a96a3; stroke-width: 2; }
+.m-body { fill: #fbfbfa; stroke: #9aa5ae; stroke-width: 1.2; }
+.m-body.dark { fill: #2f3a44; stroke: #1b232a; }
+.mod { cursor: pointer; }
+.mod.sel .m-body { stroke: var(--brand); stroke-width: 3; }
+.mod.hl .m-body { stroke: #d03b3b; stroke-width: 3; stroke-dasharray: 5 3; }
+.m-tag { font-size: 12px; font-weight: 800; fill: #17242e; }
+.m-tripTxt { font-size: 10.5px; font-weight: 800; fill: #d03b3b; }
+.m-mini { font-size: 9px; font-weight: 700; fill: #3a4650; }
+.m-lever { fill: #3a4650; }
+.m-lever.on { fill: #0a8f2e; }
+.m-lever.trip { fill: #d03b3b; }
+.m-test { fill: #f0b429; }
+.m-knob { fill: #f0b429; stroke: #8a5a00; }
+.m-knob-bar { fill: #d03b3b; }
+.m-dial { fill: #e8ecef; stroke: #8a96a3; }
+.m-needle { stroke: #17242e; stroke-width: 2; }
+.m-window { fill: #dfe5ea; stroke: #8a96a3; }
+.m-window.on, .m-window.fault { fill: #c9f0c9; }
+.m-window.fault { stroke: #d03b3b; stroke-width: 2; }
+.m-led { fill: #b9c2c9; }
+.m-led.green { fill: #2fae3a; }
+.m-led.red { fill: #d03b3b; animation: blink .8s steps(2) infinite; }
+.m-fuse { fill: #e2d6b8; stroke: #8a7a50; }
+.m-cart { fill: #5d6b78; }
+.m-ok { fill: #2fae3a; }
+.m-term { fill: #9aa5ae; }
+.m-pe { fill: #3fae3f; stroke: #e1c300; stroke-width: 2; }
+.m-coil { fill: #c27a3a; stroke: #7a4a1a; }
+.m-core { stroke: #5d5248; stroke-width: 3; }
+.m-cap { fill: #3a6fb0; stroke: #234a7a; }
+.m-screen { fill: #13232f; }
+.m-screen.on { fill: #0d3b1f; }
+.m-screen.trip { fill: #4a1010; }
+.m-scrtxt { fill: #8cf08c; font-family: ui-monospace, Menlo, monospace !important; font-size: 11px; font-weight: 700; }
+.m-vent { fill: #26303a; }
+.door-it { cursor: pointer; }
+.door-it.sel .d-bezel, .door-it.sel .d-meter, .door-it.sel .d-keypad, .door-it.sel .d-yellow { stroke: var(--brand); stroke-width: 3; }
+.d-bezel { fill: #c9d1d8; stroke: #6c7782; }
+.d-lamp { fill: #8a96a3; }
+.d-lamp.w.lit { fill: #fffbe0; filter: drop-shadow(0 0 5px #fff6a0); }
+.d-lamp.g.lit { fill: #36d13f; filter: drop-shadow(0 0 5px #36d13f); }
+.d-lamp.r.lit { fill: #ff3b3b; filter: drop-shadow(0 0 6px #ff3b3b); animation: blink .8s steps(2) infinite; }
+.d-lamp.o { fill: #b57a20; }
+.d-handle { fill: #17242e; }
+.d-mini { font-size: 10px; font-weight: 800; fill: #17242e; }
+.d-yellow { fill: #f0c419; stroke: #8a6a00; }
+.d-red { fill: #d03b3b; stroke: #8a1a1a; }
+.d-meter { fill: #fbfbf6; stroke: #6c7782; }
+.d-scale { fill: none; stroke: #6c7782; stroke-width: 1.5; }
+.d-needle { stroke: #d03b3b; stroke-width: 2; transition: all .6s; }
+.d-digits { font-family: ui-monospace, monospace !important; font-size: 12px; fill: #17242e; }
+.d-keypad { fill: #2f3a44; stroke: #1b232a; }
+.cab-warn { color: var(--crit-ink); font-weight: 700; margin: 8px 0 0; }
+.cab-card { margin-top: 10px; border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 10px; padding: 10px 12px; background: var(--panel-2); }
+.cab-card p { margin: 6px 0; line-height: 1.45; }
+.cab-card-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cab-legend { list-style: none; padding: 0; margin: 10px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 4px; }
+.cab-legend button { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 8px 10px; min-height: 40px; font-size: .86rem; }
+.cab-legend button.hl { border-color: var(--crit); background: var(--crit-bg); }
+
+/* ===== Schéma électrique ===== */
+.wiring-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 1000px) { .wiring-grid { grid-template-columns: 1fr 1fr; } }
+.wiring figure { margin: 0; background: #fffef8; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.wiring figcaption { font-weight: 800; color: #17242e; margin-bottom: 4px; }
+.elec-svg .w { fill: none; stroke: #33404a; stroke-width: 2; }
+.elec-svg .w.live { stroke: #e8730c; stroke-width: 3; }
+.elec-svg .w.pe { stroke: #3fae3f; stroke-dasharray: 8 4; }
+.elec-svg .w.bad { stroke: #d03b3b; stroke-dasharray: 3 3; }
+.elec-svg .blade { stroke-width: 2.5; }
+.elec-svg .sym { fill: none; stroke: #33404a; stroke-width: 1.6; }
+.elec-svg .sym.bad { stroke: #d03b3b; stroke-width: 3; }
+.elec-svg .mech { fill: none; stroke: #6c7782; stroke-width: 1.2; stroke-dasharray: 4 3; }
+.e-tag { font-size: 12.5px; font-weight: 800; fill: #17242e; }
+.e-tag.pe { fill: #2a8a2a; }
+.e-sub { font-size: 11px; fill: #4a5864; }
+.e-trip { font-size: 12px; font-weight: 800; fill: #d03b3b; }
+.e-block { fill: #eef3f7; stroke: #33404a; stroke-width: 1.8; }
+.e-block.energ { stroke: #e8730c; }
+.e-therm { fill: #fff; stroke: #33404a; }
+.e-term { fill: #fff; stroke: #33404a; stroke-width: 1.6; }
+.e-coil { fill: #fff; stroke: #33404a; stroke-width: 2; }
+.e-coil.on { fill: #ffe2c4; stroke: #e8730c; }
+.e-lamp { fill: #fff; stroke: #33404a; stroke-width: 1.8; }
+.e-lamp.on.w { fill: #fffbd0; } .e-lamp.on.g { fill: #9df09d; } .e-lamp.on.r { fill: #ff9a9a; } .e-lamp.on.o { fill: #ffd08a; }
+.e-fuse { fill: #fff; stroke: #33404a; stroke-width: 1.8; }
+.e-motor { fill: #fff; stroke: #33404a; stroke-width: 2.5; }
+.e-motor.run { stroke: #e8730c; fill: #fff2e4; }
+.e-motor.hum { stroke: #d03b3b; fill: #ffe4e4; animation: blink .5s steps(2) infinite; }
+.e-motor-t { font-size: 22px; font-weight: 800; fill: #17242e; }
+.e-pv { fill: #1f3d6b; stroke: #0f2340; }
+.e-sensor { fill: #fff; stroke: #33404a; stroke-width: 2; }
+.wiring-legend { margin: 10px 0 0; padding-left: 18px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.elec-svg text { stroke: none; }
+.elec-svg text.e-tag { fill: #17242e; }
+.elec-svg text.e-sub { fill: #4a5864; }
+.cab-wrap { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-start; }
+.cab-wrap .cab-in { flex: 1 1 480px; min-width: 0; }
+.cab-wrap .cab-doorsvg { flex: 0 0 210px; width: 210px; margin: 0 auto; }
+@media (max-width: 760px) {
+  .cab-legend { grid-template-columns: 1fr 1fr; }
+  .cab-legend button { font-size: .78rem; padding: 6px 8px; min-height: 44px; }
+}

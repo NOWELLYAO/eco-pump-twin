@@ -83,3 +83,12 @@ projet → type de pompe et montage → liquide → besoin (débit, pression, he
 (DN calculés : ≤ 1,2 m/s à l'aspiration, ≤ 1,5 m/s au refoulement) → accessoires (requis + conseillés cochés)
 → pompe proposée (débit et hauteur totale calculés, réserve de pression si pressostat) → électricité (section de câble
 calculée, solaire) → résultat (note, alertes et corrections en un clic).
+
+## Pannes, coffret et schéma électrique
+
+- **Pannes** (page Simulation) : 25 pannes réalistes en 6 familles (prise d'air, clapet qui fuit, roue bouchée, vanne fermée, fuite réseau, source qui se tarit, crépine colmatée, vessie crevée, pressostat collé ou déréglé, capteur HS, flotteurs bloqués, perte de phase, condensateur, défaut d'isolement, contacteur collé, défaut variateur, coupure, sous-tension, roulements, garniture, rotation inversée). Chaque panne agit sur la simulation (déclenchements, désamorçage, marche à sec, débordement…).
+- **Diagnostic** : les symptômes sont relevés en comparant avec l'installation saine ; les causes probables sont classées par correspondance de signature, avec vérifications, réparation et pièces exposées. Mode « panne mystère » pour s'entraîner.
+- **Eau animée** : niveaux du forage, de la bâche, de la fosse, du réservoir et du ballon à vessie ; flotteurs à câble qui pivotent avec la surface.
+- **Coffret** : composants déduits de l'installation (sectionneur, parafoudre, différentiel, disjoncteur moteur, contacteurs, variateur / démarreur, relais, voyants, sélecteur…), états en direct.
+- **Schéma électrique** : circuit de puissance et circuit de commande, adaptés au mode de démarrage.
+

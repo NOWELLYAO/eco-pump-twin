@@ -2,13 +2,14 @@ import { refStatic } from './catalog';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, pumpHead, solve, suctionZ, type Hydro } from './hydraulics';
 import type { Installation } from './types';
+import { applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
 
 const G = 9.81;
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
 
 /** draw : consommation imposée en % du besoin ; -1 = profil journalier automatique. */
-export interface Mods { valve: number; speed: number; level: number; clog: number; wear: number; draw: number }
-export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 0, draw: -1 };
+export interface Mods { valve: number; speed: number; level: number; clog: number; wear: number; draw: number; faults: string[] }
+export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 0, draw: -1, faults: [] };
 
 /** Installation telle qu'elle fonctionne avec les réglages de simulation. */
 export function applyMods(i: Installation, m: Mods): Installation {
@@ -34,7 +35,7 @@ export function applyMods(i: Installation, m: Mods): Installation {
     else if (x.mode === 'charge') x.geo.chargeHead = Math.max(0, x.geo.chargeHead + m.level);
     else x.geo.wetLevel = Math.max(0, x.geo.wetLevel + m.level);
   }
-  return x;
+  return m.faults?.length ? applyFaults(x, m.faults) : x;
 }
 
 export interface Readings { q: number; pRef: number; pAsp: number; amps: number; kw: number; hmt: number; margin: number; on: boolean }
@@ -100,6 +101,20 @@ export interface SimState {
   dry: boolean; overflow: boolean; cav: boolean;
   events: SimEvent[];
   series: SimPoint[];
+  // Pannes
+  trip: string | null; // protection déclenchée (message)
+  tripKind: Sym | null; // quelle protection
+  recent: Partial<Record<Sym, number>>; // symptômes passagers vus récemment (instant)
+  hum: boolean; // moteur alimenté mais bloqué
+  primed: boolean; // pompe amorcée
+  noFlow: boolean; // en marche sans débit (désamorcée, à sec)
+  runT: number; // temps de marche depuis le démarrage (s)
+  outageUntil: number; // coupure secteur jusqu'à t
+  dd: number; // rabattement supplémentaire du niveau (m)
+  startLog: number[]; // instants des démarrages
+  runaway: boolean; // l'arrêt est demandé mais la pompe tourne
+  blocked: boolean; // le démarrage est demandé mais impossible
+  backDrop: boolean; // la pression / le niveau chute pompe arrêtée
 }
 
 export const clock = (t: number) => {
@@ -112,11 +127,11 @@ const hourOf = (t: number) => (t % 86400) / 3600;
 /** Profil de consommation domestique (fraction du débit de pointe). */
 const demand = (hr: number) => Math.min(1, 0.08 + 0.85 * Math.exp(-(((hr - 7) / 1.3) ** 2)) + 0.65 * Math.exp(-(((hr - 19.5) / 1.6) ** 2)) + 0.3 * Math.exp(-(((hr - 12.5) / 1.5) ** 2)));
 
-export interface SimCtx { i: Installation; h: Hydro; er: ElecResult; kind: SimKind; draw: number }
+export interface SimCtx { i: Installation; h: Hydro; er: ElecResult; kind: SimKind; draw: number; fx: FaultEffect & { ids: string[] } }
 
-export function makeCtx(i: Installation, draw = -1): SimCtx {
+export function makeCtx(i: Installation, draw = -1, faults: string[] = []): SimCtx {
   const h = solve(i);
-  return { i, h, er: electrical(i, h).r, kind: simKind(i), draw };
+  return { i, h, er: electrical(i, h).r, kind: simKind(i), draw, fx: combined(faults) };
 }
 /** Fraction du besoin consommée à cette heure (profil journalier, ou valeur imposée). */
 const use = (ctx: SimCtx, hr: number) => (ctx.draw >= 0 ? ctx.draw / 100 : demand(hr));
@@ -124,7 +139,10 @@ const use = (ctx: SimCtx, hr: number) => (ctx.draw >= 0 ? ctx.draw / 100 : deman
 export function initSim(ctx: SimCtx): SimState {
   const { kind, er } = ctx;
   const x = kind === 'vessel' ? (er.vessel?.pOn ?? 3) + 0.4 : kind === 'vfd' ? (er.vessel?.pOn ?? 3) + 0.5 : kind === 'pit' ? 0.2 : kind === 'tank' ? 0.6 : 0;
-  return { t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [] };
+  return {
+    t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [],
+    trip: null, tripKind: null, recent: {}, hum: false, primed: true, noFlow: false, runT: 0, outageUntil: 0, dd: 0, startLog: [], runaway: false, blocked: false, backDrop: false,
+  };
 }
 
 const speedCache = new Map<string, Hydro>();
@@ -163,70 +181,149 @@ function stopEvent(ctx: SimCtx, st: SimState, why: string): SimEvent[] {
   return ev;
 }
 
+/** Hauteur d'eau disponible avant que la pompe n'aspire de l'air (m). */
+function submergence(i: Installation) {
+  if (isForage(i)) return Math.max(0.5, i.geo.pumpDepth - i.geo.dynamicLevel);
+  if (i.mode === 'aspiration') return Math.max(0.3, i.geo.immersion);
+  if (i.mode === 'charge') return Math.max(0.3, i.geo.chargeHead + i.geo.immersion);
+  return Math.max(0.2, i.geo.wetLevel);
+}
+
 /** Avance la simulation de dt secondes (par pas internes de 5 s). */
 export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
-  const { i, h, er, kind } = ctx;
+  const { i, h, er, kind, fx } = ctx;
   const st: SimState = { ...prev, events: prev.events };
   const newEv: SimEvent[] = [];
   const rhoG = i.fluid.rho * G;
   const sub = 5;
   const n = Math.max(1, Math.round(dt / sub));
-  const v = er.vessel;
-  const start = () => { if (!st.on) { st.on = true; st.starts++; newEv.push(...startEvent(ctx, st)); } };
-  const stop = (why: string) => { if (st.on) { st.on = false; newEv.push(...stopEvent(ctx, st, why)); } };
+  const v0 = er.vessel;
+  // Pressostat déréglé : seuils décalés de 1 bar vers le bas
+  const v = v0 && fx.pswitch === 'drift' ? { ...v0, pOn: Math.max(0.3, v0.pOn - 1), pOff: Math.max(0.8, v0.pOff - 1) } : v0;
+  const hasDryProt = !!i.acc.marche_sec?.on;
+  const avail = submergence(i);
+  let dryT = 0;
+
+  const seen = (...xs: Sym[]) => { st.recent = { ...st.recent }; for (const x of xs) st.recent[x] = st.t; };
+  const trip = (msg: string, kind: Sym = 'decl_thermique') => {
+    if (st.trip) return;
+    st.trip = msg; st.tripKind = kind; seen(kind); st.on = false; st.hum = false; st.noFlow = false; st.q = 0;
+    newEv.push({ t: st.t, sev: 'critical', text: `${msg} — la pompe est arrêtée, réarmement nécessaire`, target: 'cable' });
+  };
+  const start = () => {
+    if (st.on) return;
+    if (!st.master) return;
+    const power = st.t >= st.outageUntil;
+    if (!power || st.trip) { st.blocked = true; return; }
+    st.blocked = false;
+    if (fx.tripAtStart) { st.starts++; st.startLog = [...st.startLog, st.t].slice(-60); trip(fx.tripAtStart, fx.tripKind ?? 'decl_diff'); return; }
+    st.on = true; st.starts++; st.runT = 0; st.startLog = [...st.startLog, st.t].slice(-60);
+    st.hum = !!fx.noStart;
+    st.noFlow = !st.hum && !st.primed;
+    newEv.push(...startEvent(ctx, st));
+    if (st.hum) seen('ronfle', 'ne_demarre_pas', 'courant_haut');
+    if (st.noFlow) seen('debit_nul', 'marche_a_sec');
+    if (st.hum) newEv.push({ t: st.t, sev: 'critical', text: 'Le moteur ronfle mais ne tourne pas — courant de rotor bloqué', target: 'cable' });
+    if (st.noFlow) newEv.push({ t: st.t, sev: 'critical', text: 'Pompe désamorcée : elle tourne sans débiter (marche à sec)', target: 'pump' });
+  };
+  const stop = (why: string, forced = false) => {
+    if (!st.on) return;
+    if (fx.noStop && !forced) {
+      if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Arrêt demandé (${why}) mais le moteur reste alimenté`, target: 'cable' });
+      st.runaway = true; seen('ne_s_arrete_pas', 'marche_sans_commande'); return;
+    }
+    st.on = false; st.hum = false; st.noFlow = false; st.runaway = false;
+    if (fx.primeLoss) st.primed = false;
+    newEv.push(...stopEvent(ctx, st, why));
+  };
 
   for (let k = 0; k < n; k++) {
     const hr = hourOf(st.t);
-    if (!st.master) { stop('arrêt manuel'); st.q = 0; }
+    const power = st.t >= st.outageUntil;
+    if (!power && st.on) { st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: 'Coupure secteur : plus de tension, la pompe s\'arrête', target: 'cable' }); }
+    if (power && prev.outageUntil > 0 && st.t - sub < st.outageUntil && st.t >= st.outageUntil) newEv.push({ t: st.t, sev: 'ok', text: 'Retour du courant : redémarrage automatique possible', target: 'cable' });
+    if (!st.master) { stop('arrêt manuel', true); st.q = 0; st.blocked = false; }
+    // Moteur déjà lancé quand la panne apparaît : il cale et ronfle (rotor bloqué)
+    if (fx.noStart && st.on && !st.hum) { st.hum = true; st.runT = 0; seen('ronfle', 'ne_demarre_pas', 'courant_haut'); newEv.push({ t: st.t, sev: 'critical', text: 'Le moteur cale et ronfle — courant de rotor bloqué', target: 'cable' }); }
+    const leakQ = (fx.leak ?? 0) * i.duty.qReq;
+    st.backDrop = false;
 
     if (kind === 'vessel' && v) {
-      const vt = v.vol / 1000; // m³
-      const qd = use(ctx, hr) * i.duty.qReq; // m³/h
-      // Pression → volume d'eau stocké (loi de Boyle)
+      const vt = (v.vol / 1000) * (fx.vesselK ?? 1); // m³ utiles
+      const qd = use(ctx, hr) * i.duty.qReq + leakQ;
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
-      if (st.master && st.x <= v.pOn) start();
-      if (st.on && st.x >= v.pOff) stop(`pressostat (${f1(v.pOff)} bar)`);
+      if (st.x <= v.pOn) start();
+      if (st.on && st.x >= v.pOff) {
+        if (fx.pswitch === 'stuck') { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte mais le pressostat ne coupe pas`, target: 'acc:pressostat' }); st.runaway = true; }
+        else stop(`pressostat (${f1(v.pOff)} bar)`);
+      }
       const hNeed = (st.x * 1e5) / rhoG - suctionZ(i);
       const h0 = pumpHead(i, 0);
-      const kq = (h0 - pumpHead(i, i.pump.qn)) / (i.pump.qn * i.pump.qn);
-      st.q = st.on ? Math.sqrt(Math.max(0, (h0 - hNeed) / Math.max(1e-6, kq))) : 0;
+      // Débit de la pompe face à la pression du réservoir + pertes (vannes, filtres…) : bissection
+      let qq = 0;
+      if (st.on && !st.hum && !st.noFlow && h0 > hNeed) {
+        let lo = 0, hi = i.pump.qn * 2.5 * h.n;
+        for (let it = 0; it < 22; it++) { const m = (lo + hi) / 2; if (pumpHead(i, m) - losses(i, m).total > hNeed) lo = m; else hi = m; }
+        qq = lo;
+      }
+      st.q = qq;
+      if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
       vw += ((st.q - qd) / 3600) * sub;
-      if (vw <= 0) {
-        // Réservoir vide : la pression ne tient que si la pompe suit la demande
-        st.x = st.on ? Math.min(v.pOff, st.x) : Math.max(0, st.x - 0.05);
-      } else st.x = (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1;
+      const pMax = (h0 + Math.max(0, suctionZ(i))) * rhoG / 1e5;
+      if (vw <= 0) st.x = st.on && st.q > 0 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - 0.08);
+      else st.x = Math.min(pMax, (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1);
+      if (st.on && st.q < 0.05 * i.duty.qReq && st.x >= pMax - 0.05) st.x = pMax;
       st.s = 1;
     } else if (kind === 'vfd') {
-      const set = (v?.pOn ?? 3) + 0.5;
-      const qd = use(ctx, hr) * i.duty.qReq;
-      if (st.master && qd > 0.06 * i.duty.qReq) start();
-      if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
-      const hs = (set * 1e5) / rhoG - suctionZ(i);
+      const set = (v0?.pOn ?? 3) + 0.5;
+      const qd = use(ctx, hr) * i.duty.qReq + leakQ;
       const h0n = pumpHead(i, 0);
       const kq = (h0n - pumpHead(i, i.pump.qn)) / (i.pump.qn ** 2);
       const qe = qd / h.n;
-      const sNeed = Math.sqrt((hs + kq * qe * qe) / h0n);
-      if (st.on && sNeed > 1) {
-        // Le variateur est à 50 Hz et ne tient plus la consigne : la pression chute sur la courbe de la pompe
-        st.s = 1;
-        const hAt = Math.max(0, h0n - kq * qe * qe);
-        st.x = Math.max(0, (hAt + suctionZ(i)) * rhoG / 1e5);
-        st.q = qd;
-        if (!st.cav) { st.cav = true; newEv.push({ t: st.t, sev: 'warning', text: `Variateur à 50 Hz : consigne ${f1(set)} bar non tenue (${f1(st.x)} bar) — pompe trop faible pour cette consommation`, target: 'pump' }); }
+      if (fx.sensorZero) {
+        // Le variateur croit la pression nulle : il reste à 50 Hz et ne se met jamais en veille
+        start();
+        if (st.on && !st.hum && !st.noFlow) {
+          st.s = 1; st.q = qd;
+          st.x = Math.max(0, (h0n - kq * qe * qe + suctionZ(i)) * rhoG / 1e5);
+          if (qd < 0.06 * i.duty.qReq) { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: 'Consommation nulle mais le variateur reste à 50 Hz (capteur lu à 0 bar)', target: 'acc:capteur_p' }); st.runaway = true; }
+        } else { st.q = 0; }
       } else {
-        st.q = st.on ? qd : 0;
-        st.x = st.on ? set + (Math.sin(st.t / 37) * 0.04) : Math.max(set - 0.6, st.x - 0.01);
-        st.s = st.on ? Math.max(0.3, sNeed) : 0;
-        if (sNeed < 0.95) st.cav = false;
+        if (qd > 0.06 * i.duty.qReq) start();
+        if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
+        const hs = (set * 1e5) / rhoG - suctionZ(i);
+        const sNeed = Math.sqrt((hs + kq * qe * qe) / h0n);
+        if (st.on && (st.hum || st.noFlow)) { st.q = 0; st.s = 1; st.x = Math.max(0, st.x - 0.05); }
+        else if (st.on && sNeed > 1) {
+          st.s = 1;
+          const hAt = Math.max(0, h0n - kq * qe * qe);
+          st.x = Math.max(0, (hAt + suctionZ(i)) * rhoG / 1e5);
+          st.q = qd;
+          if (!st.cav) { st.cav = true; newEv.push({ t: st.t, sev: 'warning', text: `Variateur à 50 Hz : consigne ${f1(set)} bar non tenue (${f1(st.x)} bar) — pompe trop faible pour cette consommation`, target: 'pump' }); }
+        } else if (st.on) {
+          st.q = qd;
+          st.x = set + (Math.sin(st.t / 37) * 0.04);
+          st.s = Math.max(0.3, sNeed);
+          if (sNeed < 0.95) st.cav = false;
+        } else {
+          st.q = 0;
+          st.x = Math.max(fx.backflow ? 0 : set - 0.6, st.x - (fx.backflow ? 0.12 : 0.01) - (qd > 0 && !power ? 0.2 : 0));
+          if (fx.backflow) st.backDrop = true;
+        }
       }
     } else if (kind === 'pit') {
       const area = (i.geo.tankVolume / 1000) / 0.5; // m², 0,5 m entre flotteurs
       const qin = (0.15 + 0.75 * use(ctx, hr)) * h.q * 0.55;
-      const hasStart = !!i.acc.flotteur_marche?.on, hasStop = !!i.acc.flotteur_arret?.on;
-      if (st.master && hasStart && st.x >= 0.5) start();
-      if (st.master && !hasStart && st.x >= 0.5 && !st.overflow && st.x >= 1.2) { st.overflow = true; newEv.push({ t: st.t, sev: 'critical', text: 'Débordement de la fosse : aucun flotteur de marche', target: 'acc:flotteur_marche' }); }
-      if (st.on && hasStop && st.x <= 0) stop('flotteur bas');
-      st.q = st.on && h.ok ? h.q : 0;
+      const hasStart = !!i.acc.flotteur_marche?.on && fx.floatPit !== 'low';
+      const hasStop = !!i.acc.flotteur_arret?.on && fx.floatPit !== 'high';
+      if (hasStart && st.x >= 0.5) start();
+      if (fx.floatPit === 'low' && st.x >= 0.5 && !st.on) st.blocked = true;
+      if (!i.acc.flotteur_marche?.on && st.x >= 0.5 && !st.overflow && st.x >= 1.2) { st.overflow = true; newEv.push({ t: st.t, sev: 'critical', text: 'Débordement de la fosse : aucun flotteur de marche', target: 'acc:flotteur_marche' }); }
+      if (st.on && st.x <= 0) {
+        if (hasStop) stop('flotteur bas');
+        else if (fx.floatPit === 'high' && !st.runaway) { st.runaway = true; newEv.push({ t: st.t, sev: 'critical', text: 'Fosse vide mais le flotteur d\'arrêt ne coupe pas', target: 'acc:flotteur_arret' }); }
+      }
+      st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
       st.x += ((qin - st.q) / 3600 / area) * sub;
       if (st.x < -0.1) {
         st.x = -0.1;
@@ -234,41 +331,76 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (st.on) st.q = qin;
       } else st.dry = false;
       if (st.x > 0.8 && i.acc.flotteur_alarme?.on && !st.overflow) { st.overflow = true; newEv.push({ t: st.t, sev: 'warning', text: 'Alarme niveau très haut', target: 'acc:flotteur_alarme' }); }
+      if (st.x > 1.25 && !st.overflow) { st.overflow = true; newEv.push({ t: st.t, sev: 'critical', text: 'La fosse déborde', target: 'source' }); }
       if (st.x < 0.6) st.overflow = false;
       st.x = Math.min(st.x, 1.3);
     } else if (kind === 'solar') {
       const sr = solarCalc(i, h);
-      const gpk = (sr?.pshDesign ?? i.elec.solar.psh) / 7.64; // kW/m² en crête (mois de dimensionnement)
+      const gpk = (sr?.pshDesign ?? i.elec.solar.psh) / 7.64;
       const g = Math.max(0, Math.sin((Math.PI * (hr - 6)) / 12)) * gpk;
       st.pv = sr ? (sr.wc / 1000) * g * 0.75 : 0;
       const pFull = Math.max(0.1, h.pElec / 0.95);
-      if (st.master && st.pv >= 0.3 * pFull) start();
-      if (st.on && st.pv < 0.25 * pFull) stop(hr > 12 ? 'fin de journée, soleil insuffisant' : 'soleil insuffisant');
-      if (st.on) {
+      if (st.pv >= 0.3 * pFull) start();
+      if (st.on && st.pv < 0.25 * pFull) stop(hr > 12 ? 'fin de journée, soleil insuffisant' : 'soleil insuffisant', true);
+      if (st.on && !st.hum && !st.noFlow) {
         st.s = Math.min(1, Math.cbrt(st.pv / pFull));
         const hs = atSpeed(i, st.s);
         st.q = hs.ok ? hs.q : 0;
-      } else { st.q = 0; st.s = 0; }
-      st.x += (st.q / 3600) * sub; // volume pompé du jour
+      } else { st.q = 0; st.s = st.on ? 1 : 0; }
+      st.x += (st.q / 3600) * sub;
       if (hr < 0.01) st.x = 0;
     } else if (kind === 'tank') {
       const cap = Math.max(5, i.duty.qReq * 4); // m³
-      const out = use(ctx, hr) * i.duty.qReq * 0.55;
+      const out = use(ctx, hr) * i.duty.qReq * 0.55 + leakQ;
       const hasFloat = !!i.acc.flotteur_res?.on;
-      if (st.master && (!hasFloat || st.x < 0.7)) start();
-      if (st.on && hasFloat && st.x >= 1) stop('réservoir plein (flotteur)');
-      st.q = st.on && h.ok ? h.q : 0;
-      st.x += ((st.q - out) / 3600 / cap) * sub;
-      if (st.x > 1.02 && !st.overflow) { st.overflow = true; newEv.push({ t: st.t, sev: 'warning', text: 'Réservoir plein : il déborde (pas de flotteur d\'arrêt)', target: 'acc:flotteur_res' }); }
+      if (!hasFloat || st.x < 0.7) start();
+      if (st.on && hasFloat && st.x >= 1) {
+        if (fx.floatRes) { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir plein mais le flotteur ne commande pas l\'arrêt', target: 'acc:flotteur_res' }); st.runaway = true; }
+        else stop('réservoir plein (flotteur)');
+      }
+      st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
+      const back = !st.on && fx.backflow ? 0.3 * i.duty.qReq : 0;
+      if (back) st.backDrop = true;
+      st.x += ((st.q - out - back) / 3600 / cap) * sub;
+      if (st.x > 1.02 && !st.overflow) { st.overflow = true; newEv.push({ t: st.t, sev: 'warning', text: 'Réservoir plein : il déborde', target: 'acc:flotteur_res' }); }
       if (st.x < 0.95) st.overflow = false;
       st.x = Math.max(0, Math.min(1.05, st.x));
     } else {
-      if (st.master) start();
-      st.q = st.on && h.ok ? h.q : 0;
+      start();
+      st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
+    }
+
+    // ----- Rabattement de la source -----
+    if (fx.drawdown) {
+      st.dd = st.on && st.q > 0 ? st.dd + (fx.drawdown * sub) / 3600 : Math.max(0, st.dd - (fx.drawdown * 0.4 * sub) / 3600);
+      if (st.on && !st.hum) {
+        if (st.dd >= avail) {
+          if (!st.noFlow) newEv.push({ t: st.t, sev: 'critical', text: `Niveau d'eau sous l'entrée de la pompe (−${f1(st.dd)} m) : la pompe aspire de l'air`, target: 'source' });
+          st.noFlow = true; st.q = 0;
+        } else {
+          st.q *= Math.max(0.2, 1 - 0.5 * (st.dd / avail) ** 2);
+        }
+      }
+    }
+
+    // ----- Marche sans débit : protection manque d'eau -----
+    if (st.on && st.noFlow) {
+      st.dry = true; dryT += sub;
+      if (hasDryProt && dryT >= 30) trip('Relais manque d\'eau déclenché', 'decl_manque_eau');
+    } else if (kind !== 'pit') st.dry = false;
+
+    if (st.runaway) seen('ne_s_arrete_pas');
+    if (st.backDrop) seen('pression_tombe_arret');
+    if (st.on && st.noFlow) seen('debit_nul', 'marche_a_sec');
+    if (st.blocked && !st.on) seen('ne_demarre_pas');
+    // ----- Déclenchement thermique / défaut -----
+    if (st.on) {
+      st.runT += sub;
+      if (fx.tripAfter != null && st.runT >= fx.tripAfter) trip(fx.tripMsg ?? 'Protection déclenchée', fx.tripKind ?? 'decl_thermique');
     }
 
     if (st.on) {
-      const kw = kind === 'solar' ? Math.min(st.pv, h.pElec / 0.95) : kind === 'vfd' ? h.pElec * Math.max(0.15, st.s ** 3) : h.pElec * (st.q > 0 && h.q > 0 ? Math.max(0.5, Math.min(1.1, st.q / h.q)) : 1);
+      const kw = st.hum ? i.pump.motorKw * 0.3 : st.noFlow ? h.pElec * 0.35 : kind === 'solar' ? Math.min(st.pv, h.pElec / 0.95) : kind === 'vfd' ? h.pElec * Math.max(0.15, st.s ** 3) : h.pElec * (st.q > 0 && h.q > 0 ? Math.max(0.5, Math.min(1.1, st.q / h.q)) : 1);
       st.kwh += (kw * sub) / 3600;
       st.vol += (st.q * sub) / 3600;
     }
@@ -276,11 +408,73 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   }
 
   const hr = hourOf(st.t);
-  const a = kind === 'vessel' || kind === 'vfd' ? st.x : kind === 'pit' ? st.x * 100 : kind === 'solar' ? st.pv : kind === 'tank' ? st.x * 100 : readings(i, h, st.on, er).pRef;
+  const a = kind === 'vessel' || kind === 'vfd' ? st.x : kind === 'pit' ? st.x * 100 : kind === 'solar' ? st.pv : kind === 'tank' ? st.x * 100 : liveReadings(ctx, st).pRef;
   const c = kind === 'vessel' || kind === 'vfd' ? use(ctx, hr) * i.duty.qReq : kind === 'pit' ? (0.15 + 0.75 * use(ctx, hr)) * h.q * 0.55 : kind === 'tank' ? use(ctx, hr) * i.duty.qReq * 0.55 : null;
   st.series = [...prev.series, { t: st.t, a, b: st.q, c }].slice(-240);
   if (newEv.length) st.events = [...newEv.reverse(), ...prev.events].slice(0, 80);
   return st;
+}
+
+/** Lectures des instruments, pannes comprises. */
+export function liveReadings(ctx: SimCtx, st: SimState): Readings {
+  const { i, h, er, kind, fx } = ctx;
+  const rhoG = i.fluid.rho * G;
+  const bar = (m: number) => (m * rhoG) / 1e5;
+  const running = st.on && st.q > 0 && !st.hum && !st.noFlow;
+  const r = readings(i, h, running, er, running ? st.q : undefined, kind === 'vfd' && running ? st.s : 1);
+  if (st.on && st.hum) return { ...r, on: true, q: 0, kw: i.pump.motorKw * 0.3, amps: er.inom * (i.elec.supply === 'mono' ? 4.5 : 3.2) };
+  if (st.on && st.noFlow) return { ...r, on: true, q: 0, pRef: bar(Math.max(0, suctionZ(i))), pAsp: bar(Math.min(0, suctionZ(i))), kw: h.pElec * 0.35, amps: er.inom * 0.42 };
+  if (st.on && !running && kind === 'vessel' && st.runaway) return { ...r, on: true, kw: h.pElec * 0.45, amps: er.inom * 0.5 * (fx.ampsK ?? 1) };
+  const out = { ...r };
+  if (running && fx.ampsK) out.amps = r.amps * fx.ampsK;
+  if (running && st.dd > 0 && i.mode === 'aspiration') out.pAsp = r.pAsp - bar(st.dd);
+  return out;
+}
+
+/** Symptômes observables (mesures + constats), comparés à l'installation sans panne. */
+export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
+  const { i, kind, fx, er } = ctx;
+  const o = new Set<Sym>();
+  const r = liveReadings(ctx, st);
+  const running = st.on && !st.hum && !st.noFlow;
+  const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : undefined, kind === 'vfd' ? st.s : 1);
+  if (st.t < st.outageUntil) { o.add('pas_de_tension'); o.add('ne_demarre_pas'); }
+  if (st.trip && st.tripKind) o.add(st.tripKind);
+  // Symptômes passagers : ceux des 3 dernières heures, ou des 3 heures avant le déclenchement (tant qu'il n'est pas réarmé)
+  const ref = st.trip && st.tripKind && st.recent[st.tripKind as Sym] != null ? st.recent[st.tripKind as Sym]! : st.t;
+  for (const [k, t] of Object.entries(st.recent)) if (t != null && t > ref - 3 * 3600) o.add(k as Sym);
+  if (fx.ids.includes('sous_tension') && st.t >= st.outageUntil) o.add('tension_basse');
+  if (st.overflow) o.add('debordement');
+  if (st.on && st.noFlow) { o.add('debit_nul'); o.add('marche_a_sec'); o.add('courant_bas'); }
+  if (st.dry && st.on) o.add('marche_a_sec');
+  if (st.backDrop) o.add('pression_tombe_arret');
+  const recent = st.startLog.filter((t) => t > st.t - 3600).length;
+  if (recent > Math.max(6, i.pump.maxStarts)) o.add('cycles_courts');
+  if (running) {
+    if (kind === 'continuous' || kind === 'tank' || kind === 'solar') {
+      const qExp = kind === 'solar' ? atSpeed(normal.i, st.s).q : normal.h.q;
+      if (st.q < qExp * 0.85) o.add(st.q < 0.05 ? 'debit_nul' : 'debit_bas');
+      if (kind !== 'solar' && r.pRef < rn.pRef * 0.85 - 0.05) o.add('pression_basse');
+      if (kind !== 'solar' && r.pRef > rn.pRef * 1.15 + 0.1) o.add('pression_haute');
+    }
+    if (kind === 'vessel' && r.pRef > rn.pRef * 1.15 + 0.2) o.add('pression_haute');
+    if (r.amps > rn.amps * 1.12 + 0.1 || r.amps > er.inom * 1.05) o.add('courant_haut');
+    if (r.amps < rn.amps * 0.86) o.add('courant_bas');
+    if (r.pAsp < rn.pAsp - 0.12) o.add('depression_forte');
+  }
+  if (kind === 'vessel' && ctx.er.vessel) {
+    const v = ctx.er.vessel;
+    if (st.x > v.pOff + 0.3) o.add('pression_haute');
+    if (st.x < v.pOn - 0.4 || (fx.pswitch === 'drift' && st.x < v.pOff - 0.6)) o.add('pression_basse');
+  }
+  if (kind === 'vfd') {
+    const set = (ctx.er.vessel?.pOn ?? 3) + 0.5;
+    if (st.x > set + 0.6) o.add('pression_haute');
+    if (st.x < set - 0.5) o.add('pression_basse');
+  }
+  // Constats sur le terrain (bruit, fuite) liés aux pannes présentes
+  for (const id of fx.ids) for (const s of faultById(id)?.sig ?? []) if (s === 'bruit' || s === 'fuite_visible') o.add(s);
+  return [...o];
 }
 
 export const SERIES_LABEL: Record<SimKind, { a: string; unit: string; c?: string }> = {

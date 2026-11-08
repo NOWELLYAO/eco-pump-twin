@@ -1,4 +1,4 @@
-import type { MouseEvent, ReactNode } from 'react';
+import { useId, type MouseEvent, type ReactNode } from 'react';
 import type { Readings, SimKind } from '../sim';
 import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
@@ -89,9 +89,34 @@ function VerticalPump({ x, y, atex }: { x: number; y: number; atex: boolean }) {
   );
 }
 
-export interface Live { on: boolean; r: Readings; kind: SimKind; x: number; pv?: number }
+export interface Live {
+  on: boolean; r: Readings; kind: SimKind; x: number; pv?: number;
+  dd?: number; trip?: string | null; hum?: boolean; noFlow?: boolean; vesFill?: number;
+  floatPit?: 'high' | 'low'; floatRes?: boolean; tripKind?: string | null;
+  faults?: string[]; powered?: boolean; runaway?: boolean;
+}
+
+/** Flotteur à câble : il pivote autour du point de serrage du câble et suit la surface de l'eau. */
+function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: number; waterY: number; L?: number; stuck?: 'up' | 'down'; title: string }) {
+  let th: number;
+  if (stuck === 'up') th = 150;
+  else if (stuck === 'down') th = 4;
+  else { const c = (waterY - py) / L; th = c >= 1 ? 0 : c <= -0.96 ? 165 : (Math.acos(c) * 180) / Math.PI; }
+  const closed = th > 90;
+  return (
+    <g>
+      <g className="r-anim-slow" style={{ transform: `translate(${px}px, ${py}px) rotate(${-th}deg)` }}>
+        <path d={`M0 0 V${L - 9}`} className="g-cable" />
+        <ellipse cx={0} cy={L} rx={6.5} ry={10} className={`g-float ${closed ? 'closed' : ''} ${stuck ? 'stuck' : ''}`} />
+      </g>
+      <circle cx={px} cy={py} r={2.6} className="g-dark" />
+      <title>{title} — contact {closed ? 'basculé (fermé)' : 'au repos'}{stuck ? ' — BLOQUÉ' : ''}</title>
+    </g>
+  );
+}
 
 export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const on = (id: string) => !!i.acc[id]?.on;
   const flow = live ? live.on && live.r.q > 0 : h.ok && h.q > 0;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
@@ -132,10 +157,18 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const bottomY = 540;
     const k = (bottomY - G - 10) / Math.max(10, i.geo.boreDepth);
     const yS = G + i.geo.staticLevel * k, yD = G + i.geo.dynamicLevel * k, yP = G + i.geo.pumpDepth * k;
+    // Niveau réel : dynamique (+ rabattement) en pompage, remonte vers le statique à l'arrêt
+    const yNow = live ? (live.on && !live.hum ? Math.min(bottomY - 6, yD + (live.dd ?? 0) * k) : yS) : yD;
     scene.push(
       <rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />,
       <rect key="bore" x={150} y={G} width={90} height={bottomY - G} className="r-bore" />,
-      <rect key="w" x={152} y={yD} width={86} height={bottomY - yD} className={liquidCls} />,
+      <clipPath key="bc" id={`bore${uid}`}><rect x={152} y={G} width={86} height={bottomY - G} /></clipPath>,
+      <g key="w" clipPath={`url(#bore${uid})`}>
+        <g className="r-anim-level" style={{ transform: `translateY(${yNow - G}px)` }}>
+          <rect x={152} y={G} width={86} height={bottomY - G + 4} className={liquidCls} />
+          <rect x={152} y={G} width={86} height={3} className="r-surface" />
+        </g>
+      </g>,
       <path key="st" d={`M140 ${yS} H250`} className="r-level dashed" />,
       <path key="dy" d={`M140 ${yD} H250`} className="r-level" />,
       <path key="c1" d={`M150 ${G - 12} V${bottomY}`} className="r-casing" />, <path key="c2" d={`M240 ${G - 12} V${bottomY}`} className="r-casing" />,
@@ -170,13 +203,19 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     const floor = 520;
     const yStop = Math.max(floor - 30 - i.geo.wetLevel * 60, 380);
     const yStart = Math.max(yStop - 40 - Math.min(80, i.geo.tankVolume / 25), 300);
-    const yAlarm = Math.max(yStart - 30, 275);
-    const yWater = live && live.kind === 'pit' ? Math.max(G + 6, Math.min(floor - 4, yStop - (live.x / 0.5) * (yStop - yStart))) : yStart + 12;
+    const yAlarm = Math.max(yStop - 1.6 * (yStop - yStart), G + 18);
+    const yWater = live && live.kind === 'pit' ? Math.max(G + 4, Math.min(floor - 4, yStop - (live.x / 0.5) * (yStop - yStart))) : yStart + 12;
     scene.push(
       <rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />,
       <rect key="pit" x={100} y={G} width={250} height={floor - G + 14} className="r-concrete" />,
       <rect key="in" x={114} y={G} width={222} height={floor - G} className="r-pitin" />,
-      <rect key="liq" x={114} y={yWater} width={222} height={floor - yWater} className={liquidCls} />,
+      <clipPath key="pc" id={`pit${uid}`}><rect x={114} y={G} width={222} height={floor - G} /></clipPath>,
+      <g key="liq" clipPath={`url(#pit${uid})`}>
+        <g className="r-anim-level" style={{ transform: `translateY(${yWater - G}px)` }}>
+          <rect x={114} y={G} width={222} height={floor - G + 4} className={liquidCls} />
+          <rect x={114} y={G} width={222} height={3} className="r-surface" />
+        </g>
+      </g>,
       <rect key="lid" x={96} y={G - 10} width={258} height={10} rx={2} className="r-plinth" />,
       <path key="inlet" d={`M0 ${G + 40} H114`} stroke="#8a96a3" strokeWidth={14} className="r-pipe" />,
     );
@@ -194,7 +233,16 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     refStart = 50;
     const floats: [string, number][] = [['flotteur_arret', yStop], ['flotteur_marche', yStart], ['flotteur_alarme', yAlarm]];
     floats.forEach(([id, y], n) => {
-      if (on(id)) front.push(<g key={id} transform={`translate(${128 + n * 14},${y})`}><path d={`M0 -10 C 0 ${-(y - G) / 2}, 10 ${-(y - G) + 20}, 10 ${-(y - G)}`} className="r-cablepath" /><RealGlyph kind="float" /></g>);
+      if (!on(id)) return;
+      const px = 132 + n * 20;
+      const stuck = live?.floatPit === 'high' && id === 'flotteur_arret' ? 'up' : live?.floatPit === 'low' && id === 'flotteur_marche' ? 'down' : undefined;
+      front.push(
+        <g key={id}>
+          <path d={`M${px - 12} ${G} C ${px - 12} ${G + 30}, ${px} ${y - 30}, ${px} ${y}`} className="r-cablepath" />
+          <FloatSw px={px} py={y} waterY={yWater} stuck={stuck} title={id === 'flotteur_arret' ? 'Flotteur d\'arrêt' : id === 'flotteur_marche' ? 'Flotteur de marche' : 'Flotteur d\'alarme'} />
+          {stuck && <text x={px + 16} y={y - 14} className="r-stuck">bloqué</text>}
+        </g>,
+      );
     });
     dims.push(
       <g key="pl" className="r-note">
@@ -214,9 +262,16 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     if (i.mode === 'aspiration') {
       const wl = Math.min(470, axisY + 60 + i.geo.suctionLift * 22);
       const bottomY = Math.min(540, wl + 50 + i.geo.immersion * 40);
+      const ddPx = Math.min(bottomY - wl - 8, (live?.dd ?? 0) * 22);
       scene.push(
         <path key="bank" d={`M20 ${G} L60 ${bottomY} H280 L310 ${G} Z`} className="r-pitin" />,
-        <path key="water" d={`M${20 + (40 * (wl - G)) / (bottomY - G)} ${wl} L60 ${bottomY} H280 L${310 - (30 * (wl - G)) / (bottomY - G)} ${wl} Z`} className={liquidCls} />,
+        <clipPath key="bkc" id={`bank${uid}`}><path d={`M20 ${G} L60 ${bottomY} H280 L310 ${G} Z`} /></clipPath>,
+        <g key="water" clipPath={`url(#bank${uid})`}>
+          <g className="r-anim-level" style={{ transform: `translateY(${wl + ddPx - G}px)` }}>
+            <rect x={20} y={G} width={290} height={bottomY - G + 4} className={liquidCls} />
+            <rect x={20} y={G} width={290} height={3} className="r-surface" />
+          </g>
+        </g>,
       );
       const inletY = Math.min(bottomY - 14 - i.geo.bottom * 30, wl + 20 + i.geo.immersion * 40);
       const inX = vertical ? px - 30 : px - 28;
@@ -225,9 +280,16 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     } else {
       const tankTop = 110;
       const wl = Math.max(tankTop + 12, axisY - 20 - i.geo.chargeHead * 40);
+      const ddPx = Math.min(G - wl - 10, (live?.dd ?? 0) * 40);
       scene.push(
         <rect key="tank" x={40} y={tankTop} width={190} height={G - tankTop} rx={6} className="r-tank" />,
-        <rect key="liq" x={46} y={wl} width={178} height={G - wl - 6} rx={3} className={liquidCls} />,
+        <clipPath key="tc" id={`bache${uid}`}><rect x={46} y={tankTop + 6} width={178} height={G - tankTop - 12} rx={3} /></clipPath>,
+        <g key="liq" clipPath={`url(#bache${uid})`}>
+          <g className="r-anim-level" style={{ transform: `translateY(${wl + ddPx - tankTop}px)` }}>
+            <rect x={46} y={tankTop} width={178} height={G - tankTop} className={liquidCls} />
+            <rect x={46} y={tankTop} width={178} height={3} className="r-surface" />
+          </g>
+        </g>,
       );
       const inX = vertical ? px - 30 : px - 28;
       asp = [[230, axisY], [inX, axisY]];
@@ -256,9 +318,23 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
     destEls.push(
       <path key="legs" d={`M${ax + 30} ${ay + 34} L${ax + 18} ${destG} M${ax + 110} ${ay + 34} L${ax + 122} ${destG} ${ay + 90 < destG ? `M${ax + 26} ${ay + 90} H${ax + 114}` : ''}`} className="r-legs" />,
       <rect key="t" x={ax + 10} y={ay - 46} width={120} height={80} rx={10} className="r-tank" />,
-      <rect key="tw" x={ax + 16} y={ay + 28 - 64 * (live && live.kind === 'tank' ? Math.min(1, live.x) : 0.7)} width={108} height={64 * (live && live.kind === 'tank' ? Math.min(1, live.x) : 0.7)} rx={6} className="r-water" />,
+      <clipPath key="dc" id={`dest${uid}`}><rect x={ax + 16} y={ay - 40} width={108} height={68} rx={6} /></clipPath>,
     );
-    if (on('flotteur_res')) destEls.push(<g key="fr" transform={`translate(${ax + 90},${ay - 18})`}><RealGlyph kind="float" /></g>);
+    const fill = live && live.kind === 'tank' ? Math.min(1.04, live.x) : 0.7;
+    const yTop = ay - 36, yBot = ay + 28; // plein (100 %) → vide
+    const yW = yBot - (yBot - yTop) * fill;
+    destEls.push(
+      <g key="tw" clipPath={`url(#dest${uid})`}>
+        <g className="r-anim-level" style={{ transform: `translateY(${yW - (ay - 40)}px)` }}>
+          <rect x={ax + 16} y={ay - 40} width={108} height={72} className="r-water" />
+          <rect x={ax + 16} y={ay - 40} width={108} height={3} className="r-surface" />
+        </g>
+      </g>,
+    );
+    if (on('flotteur_res')) {
+      // Le flotteur bascule quand le réservoir est plein
+      destEls.push(<g key="fr"><path d={`M${ax + 104} ${ay - 46} V${yTop + 2}`} className="r-cablepath" /><FloatSw px={ax + 104} py={yTop + 2} waterY={yW} L={18} stuck={live?.floatRes ? 'down' : undefined} title="Flotteur du réservoir" />{live?.floatRes && <text x={ax + 60} y={ay - 52} className="r-stuck">flotteur bloqué</text>}</g>);
+    }
   } else if (dest === 'batiment' || dest === 'incendie') {
     destEls.push(<rect key="b" x={ax + 10} y={40} width={170} height={destG - 40} className="r-building" />);
     for (let r = 0; r < Math.floor((destG - 60) / 34); r++) for (let c = 0; c < 4; c++) destEls.push(<rect key={`w${r}${c}`} x={ax + 24 + c * 40} y={54 + r * 34} width={24} height={18} rx={2} className="r-window" />);
@@ -412,7 +488,22 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       const cx = side ? an.x + 16 + w / 2 : an.x;
       lcd.push(<g key={`lcd-${k}`} className="lcd"><rect x={cx - w / 2} y={y - 13} width={w} height={19} rx={4} /><text x={cx} y={y + 1} textAnchor="middle">{t}</text></g>);
     }
-    lcd.push(<g key="state" className={live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{live.on ? 'EN MARCHE' : 'ARRÊT'}</text></g>);
+    const ves = anchors['acc:vessie'];
+    if (ves && live.vesFill != null) {
+      const top = ves.y - 40 + 23, hgt = 48, f = Math.max(0, Math.min(1, live.vesFill));
+      lcd.push(
+        <g key="vesfill">
+          <clipPath id={`ves${uid}`}><rect x={ves.x - 14} y={top} width={28} height={hgt} rx={13} /></clipPath>
+          <g clipPath={`url(#ves${uid})`}>
+            <rect x={ves.x - 14} y={top} width={28} height={hgt} className="r-air" />
+            <g className="r-anim-level" style={{ transform: `translateY(${hgt * (1 - f)}px)` }}><rect x={ves.x - 14} y={top} width={28} height={hgt} className="r-water" /></g>
+          </g>
+          <text x={ves.x + 20} y={top + hgt - 4} className="r-label">{Math.round(f * 100)} % eau</text>
+        </g>,
+      );
+    }
+    const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : 'ARRÊT';
+    lcd.push(<g key="state" className={live.trip || live.hum || live.noFlow ? 'state fault' : live.on ? 'state on' : 'state off'}><circle cx={pxp + (forage || pit ? 34 : 0)} cy={pyp - (forage ? 40 : pit ? 70 : 50)} r={8} /><text x={pxp + (forage || pit ? 46 : 12)} y={pyp - (forage ? 36 : pit ? 66 : 46)}>{stTxt}</text></g>);
   }
 
   // Surbrillance des éléments signalés

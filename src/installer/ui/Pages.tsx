@@ -3,7 +3,9 @@ import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Timer, Za
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { Evaluation } from '../evaluate';
 import { evaluate } from '../evaluate';
-import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, makeCtx, readings, simKind, stepSim, type Mods, type SimState } from '../sim';
+import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadings, makeCtx, observe, simKind, stepSim, type Mods, type SimState } from '../sim';
+import { FAULTS, faultById } from '../faults';
+import { FaultPanel, type Mystery } from './Faults';
 import type { Installation, Issue } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
@@ -94,7 +96,10 @@ export function SimPage({ s }: { s: Shared }) {
   const baseSpeed = !autoReg && s.ev.elec.vfdSpeed ? Math.round(s.ev.elec.vfdSpeed.s * 100) : 100;
   const [mods, setMods] = useState<Mods>(() => ({ ...NO_MODS, speed: baseSpeed }));
   const iSim = useMemo(() => applyMods(s.inst, mods), [s.inst, mods]);
-  const ctx = useMemo(() => makeCtx(iSim, mods.draw), [iSim, mods.draw]);
+  const ctx = useMemo(() => makeCtx(iSim, mods.draw, mods.faults), [iSim, mods.draw, mods.faults]);
+  // Même installation sans panne : référence pour reconnaître les symptômes
+  const nctx = useMemo(() => makeCtx(applyMods(s.inst, { ...mods, faults: [] }), mods.draw), [s.inst, mods]);
+  const [mystery, setMystery] = useState<Mystery | null>(null);
   const evSim = useMemo(() => evaluate(iSim), [iSim]);
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
@@ -104,7 +109,7 @@ export function SimPage({ s }: { s: Shared }) {
 
   // Avec un variateur réglé sur le besoin, la simulation démarre à sa fréquence de consigne, pas à 50 Hz.
   const base: Mods = { ...NO_MODS, speed: baseSpeed };
-  useEffect(() => { setSim(initSim(makeCtx(applyMods(s.inst, base)))); setMods(base); }, [s.inst]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSim(initSim(makeCtx(applyMods(s.inst, base)))); setMods(base); setMystery(null); }, [s.inst]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!playing) return;
     const id = window.setInterval(() => setSim((st) => stepSim(ctxRef.current, st, rate * 0.5)), 500);
@@ -112,11 +117,53 @@ export function SimPage({ s }: { s: Shared }) {
   }, [playing, rate]);
 
   const kind = ctx.kind;
-  const r = readings(iSim, ctx.h, sim.on, ctx.er, sim.on ? sim.q : undefined, kind === 'vfd' && sim.on ? sim.s : 1);
+  const r = liveReadings(ctx, sim);
+  const obs = observe(ctx, nctx, sim);
+  const note = (sev: 'info' | 'warning' | 'critical' | 'ok', text: string, target?: string) => (st: SimState): SimState => ({ ...st, events: [{ t: st.t, sev, text, target }, ...st.events].slice(0, 80) });
+  const cleared = (st: SimState): SimState => ({ ...st, trip: null, tripKind: null, recent: {}, primed: true, dd: 0, runaway: false, blocked: false, hum: false, noFlow: false, on: false });
+  // La panne apparaît : chrono de déclenchement remis à zéro ; un moteur qui ne peut plus démarrer
+  // s'arrête (micro-coupure) et retente aussitôt de démarrer.
+  const inject = (st: SimState, e: NonNullable<ReturnType<typeof faultById>>['effect']): SimState => ({
+    ...st, runT: 0, outageUntil: e.outage ? st.t + e.outage : st.outageUntil,
+    on: e.noStart || e.tripAtStart ? false : st.on, hum: false,
+  });
+  const toggleFault = (id: string) => {
+    const f = faultById(id);
+    if (!f) return;
+    if (mods.faults.includes(id)) { repair(id); return; }
+    setMods((m) => ({ ...m, faults: [...m.faults, id] }));
+    setSim((st) => note('warning', `Panne provoquée : ${f.label}`, f.target)(inject(st, f.effect)));
+  };
+  const repair = (id: string) => {
+    const f = faultById(id);
+    setMods((m) => ({ ...m, faults: m.faults.filter((x) => x !== id) }));
+    setSim((st) => note('ok', `Réparé : ${f?.label ?? id} — installation réarmée`)(cleared({ ...st, outageUntil: f?.effect.outage ? 0 : st.outageUntil })));
+  };
+  const repairAll = () => {
+    setMods((m) => ({ ...m, faults: [] }));
+    setMystery(null);
+    setSim((st) => note('ok', 'Toutes les pannes réparées, protections réarmées')(cleared({ ...st, outageUntil: 0 })));
+  };
+  const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, trip: null, tripKind: null, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_variateur: undefined } }));
+  const startMystery = () => {
+    const cands = FAULTS.filter((f) => f.applies(iSim, kind) && !mods.faults.includes(f.id));
+    if (!cands.length) return;
+    const f = cands[Math.floor(Math.random() * cands.length)];
+    // Leurres : de préférence des pannes aux symptômes voisins
+    const others = cands.filter((x) => x.id !== f.id).map((x) => ({ x, k: x.sig.filter((y) => f.sig.includes(y)).length + Math.random() })).sort((a, b) => b.k - a.k).slice(0, 3).map((o) => o.x.id);
+    const options = [f.id, ...others].sort(() => Math.random() - 0.5);
+    setMystery({ id: f.id, answer: null, options });
+    setMods((m) => ({ ...m, faults: [...m.faults, f.id] }));
+    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject(st, f.effect)));
+    setPlaying(true);
+  };
   const hasVfd = s.inst.acc.variateur?.on || s.inst.elec.supply === 'solaire';
-  const live = { on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const vRes = ctx.er.vessel;
+  const vf = vRes && (kind === 'vessel' || kind === 'vfd') ? Math.max(0, 1 - (vRes.pre + 1) / (Math.max(sim.x, vRes.pre) + 1)) : undefined;
+  const vesFill = vf == null ? undefined : ctx.fx.vesselK ? 1 - (1 - vf) * ctx.fx.vesselK : vf;
+  const live = { faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
-  const reset = () => { setMods(base); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
+  const reset = () => { setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
   const sl = SERIES_LABEL[kind];
   const data = sim.series.map((p) => ({ ...p, label: clock(p.t).slice(3) }));
@@ -125,16 +172,16 @@ export function SimPage({ s }: { s: Shared }) {
   const liveIssues = evSim.issues.filter((x) => x.sev !== 'info');
   const scen: { l: string; m: Partial<Mods>; stop?: boolean }[] = [
     { l: 'Vanne presque fermée', m: { valve: 15 } }, { l: 'Filtre colmaté', m: { clog: 85 } }, { l: 'Niveau très bas', m: { level: -2.5 } },
-    { l: 'Pompe usée', m: { wear: 70 } }, { l: 'Coupure de courant', m: {}, stop: true },
+    { l: 'Pompe usée', m: { wear: 70 } },
   ];
 
   return (
     <div className="page-sim">
       <aside className="sim-side">
         <section className="card simctl">
-          <button className={`power ${sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
+          <button className={`power ${sim.trip ? 'fault' : sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
             <Power size={26} aria-hidden />
-            <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.master ? (sim.on ? 'la pompe tourne' : 'en attente de l\'automatisme') : 'cliquez pour démarrer'}</small></span>
+            <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'la pompe tourne') : 'en attente de l\'automatisme') : 'cliquez pour démarrer'}</small></span>
           </button>
           <p className="muted small">{KIND_LABEL[kind]}</p>
           <div className="timebar">
@@ -167,7 +214,7 @@ export function SimPage({ s }: { s: Shared }) {
           <Slider label="Colmatage crépine / filtre" value={mods.clog} min={0} max={100} unit="%" disabled={!hasFilter} onChange={(x) => setMods({ ...mods, clog: x })} hint={hasFilter ? undefined : 'Aucun filtre ni crépine'} />
           <Slider label="Usure de la pompe" value={mods.wear} min={0} max={100} unit="%" onChange={(x) => setMods({ ...mods, wear: x })} />
           <div className="scen">
-            {scen.map((x) => <button key={x.l} className="chip" onClick={() => { if (x.stop) setSim((st) => stepSim(ctx, { ...st, master: false }, 5)); else setMods({ ...base, ...x.m }); }}>{x.l}</button>)}
+            {scen.map((x) => <button key={x.l} className="chip" onClick={() => { if (x.stop) setSim((st) => stepSim(ctx, { ...st, master: false }, 5)); else setMods({ ...base, faults: mods.faults, ...x.m }); }}>{x.l}</button>)}
             <button className="chip" onClick={reset}><RotateCcw size={13} aria-hidden /> Réinitialiser</button>
           </div>
         </section>
@@ -186,8 +233,8 @@ export function SimPage({ s }: { s: Shared }) {
 
       <div className="sim-main">
         <div className="mpower">
-          <button className={`power ${sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
-            <Power size={22} aria-hidden /><span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{clock(sim.t)} · {sim.on ? 'la pompe tourne' : 'pompe arrêtée'}</small></span>
+          <button className={`power ${sim.trip ? 'fault' : sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
+            <Power size={22} aria-hidden /><span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{clock(sim.t)} · {sim.trip ? 'DÉFAUT' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.on ? (sim.hum ? 'moteur bloqué' : sim.noFlow ? 'sans débit' : 'la pompe tourne') : 'pompe arrêtée'}</small></span>
           </button>
           <button className="icon-btn" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Lecture'}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
         </div>
@@ -205,6 +252,11 @@ export function SimPage({ s }: { s: Shared }) {
         </div>
 
         <DiagramPanel i={iSim} ev={evSim} highlight={s.highlight} selected={s.selected} onPick={s.pick} onIssue={s.selectIssue} onSet={s.set} live={live} banner={s.activeIssue} onCloseBanner={s.clearIssue} />
+
+        <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery}
+          onToggle={toggleFault} onMystery={startMystery} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
+          onRepair={(id) => { repair(id); if (mystery?.id === id) setMystery(null); }} onRepairAll={repairAll} onRearm={rearm}
+          onShow={(t) => { s.pick(t); document.getElementById('diagram')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} />
 
         <div className="sim-charts">
           <section className="card">
