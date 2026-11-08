@@ -1,4 +1,4 @@
-import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
+import { BIG_TANK, backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { ACCESSORIES, FLUIDS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from './catalog';
 import type { Evaluation } from './evaluate';
 import { elecConfig } from './ui/Electrical';
@@ -155,7 +155,7 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
     const bc = backupCalc(i, bk);
     const vol = bk.volume.toLocaleString('fr-FR');
     const serie = backupMode(bk) === 'serie';
-    add({ id: 'bk_cuve', cat: 'robinetterie', desig: serie ? 'Réservoir surélevé (château d\'eau)' : 'Réservoir de secours (cuve)', spec: `${vol} L, PEHD traité anti-UV, qualité eau potable, avec trou d'homme`, qty: 1, unit: 'u' });
+    add({ id: 'bk_cuve', cat: 'robinetterie', desig: serie ? 'Réservoir surélevé (château d\'eau)' : 'Réservoir de secours (cuve)', spec: bk.volume > BIG_TANK ? `${vol} L, acier galvanisé à panneaux boulonnés (ou béton armé), revêtement intérieur alimentaire, trou d'homme, échelle` : `${vol} L, PEHD traité anti-UV, qualité eau potable, avec trou d'homme`, qty: 1, unit: 'u' });
     add({ id: 'bk_support', cat: 'divers', desig: 'Support / château d\'eau du réservoir', spec: `hauteur ${f(bk.height, 0)} m sous la cuve, dimensionné pour ${f((bk.volume / 1000) * 1.1, 1)} t en charge`, qty: 1, unit: 'u', note: 'métallique galvanisé ou béton' });
     if (serie) {
       const dif = floatKind(bk) === 'differentiel';

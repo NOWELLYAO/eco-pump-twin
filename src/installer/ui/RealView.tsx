@@ -195,20 +195,21 @@ export function RealView({ i, h, highlight = [], onPick, live, term }: { i: Inst
       <rect key="head" x={140} y={G - 26} width={110} height={14} rx={2} className="r-plinth" />,
     );
     // L'entrée de la pompe (crépine entre pompe et moteur) est dessinée à la profondeur réelle de la pompe
-    const top = Math.min(yP - 56, bottomY - 110);
-    const pTop = Math.max(yD + 6, top);
-    const yE = Math.max(yD + 3, Math.min(pTop + 50, G + electrodeDepth(i) * k)); // électrodes / sonde de niveau
+    // Taille du groupe adaptée à l'échelle : l'eau doit rester bien visible au-dessus de la pompe (immersion)
+    const hL = Math.max(22, Math.min(56, (yP - yD) * 0.55)), mL = Math.round(hL * 0.72);
+    const pTop = Math.max(yD + 6, Math.min(yP - hL, bottomY - 14 - hL - mL));
+    const yE = Math.max(yD + 3, Math.min(pTop + hL - 6, G + electrodeDepth(i) * k)); // électrodes / sonde de niveau
     front.push(
       <g key="fp">
-        {on('chemise') && <rect x={174} y={pTop - 8} width={42} height={112} rx={6} className="r-jacket" />}
-        <rect x={181} y={pTop} width={28} height={56} rx={5} className="r-stainless" />
-        {[1, 2, 3, 4].map((n) => <path key={n} d={`M181 ${pTop + n * 11} H209`} className="r-seam" />)}
-        <rect x={183} y={pTop + 56} width={24} height={40} rx={5} className="r-motor" />
-        <path d={`M209 ${pTop + 70} C 228 ${pTop + 40}, 226 ${G}, 226 ${G - 14}`} className="r-cablepath" />
+        {on('chemise') && <rect x={174} y={pTop - 8} width={42} height={hL + mL + 16} rx={6} className="r-jacket" />}
+        <rect x={181} y={pTop} width={28} height={hL} rx={5} className="r-stainless" />
+        {[1, 2, 3, 4].map((n) => <path key={n} d={`M181 ${pTop + (n * hL) / 5} H209`} className="r-seam" />)}
+        <rect x={183} y={pTop + hL} width={24} height={mL} rx={5} className="r-motor" />
+        <path d={`M209 ${pTop + hL + 14} C 228 ${pTop + 40}, 226 ${G}, 226 ${G - 14}`} className="r-cablepath" />
       </g>,
     );
-    pumpXY = [195, pTop + 30];
-    motorBox = { x: 183, y: pTop + 56, w: 24, h: 40 }; impXY = [195, pTop + 28];
+    pumpXY = [195, pTop + hL / 2 + 2];
+    motorBox = { x: 183, y: pTop + hL, w: 24, h: mL }; impXY = [195, pTop + hL / 2];
     ref = [[195, pTop], [195, G - 40], [REF_END, G - 40]];
     refStart = polyLen(ref.slice(0, 2)) + 40;
     if (on('marche_sec')) front.push(<g key="el" transform={`translate(170,${yE})`}><path d={`M0 ${-(yE - G)} V0`} className="r-cablepath" /><RealGlyph kind="electrode" /><title>Électrodes de manque d'eau : la pompe s'arrête si l'eau descend sous ce point</title></g>);

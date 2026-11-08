@@ -19,7 +19,9 @@ export type BackupMode = 'serie' | 'secours';
 export const backupMode = (b?: { mode?: BackupMode } | null): BackupMode => b?.mode ?? 'serie';
 
 /** Cuves du commerce (L) */
-export const BACKUP_SIZES = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 30000, 50000];
+export const BACKUP_SIZES = [500, 1000, 1500, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 30000, 50000, 75000, 100000, 150000, 200000, 300000];
+/** Au-delà de 50 m³ : réservoir acier à panneaux boulonnés ou béton (plus de cuve PEHD d'une pièce) */
+export const BIG_TANK = 50000;
 const G = 9.81;
 
 /** Le réservoir de secours en by-pass a du sens : forage qui alimente directement une maison sous pression. */
