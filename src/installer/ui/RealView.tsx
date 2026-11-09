@@ -104,7 +104,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; jk?: boolean; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; jk?: boolean; circOnly?: boolean; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -135,7 +135,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   useDeclutter(svgRef, ['.r-note text', '.r-dim text', 'g.lcd', 'g.r-closed', 'g.r-tbadge', 'text.r-label', 'text.r-stuck', 'g.state'], '.r-legend, g.term, .r-obst');
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const on = (id: string) => !!i.acc[id]?.on;
-  const flow = live ? live.on && live.r.q > 0.05 : h.ok && h.q > 0.05;
+  // Seule la soupape de circulation débite (vanne fermée, lances fermées) : pas d'écoulement dans le réseau
+  const flow = live ? live.on && live.r.q > 0.05 && !live.circOnly : h.ok && h.q > 0.05;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
   const pick = (t: string) => (onPick ? { onClick: (e: MouseEvent) => { e.stopPropagation(); onPick(t); }, className: 'pickable' } : {});
   const forage = i.pumpType === 'immergee_forage';
@@ -374,8 +375,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       if (on('soupape_circ')) {
         const sx = vertical ? px + 80 : px, sy = vertical ? axisY - 60 : axisY - 70;
         els.push(
+          live?.circOnly ? <path key="sc-f" d={`M${vertical ? px + 30 : px} ${vertical ? axisY : axisY - 38} V${sy} H${sx + 16}`} className="r-flow" strokeWidth={2} /> : null,
           <g key="sc" className="r-obst" transform={`translate(${sx + 16},${sy})`}><RealGlyph kind="relief" /></g>,
-          <text key="sc-l" x={sx + 30} y={sy + 4} className="r-label small">Soupape de circulation</text>,
+          <text key="sc-l" x={sx + 30} y={sy + 4} className="r-label small">{live?.circOnly ? 'Soupape de circulation · ouverte (débit mini → réserve)' : 'Soupape de circulation'}</text>,
         );
       }
       if (on('essai')) {
@@ -806,7 +808,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
     const pMano = surp && !r.on ? Math.max(0, live.x ?? 0) : r.pRef;
     const val: Record<string, string> = {
       'acc:manometre': `${fx(pMano)} bar`, 'acc:vacuometre': `${fx(r.pAsp, 2)} bar`, 'acc:debitmetre': `${fx(qMeter)} m³/h`,
-      'acc:capteur_p': `${fx(r.pRef)} bar`, 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar${live.vesFill != null ? ` · ${Math.round(Math.max(0, Math.min(1, live.vesFill)) * 100)} % eau` : ''}` : '',
+      'acc:capteur_p': `${fx(surp ? Math.max(0, live.x ?? 0) : r.pRef)} bar`, // posé après la vanne, sur le réseau 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar${live.vesFill != null ? ` · ${Math.round(Math.max(0, Math.min(1, live.vesFill)) * 100)} % eau` : ''}` : '',
       cable: `${fx(r.amps)} A`, pv: live.pv != null ? `${fx(live.pv, 2)} kW` : '',
     };
     for (const [k, t] of Object.entries(val)) {

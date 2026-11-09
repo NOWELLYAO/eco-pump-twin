@@ -177,7 +177,7 @@ main { min-width: 0; }
 .tag.lv-critical rect { stroke: var(--crit); fill: var(--crit-bg); }
 .tag-code { font-size: 10.5px; fill: var(--muted); font-weight: 700; }
 .tag-val { font-size: 14px; fill: var(--fg); font-weight: 800; font-variant-numeric: tabular-nums; }
-@media (prefers-reduced-motion: reduce) { .flow, .spin, .live { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .synoptic .flow, .synoptic .spin, .synoptic .live { animation: none !important; } }
 
 /* Graphiques */
 figure { margin: 0; }
@@ -1407,7 +1407,7 @@ html, body { overflow-x: clip; }
 @media (max-width: 1450px) and (min-width: 761px) { .newbtn span, .installbtn span { display: none; } .pagenav button { padding: 9px 10px; } .pagenav { margin-left: 4px; } }
 @media (max-width: 1280px) and (min-width: 761px) { .pagenav span { display: none; } }
 /* Éléments tournants (roue, ventilateur) */
-.r-rotor { pointer-events: none; }
+.r-rotor { pointer-events: none; transform-box: view-box; }
 .r-rotor.spin { animation: rotorSpin .35s linear infinite; }
 .r-rotor.spin.rev { animation-direction: reverse; }
 .r-rotor.shake { animation: rotorShake .12s linear infinite; }
@@ -1420,7 +1420,7 @@ html, body { overflow-x: clip; }
 .r-rotor-hub { fill: #e2edf5; }
 .r-heat rect { fill: #ef4444; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; transform-box: fill-box; transform-origin: center; }
 .r-lheat circle { fill: #f97316; animation: heatPulse 1.4s ease-in-out infinite alternate; pointer-events: none; transform-box: fill-box; transform-origin: center; }
-@media (prefers-reduced-motion: reduce) { .r-rotor.spin, .r-rotor.shake { animation-duration: 2s !important; } }
+@media (prefers-reduced-motion: reduce) { .r-rotor.spin { animation: rotorSpin 1.2s linear infinite !important; } .r-rotor.spin.rev { animation-direction: reverse !important; } .r-rotor.shake { animation: rotorShake .4s linear infinite !important; } }
 .r-label.small { font-size: 11px; }
 .r-bk-feed { fill: #b45309; font-weight: 800; }
 

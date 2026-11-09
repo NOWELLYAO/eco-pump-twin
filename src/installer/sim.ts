@@ -3,7 +3,7 @@ import { aquiferOf, withAquifer } from './aquifer';
 import { screenCalc, screenOf } from './borehole';
 import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
-import { isForage, losses, pressZ, pumpHead, solve, speedFor, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
+import { isForage, losses, nRun, pressZ, pumpHead, shaftPower, solve, speedFor, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
 import type { Installation } from './types';
 import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
 
@@ -95,6 +95,7 @@ function pumpReasonRaw(ctx: SimCtx, st: SimState): string | null {
   if (st.trip || st.t < st.outageUntil) return null;
   if (st.on && !st.hum && (st.q < 0.05 || st.noFlow)) return `ANORMALE : la pompe tourne mais ne débite rien (${st.noFlow ? 'plus d\'eau à l\'aspiration' : 'vanne fermée, colonne bouchée ou hauteur inatteignable'}) — l'eau s'échauffe dans la pompe (${f(st.tl ?? 0, 0)} °C), moteur à ${f(st.tm ?? 0, 0)} °C : à arrêter`;
   if (i.app === 'incendie' && i.acc.coffret_inc?.on && st.on && er.vessel && st.x >= er.vessel.pOff - 0.05) return `pompe incendie : pression d'arrêt atteinte, mais elle reste en marche — arrêt MANUEL uniquement, au coffret, une fois l'incendie maîtrisé${i.acc.soupape_circ?.on ? ' (la soupape de circulation l\'empêche de chauffer)' : ''}`;
+  if (i.app === 'incendie' && st.on && st.circOnly && er.vessel && st.x < er.vessel.pOn) return `ANORMALE : la pompe tourne mais rien ne part vers le réseau (vanne fermée ou réseau bouché) : seule la soupape de circulation débite ${f(st.q)} m³/h vers la réserve — la pompe ne chauffe pas, mais les RIA n'ont pas d'eau`;
   if (i.app === 'incendie' && st.on && st.q > 0.05 && er.vessel && st.x < er.vessel.pOff - 0.05) {
     const lances = use(ctx, hourOf(st.t)) * i.duty.qReq;
     return lances > 0.05
@@ -167,9 +168,14 @@ export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult,
   const hq = qOverride != null ? sp * sp * pumpHead(i, q / sp) : h.h;
   const pAsp = bar(z - L.asp);
   const pRef = isForage(i) ? bar(Math.max(0, hq - i.geo.dynamicLevel - L.ref * (i.geo.pumpDepth / Math.max(1, i.ref.length + i.geo.pumpDepth)))) : bar(z - L.asp + hq);
+  // Débit imposé (réservoir à vessie, variateur) : puissance lue sur la courbe de la pompe à CE débit
+  // (et non une règle de trois sur le point de calcul, fausse quand ce point est presque nul — vanne fermée)
+  const nP = nRun(i);
   const kw = speed < 0.995 && q > 0
     ? (rhoG * (q / 3600) * Math.max(0, hq)) / Math.max(0.25, h.eta) / 1000 / 0.88
-    : h.pElec * Math.max(0.3, ratio);
+    : qOverride != null
+      ? Math.max(0.3 * (i.pump.motorKw / 0.88) * nP * h.n / nP, (shaftPower(i, q / nP, hq).kw * nP) / 0.88)
+      : h.pElec * Math.max(0.3, ratio);
   // Courant moteur : proportionnel à la charge (non plafonné, pour voir les surcharges)
   const amps = er.inom * Math.max(0.35, Math.min(2, kw / h.n / (i.pump.motorKw / 0.88)));
   return { q, pRef, pAsp, amps, kw, hmt: hq, margin: h.margin, on: true };
@@ -245,6 +251,7 @@ export interface SimState {
   aqN?: number; // rabattement qu'aurait un forage sain au même débit (référence de la sonde)
   aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
   aqDry?: boolean; // forage : l'eau est descendue sous l'entrée de la pompe (le forage ne suit pas)
+  circOnly?: boolean; // incendie : la pompe ne débite que dans la soupape de circulation (vers la réserve)
   jk?: boolean; // pompe jockey (incendie) en marche
   jkStarts?: number;
   bkQ?: number; // débit qui entre dans le réservoir par le robinet à flotteur (m³/h)
@@ -548,11 +555,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         for (let it = 0; it < 22; it++) { const m = (lo + hi) / 2; if (pumpHead(i, m) - losses(i, m).total > hNeed) lo = m; else hi = m; }
         qq = lo;
       }
-      st.q = qq;
+      st.q = qq; st.circOnly = false;
       // Soupape de circulation (incendie) : même vanne fermée, la pompe débite un petit filet vers la réserve et ne chauffe pas
       if (circQ > 0 && st.on && !st.hum && !st.noFlow) {
         const pC = Math.max(0, ((pumpHead(i, circQ) - losses(i, circQ).total + pressZ(i) - dL) * rhoG) / 1e5);
-        if (st.q < circQ && st.x >= pC - 0.05) { st.q = circQ; st.x = Math.min(st.x, pC); }
+        if (st.q < circQ && st.x >= pC - 0.05) { st.q = circQ; st.x = Math.min(st.x, pC); st.circOnly = true; }
       }
       if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
       vw += ((st.q + jkQ - qd) / 3600) * sub;
@@ -954,6 +961,8 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
   if (running && fx.ampsK) out.amps = out.amps * fx.ampsK;
   if (running && fx.overload) { out.amps = Math.max(out.amps, er.inom * fx.overload); out.kw = Math.max(out.kw, (i.pump.motorKw / 0.88) * fx.overload * 0.95); }
   if (running && st.dd > 0 && i.mode === 'aspiration') out.pAsp = r.pAsp - bar(st.dd);
+  // Forage : le manomètre de tête voit la hauteur réelle de l'eau (nappe qui descend en pompage), pas le niveau de calcul
+  if (running && isForage(i)) out.pRef = Math.max(0, out.pRef - bar(i.geo.staticLevel + (st.aqS ?? 0) + st.dd - i.geo.dynamicLevel));
   return out;
 }
 
