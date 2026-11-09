@@ -1493,3 +1493,13 @@ html, body { overflow-x: clip; }
 .phmodal .photos > h5 { display: none; }
 .phmodal .photos { margin: 0; padding: 0; border: 0; }
 .phmodal .modal-head h2 { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }
+
+/* Causes liées à la conception (diagnostic) */
+.dcauses { border: 1px solid var(--crit-line, #e3a5a5); background: var(--crit-bg); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.dcauses ul { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.dcauses li { display: flex; gap: 8px; align-items: flex-start; }
+.dcauses li > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dcauses small { color: var(--fg); opacity: .85; }
+.dcauses .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.dcauses .dc-ic { color: var(--crit-ink); flex: 0 0 auto; margin-top: 2px; }
+.dcauses > p.muted { margin: 10px 0 0; }

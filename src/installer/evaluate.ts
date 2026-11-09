@@ -141,7 +141,8 @@ export function evaluate(input: Installation): Evaluation {
     add({ id: 'nohead', sev: 'critical', cat: 'hydraulique', title: 'La pompe ne peut pas atteindre la hauteur demandée',
       detail: `Hauteur à débit nul : ${f1(h.h)} m. Hauteur géométrique + pression demandée : ${f1(h.hStatic + h.hPress)} m.`,
       consequences: ['Aucun débit en sortie', 'L\'eau chauffe dans la pompe', 'Garniture et roulements détruits'], parts: ['garniture', 'roulements', 'roue', 'moteur'],
-      solutions: ['Choisir une pompe de plus forte HMT (plus d\'étages, roue plus grande)', 'Réduire la pression résiduelle demandée', 'Vérifier les hauteurs saisies'] });
+      solutions: ['Choisir une pompe de plus forte HMT (plus d\'étages, roue plus grande)', 'Réduire la pression résiduelle demandée', 'Vérifier les hauteurs saisies'],
+      fix: { label: 'Choisir une pompe adaptée', apply: sized } });
   } else {
     const r = h.q / i.duty.qReq;
     // Forage limité volontairement à son débit d'exploitation : ce n'est pas un défaut de la pompe (voir « aq_need »)

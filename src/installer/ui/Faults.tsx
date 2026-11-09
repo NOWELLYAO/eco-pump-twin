@@ -3,7 +3,7 @@ import { CheckCircle2, ChevronDown, Eye, HelpCircle, RotateCcw, Shuffle, Stethos
 import { FAULTS, FAULT_CAT, SYM_LABEL, diagnose, faultById, type FaultCat, type FaultDef, type Sym } from '../faults';
 import { PARTS } from '../catalog';
 import type { SimKind } from '../sim';
-import type { Installation } from '../types';
+import type { Installation, Issue } from '../types';
 
 export interface Mystery { id: string; answer: string | null; options: string[] }
 
@@ -31,8 +31,9 @@ function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boole
   );
 }
 
-export function FaultPanel({ inst, kind, active, obs, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
-  inst: Installation; kind: SimKind; active: string[]; obs: Sym[]; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
+export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
+  inst: Installation; kind: SimKind; active: string[]; obs: Sym[];
+  design?: Issue[]; onIssue?: (x: Issue) => void; onFix?: (x: Issue) => void; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
   mystery: Mystery | null;
   onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void;
   onRepair: (id: string) => void; onRepairAll: () => void; onRearm: () => void; onShow: (t: string) => void;
@@ -95,6 +96,26 @@ export function FaultPanel({ inst, kind, active, obs, trip, isolated, spare, out
       {!hidden && obs.length > 0 && (
         <>
           <h4 className="fh">Causes probables</h4>
+          {/* Une installation mal conçue tombe en panne toute seule : ces causes passent en premier */}
+          {design.length > 0 && (
+            <div className="dcauses">
+              <p className="small"><b>{active.length ? 'À vérifier aussi : la conception elle-même' : 'Aucune panne n\'a été provoquée : le problème vient de la conception'}</b>. À corriger dans l'installation :</p>
+              <ul>
+                {design.slice(0, 4).map((x) => (
+                  <li key={x.id}>
+                    <XCircle size={16} aria-hidden className="dc-ic" />
+                    <span><b>{x.title}</b><small>{x.detail}</small>
+                      <span className="row">
+                        {x.fix && onFix && <button type="button" className="btn sm primary" onClick={() => onFix(x)}><Wrench size={14} aria-hidden /> {x.fix.label}</button>}
+                        {onIssue && <button type="button" className="btn sm" onClick={() => onIssue(x)}><Eye size={14} aria-hidden /> Détails et solutions</button>}
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {ranked.length > 0 && <p className="muted small">{active.length ? 'Pannes du catalogue qui correspondent aux symptômes :' : 'Pannes de matériel qui donneraient les mêmes symptômes (si la conception était correcte) :'}</p>}
+            </div>
+          )}
           {ranked.length === 0 ? <p className="muted small">Aucune panne du catalogue ne correspond : vérifier le dimensionnement (onglet Diagnostic).</p> : (
             <ul className="causes">
               {ranked.map(({ f, score, match }) => (

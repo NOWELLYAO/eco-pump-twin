@@ -271,6 +271,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
           </div>
         )}
         <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} isolated={sim.isolated} spare={(s.inst.pump.standby ?? 0) > 0} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery}
+          design={s.ev.issues.filter((x) => x.sev === 'critical')} onIssue={(x) => s.selectIssue(x)} onFix={(x) => { const fx = x.fix; if (fx) { s.set((i) => fx.apply(i)); rearm(); } }}
           onToggle={toggleFault} onMystery={startMystery} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
           onRepair={(id) => { repair(id); if (mystery?.id === id) setMystery(null); }} onRepairAll={repairAll} onRearm={rearm}
           onShow={(t) => { s.pick(t); document.getElementById('diagram')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} />

@@ -239,7 +239,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
     dims.push(
       <g key="lv" className="r-note">
         <text x={258} y={yS + 4}>Niveau statique {fm(i.geo.staticLevel)}</text>
-        <text x={258} y={yD + 4}>Niveau dynamique {fm(i.geo.dynamicLevel)}{(i.geo.boreQ ?? 0) > 0 && h.q > 0.05 ? ` à ${h.q.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h` : (i.geo.boreQ ?? 0) > 0 ? ` (essai à ${i.geo.boreQ!.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h)` : ''}</text>
+        <text x={258} y={yD + 4}>Niveau dynamique {fm(i.geo.dynamicLevel)}{(i.geo.boreQ ?? 0) > 0 && h.q > 0.05 ? ` à ${h.q.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h` : (i.geo.boreQ ?? 0) > 0 && !i.geo.boreQAuto ? ` (essai à ${i.geo.boreQ!.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h)` : ''}</text>
         <text x={258} y={pTop + 34}>Pompe à {fm(i.geo.pumpDepth)} · immersion {fm(i.geo.pumpDepth - i.geo.dynamicLevel)}</text>
         <text x={258} y={bottomY - 6}>Fond {fm(i.geo.boreDepth)} · Ø {i.geo.boreDia} mm</text>
         {scrn && <text x={126} y={G + ((scrn.top + scrn.bottom) / 2) * k} textAnchor="end">Crépine {scrn.slot.toLocaleString('fr-FR')} mm</text>}
