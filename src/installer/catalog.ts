@@ -129,6 +129,8 @@ const isImm = (i: Installation) => i.mode === 'immergee';
 const solids = (i: Installation) => i.fluid.solidsPct > 0.2 || i.fluid.particleMm > 3;
 const surpr = (i: Installation) => i.app === 'surpression' || i.app === 'incendie';
 const lift = (i: Installation) => (i.app === 'relevage' || i.app === 'drainage');
+const fire = (i: Installation) => i.app === 'incendie';
+const sprinkler = (i: Installation) => fire(i) && i.fire?.kind === 'sprinkler';
 /** Applications à réseau sous pression : les seules où pressostat, réservoir à vessie et capteur de pression ont un sens. */
 const PRESSURE_APPS = new Set<Installation['app']>(['surpression', 'incendie', 'irrigation', 'forage', 'transfert']);
 
@@ -136,11 +138,11 @@ const PRESSURE_APPS = new Set<Installation['app']>(['surpression', 'incendie', '
 export const ACCESSORIES: AccDef[] = [
   // ----- Aspiration -----
   { id: 'clapet_pied', label: 'Clapet de pied crépine', side: 'asp', k: 2.5, glyph: 'foot', desc: 'Garde la conduite d\'aspiration pleine à l\'arrêt.', inline: true,
-    need: (i) => isImm(i) ? 'na' : i.mode === 'aspiration' ? (PUMP_TYPES[i.pumpType].selfPriming ? 'optional' : 'required') : 'na' },
+    need: (i) => isImm(i) ? 'na' : i.mode === 'aspiration' ? (PUMP_TYPES[i.pumpType].selfPriming && !fire(i) ? 'optional' : 'required') : 'na' },
   { id: 'crepine', label: 'Crépine d\'aspiration', side: 'asp', k: 1.0, glyph: 'strainer', desc: 'Arrête les débris à l\'entrée de la conduite.', inline: true,
     need: (i) => isImm(i) ? 'na' : i.mode === 'charge' ? (i.app === 'piscine' ? 'na' : 'recommended') : (i.acc.clapet_pied?.on ? 'na' : 'recommended') },
   { id: 'vanne_asp', label: 'Vanne d\'isolement aspiration', side: 'asp', k: 0.2, glyph: 'gate', tag: 'HV', desc: 'Isole la pompe pour la maintenance. Toujours grande ouverte en service.', inline: true,
-    need: (i) => isImm(i) ? 'na' : i.mode === 'charge' ? 'required' : 'optional' },
+    need: (i) => isImm(i) ? 'na' : i.mode === 'charge' || fire(i) ? 'required' : 'optional' },
   { id: 'filtre_asp', label: 'Filtre à tamis en Y', side: 'asp', k: 3.0, glyph: 'ystrainer', desc: 'Protège la pompe des particules.', inline: true,
     need: (i) => isImm(i) || i.app === 'piscine' || lift(i) || i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : i.app === 'incendie' ? 'avoid' : i.mode === 'charge' && (i.app === 'carburant' || solids(i)) ? 'recommended' : 'optional' },
   { id: 'prefiltre', label: 'Préfiltre à panier', side: 'asp', k: 1.5, glyph: 'basket', desc: 'Retient cheveux et feuilles avant la pompe.', inline: true,
@@ -148,7 +150,7 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'manchon_asp', label: 'Manchon anti-vibratile (aspiration)', side: 'asp', k: 0.1, glyph: 'flex', desc: 'Évite de transmettre vibrations et efforts à la pompe.', inline: true,
     need: (i) => isImm(i) ? 'na' : surpr(i) ? 'recommended' : 'optional' },
   { id: 'vacuometre', label: 'Manovacuomètre + robinet', side: 'asp', k: 0, glyph: 'gauge', tag: 'PI', desc: 'Mesure la pression à l\'aspiration (indispensable au diagnostic).', inline: false,
-    need: (i) => isImm(i) ? 'na' : 'recommended' },
+    need: (i) => isImm(i) ? 'na' : fire(i) ? 'required' : 'recommended' },
   { id: 'cone_exc', label: 'Cône de réduction excentrique', side: 'asp', k: 0.15, glyph: 'eccentric', desc: 'Raccorde la conduite à la bride d\'aspiration sans poche d\'air.', inline: true,
     need: (i) => isImm(i) ? 'na' : i.asp.dn > i.pump.dnAsp ? 'required' : 'na' },
   // ----- Refoulement -----
@@ -169,7 +171,7 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'capteur_p', label: 'Capteur de pression 4-20 mA', side: 'ref', k: 0, glyph: 'ptx', tag: 'PT', desc: 'Pilote le variateur et alimente le jumeau numérique.', inline: false,
     need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.acc.variateur?.on && (surpr(i) || i.app === 'irrigation') ? 'required' : 'optional' },
   { id: 'pressostat', label: 'Pressostat marche / arrêt', side: 'ref', k: 0, glyph: 'pswitch', tag: 'PS', desc: 'Démarre et arrête la pompe selon la pression.', inline: false,
-    need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.app === 'surpression' && !i.acc.variateur?.on ? 'required' : i.app === 'incendie' ? 'recommended' : 'optional' },
+    need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : (i.app === 'surpression' && !i.acc.variateur?.on) || fire(i) ? 'required' : 'optional' },
   { id: 'vessie', label: 'Réservoir à vessie', side: 'ref', k: 0, glyph: 'vessel', desc: 'Limite les démarrages et amortit les variations de pression.', inline: false,
     need: (i) => !PRESSURE_APPS.has(i.app) ? 'na' : i.app === 'surpression' ? 'required' : i.acc.pressostat?.on ? 'required' : 'optional' },
   { id: 'anti_belier', label: 'Anti-bélier (ballon ou soupape)', side: 'ref', k: 0, glyph: 'surge', desc: 'Protège la conduite des surpressions à l\'arrêt brutal.', inline: false,
@@ -184,9 +186,9 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'coffret', label: 'Coffret de commande + disjoncteur moteur', side: 'ctrl', k: 0, glyph: 'panel', desc: 'Protection contre surcharges et courts-circuits.', inline: false,
     need: () => 'required' },
   { id: 'variateur', label: 'Variateur de fréquence', side: 'ctrl', k: 0, glyph: 'vfd', desc: 'Adapte la vitesse au besoin : énergie, démarrage doux.', inline: false,
-    need: (i) => i.app === 'surpression' || i.app === 'irrigation' ? 'recommended' : 'optional' },
+    need: (i) => fire(i) ? 'avoid' : i.app === 'surpression' || i.app === 'irrigation' ? 'recommended' : 'optional' },
   { id: 'marche_sec', label: 'Protection manque d\'eau (électrodes / relais)', side: 'ctrl', k: 0, glyph: 'electrode', tag: 'LSLL', desc: 'Arrête la pompe si elle tourne à sec.', inline: false,
-    need: (i) => lift(i) ? 'na' : i.app === 'forage' || i.app === 'surpression' ? 'required' : 'recommended' },
+    need: (i) => lift(i) ? 'na' : fire(i) ? 'avoid' : i.app === 'forage' || i.app === 'surpression' ? 'required' : 'recommended' },
   { id: 'flotteur_arret', label: 'Flotteur d\'arrêt (niveau bas)', side: 'ctrl', k: 0, glyph: 'float', tag: 'LSL', desc: 'Arrête la pompe avant qu\'elle ne dénoie.', inline: false,
     need: (i) => lift(i) ? 'required' : 'na' },
   { id: 'flotteur_marche', label: 'Flotteur de marche (niveau haut)', side: 'ctrl', k: 0, glyph: 'float', tag: 'LSH', desc: 'Démarre la pompe quand la fosse est pleine.', inline: false,
@@ -201,6 +203,25 @@ export const ACCESSORIES: AccDef[] = [
     need: (i) => i.pumpType === 'immergee_forage' ? 'optional' : 'na' },
   { id: 'barres', label: 'Pied d\'assise + barres de guidage', side: 'ctrl', k: 0, glyph: 'rails', desc: 'Remontée de la pompe sans descendre dans la fosse.', inline: false,
     need: (i) => i.app === 'relevage' ? 'required' : i.pumpType === 'submersible_relevage' ? 'recommended' : 'na' },
+  // ----- Incendie (EN 12845 / APSAD R1 pour les sprinkleurs, NF S 62-201 pour les RIA) -----
+  { id: 'coffret_inc', label: 'Coffret incendie (démarrage automatique, arrêt manuel, thermique en alarme)', side: 'ctrl', k: 0, glyph: 'panel', desc: 'Une pompe incendie démarre seule sur chute de pression et ne s\'arrête qu\'à la main ; une surcharge donne une alarme, jamais un arrêt.', inline: false,
+    need: (i) => fire(i) ? 'required' : 'na' },
+  { id: 'alim_inc', label: 'Alimentation prioritaire en amont du général + câble résistant au feu (CR1)', side: 'ctrl', k: 0, glyph: 'panel', desc: 'La pompe incendie doit rester alimentée quand on coupe le bâtiment.', inline: false,
+    need: (i) => fire(i) ? 'required' : 'na' },
+  { id: 'alarme_inc', label: 'Report des alarmes (pompe en marche, défaut, manque de tension)', side: 'ctrl', k: 0, glyph: 'panel', desc: 'Les alarmes doivent arriver dans un local surveillé en permanence.', inline: false,
+    need: (i) => fire(i) ? 'required' : 'na' },
+  { id: 'jockey', label: 'Pompe de maintien de pression (jockey)', side: 'ctrl', k: 0, glyph: 'pswitch', desc: 'Compense les petites fuites du réseau : sans elle, la pompe principale démarre pour rien et ne s\'arrête plus.', inline: false,
+    need: (i) => fire(i) ? 'required' : 'na' },
+  { id: 'amorcage', label: 'Réservoir d\'amorçage (un par pompe)', side: 'ctrl', k: 0, glyph: 'vessel', desc: 'Garde la pompe et son aspiration pleines : une pompe incendie en aspiration doit pouvoir démarrer à tout instant.', inline: false,
+    need: (i) => fire(i) && i.mode === 'aspiration' ? 'required' : 'na' },
+  { id: 'anti_vortex', label: 'Plaque anti-vortex à l\'aspiration', side: 'ctrl', k: 0, glyph: 'strainer', desc: 'Empêche le tourbillon qui aspire de l\'air quand la réserve baisse.', inline: false,
+    need: (i) => fire(i) && !isImm(i) ? 'required' : 'na' },
+  { id: 'essai', label: 'Circuit d\'essai avec débitmètre (retour à la réserve)', side: 'ctrl', k: 0, glyph: 'flowmeter', desc: 'Permet de vérifier régulièrement le débit et la pression de la pompe sans vider la réserve.', inline: false,
+    need: (i) => fire(i) ? 'required' : 'na' },
+  { id: 'soupape_circ', label: 'Soupape de circulation (débit minimal)', side: 'ctrl', k: 0, glyph: 'relief', desc: 'Laisse passer un petit débit vers la réserve : la pompe, qui ne s\'arrête qu\'à la main, ne chauffe pas à débit nul.', inline: false,
+    need: (i) => fire(i) ? 'required' : 'na' },
+  { id: 'diesel', label: 'Motopompe diesel de secours', side: 'ctrl', k: 0, glyph: 'panel', desc: 'Source d\'énergie indépendante du réseau électrique pour la pompe de secours.', inline: false,
+    need: (i) => sprinkler(i) ? 'required' : fire(i) ? 'recommended' : 'na' },
   { id: 'atex', label: 'Moteur ATEX + liaison équipotentielle', side: 'ctrl', k: 0, glyph: 'atex', desc: 'Obligatoire pour les liquides inflammables.', inline: false,
     need: (i) => i.fluid.type === 'gasoil' || i.app === 'carburant' ? 'required' : 'na' },
 ];

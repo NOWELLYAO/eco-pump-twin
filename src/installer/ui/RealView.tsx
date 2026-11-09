@@ -359,6 +359,44 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
     else { motorBox = { x: px + 26, y: axisY - 20, w: 98, h: 40 }; impXY = [px, axisY]; fanXY = [px + 140, axisY]; }
     ref = vertical ? [[px + 30, axisY], [px + 80, axisY], [px + 80, 150], [REF_END, 150]] : [[px, axisY - 38], [px, 150], [REF_END, 150]];
     refStart = 26;
+    // ----- Incendie : réservoir d'amorçage, soupape de circulation, circuit d'essai, pompe jockey -----
+    if (i.app === 'incendie') {
+      const els: ReactNode[] = [];
+      if (on('amorcage') && i.mode === 'aspiration' && !vertical) {
+        const tx = px - 78, ty = axisY - 118;
+        els.push(
+          <path key="am-p" d={`M${tx + 15} ${ty + 44} V${axisY - 46} H${px - 4} V${axisY - 30}`} stroke="#8a96a3" strokeWidth={4} fill="none" className="r-pipe" />,
+          <rect key="am-t" x={tx} y={ty} width={30} height={44} rx={4} className="r-tank r-obst" />,
+          <rect key="am-w" x={tx + 3} y={ty + 10} width={24} height={31} rx={2} className={liquidCls} />,
+          <text key="am-l" x={tx + 15} y={ty - 6} textAnchor="middle" className="r-label small">Réservoir d'amorçage</text>,
+        );
+      }
+      if (on('soupape_circ')) {
+        const sx = vertical ? px + 80 : px, sy = vertical ? axisY - 60 : axisY - 70;
+        els.push(
+          <g key="sc" className="r-obst" transform={`translate(${sx + 16},${sy})`}><RealGlyph kind="relief" /></g>,
+          <text key="sc-l" x={sx + 30} y={sy + 4} className="r-label small">Soupape de circulation</text>,
+        );
+      }
+      if (on('essai')) {
+        const xT = REF_END - 40;
+        const d = i.mode === 'aspiration' ? `M${xT} 150 V${G + 14} H285 V${G + 30}` : `M${xT} 150 V${G + 14} H240 V${G - 24} H228`;
+        els.push(
+          <path key="te-p" d={d} stroke="#8a96a3" strokeWidth={4} fill="none" strokeDasharray="1 0" className="r-pipe" />,
+          <g key="te-f" className="r-obst" transform={`translate(${xT},${(150 + G) / 2 + 10}) rotate(90)`}><RealGlyph kind="flowmeter" /></g>,
+          <text key="te-l" x={xT - 14} y={G + 30} textAnchor="end" className="r-label small">Circuit d'essai (retour à la réserve)</text>,
+        );
+      }
+      if (on('jockey')) {
+        const jx = REF_END - 105, jy = 196;
+        els.push(
+          <path key="jk-p" d={`M${jx} ${jy - 10} V150`} stroke="#8a96a3" strokeWidth={3} className="r-pipe" />,
+          <g key="jk" className="r-obst"><circle cx={jx} cy={jy} r={9} className="r-pump-small" /><rect x={jx + 8} y={jy - 6} width={18} height={12} rx={2} className="r-motor" /></g>,
+          <text key="jk-l" x={jx + 8} y={jy + 24} textAnchor="middle" className="r-label small">Pompe jockey</text>,
+        );
+      }
+      front.push(<g key="fire">{els}</g>);
+    }
   }
 
   // Pompes en parallèle : copies en retrait + étiquette

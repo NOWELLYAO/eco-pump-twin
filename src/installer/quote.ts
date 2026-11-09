@@ -1,4 +1,5 @@
 import { BIG_TANK, backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
+import { fireCfg } from './fire';
 import { ACCESSORIES, FLUIDS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from './catalog';
 import type { Evaluation } from './evaluate';
 import { elecConfig } from './ui/Electrical';
@@ -73,10 +74,13 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
     const visible = side === 'asp' ? r.length : Math.min(r.length, i.app === 'surpression' ? r.length : 15);
     if (r.material !== 'flexible') add({ id: `supp_${side}`, cat: 'raccords', desig: `Colliers / supports de tuyauterie ${side === 'asp' ? 'aspiration' : 'refoulement'}`, spec: `DN${r.dn}, un tous les ${f(step)} m (parties aériennes)`, qty: up(visible / step) + 1, unit: 'u' });
   };
+  // Incendie en aspiration : une conduite d'aspiration indépendante par pompe, pas de collecteur
+  const fireAsp = i.app === 'incendie' && i.mode === 'aspiration';
   if (!imm) pipe('asp');
+  if (fireAsp && nP > 1) { const t = out.find((x) => x.id === 'tube_asp'); if (t) { t.qty *= nP; t.note = `${nP} aspirations indépendantes (incendie) · ${t.note ?? ''}`; } const c = out.find((x) => x.id === 'coude_asp'); if (c) c.qty *= nP; }
   pipe('ref');
   if (nP > 1) {
-    add({ id: 'coll_asp', cat: 'tuyauterie', desig: 'Collecteur d\'aspiration', spec: `DN${i.asp.dn} avec ${nP} piquages DN${i.pump.dnAsp}`, qty: imm ? 0 : 1, unit: 'u' });
+    add({ id: 'coll_asp', cat: 'tuyauterie', desig: 'Collecteur d\'aspiration', spec: `DN${i.asp.dn} avec ${nP} piquages DN${i.pump.dnAsp}`, qty: imm || fireAsp ? 0 : 1, unit: 'u' });
     add({ id: 'coll_ref', cat: 'tuyauterie', desig: 'Collecteur de refoulement', spec: `DN${i.ref.dn} avec ${nP} piquages DN${i.pump.dnRef} + piquages réservoir / capteur`, qty: 1, unit: 'u' });
   }
   if (i.ref.material === 'pehd' || i.app === 'irrigation' || forage) add({ id: 'grillage', cat: 'divers', desig: 'Grillage avertisseur bleu (conduite enterrée)', spec: 'largeur 30 cm', qty: up(i.ref.length), unit: 'm', note: 'si la conduite est enterrée' });
@@ -88,7 +92,8 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
     if (!on(a.id)) continue;
     if (['coffret', 'variateur', 'atex', 'barres', 'chemise'].includes(a.id)) continue;
     const st = i.acc[a.id];
-    const q = Math.round(st.qty || 1) * (PER.has(a.id) && nP > 1 && !(imm && a.side === 'asp') ? nP : 1);
+    const q = Math.round(st.qty || 1) * (PER.has(a.id) && nP > 1 && !(imm && a.side === 'asp') ? nP : 1)
+      * (i.app === 'incendie' && (a.id === 'amorcage' ? nP : a.id === 'pressostat' ? 2 * nP : 1) || 1);
     const dn = a.inline ? st.dn || (a.side === 'asp' ? i.asp.dn : i.ref.dn) : 0;
     const instr = ['manometre', 'vacuometre', 'capteur_p', 'pressostat', 'debitmetre', 'marche_sec', 'flotteur_arret', 'flotteur_marche', 'flotteur_alarme', 'flotteur_res', 'sonde_niveau'].includes(a.id);
     let spec = a.inline ? `DN${dn} PN${a.side === 'asp' ? i.asp.pn : PN}` : '';
@@ -105,6 +110,18 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
     if (a.id === 'anti_belier') spec = `ballon anti-bélier ou soupape, PN${PN}`;
     if (a.id === 'cone_exc') spec = `DN${i.asp.dn} × DN${i.pump.dnAsp}, méplat ${st.opt ?? 'haut'}`;
     if (a.id === 'cone_ref') spec = `DN${i.pump.dnRef} × DN${i.ref.dn}`;
+    if (i.app === 'incendie') {
+      if (a.id === 'pressostat') spec = `2 par pompe (démarrage seulement, l'arrêt est manuel)${e.vessel ? `, seuils échelonnés à partir de ${f(e.vessel.pOn)} bar` : ''}, contact sec`;
+      if (a.id === 'coffret_inc') spec = 'démarrage auto sur pressostats, arrêt manuel seulement, relais thermique en alarme, voyants marche / défaut / manque de tension, compteur de démarrages';
+      if (a.id === 'alim_inc') spec = `ligne dédiée prise en amont du disjoncteur général, câble CR1 (résistant au feu) ${i.elec.supply === 'mono' ? '3G' : '5G'} ${f(i.elec.cableSec)} mm²`;
+      if (a.id === 'alarme_inc') spec = 'contacts secs + câble vers le local surveillé (ou transmetteur)';
+      if (a.id === 'jockey') spec = `pompe multicellulaire ≈ ${f(Math.max(1, i.duty.qReq * 0.03), 1)} m³/h à la pression du réseau + pressostat + petit réservoir à vessie`;
+      if (a.id === 'amorcage') spec = '≥ 500 L, en charge sur chaque pompe, avec alimentation et flotteur, alarme niveau bas';
+      if (a.id === 'anti_vortex') spec = `plaque Ø ≥ ${f(Math.max(4 * i.asp.dn, 300), 0)} mm au-dessus de l'entrée d'aspiration`;
+      if (a.id === 'essai') spec = `DN${i.ref.dn}, débitmètre ${f(i.duty.qReq * 0.5, 0)}–${f(i.duty.qReq * 1.5, 0)} m³/h, vanne de réglage, retour à la réserve`;
+      if (a.id === 'soupape_circ') spec = `DN15 à DN25, ≈ ${f(Math.max(0.3, i.pump.qn * 0.03), 1)} m³/h vers la réserve, une par pompe électrique`;
+      if (a.id === 'diesel') spec = `motopompe ${f(i.pump.qn)} m³/h à ${f(i.pump.hn)} m, démarrage automatique par 2 batteries, réservoir de gasoil pour ${fireCfg(i).duration * 1.5 | 0} min`;
+    }
     add({ id: `acc_${a.id}`, cat: instr ? 'mesure' : 'robinetterie', desig: a.label, spec, qty: q, unit: 'u' });
     if (a.inline) { if (flanged(dn)) flangedCount += q; else threaded += q; }
   }

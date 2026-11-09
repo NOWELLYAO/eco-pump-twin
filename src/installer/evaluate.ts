@@ -1,8 +1,9 @@
 import { aquiferOf, withAquifer } from './aquifer';
+import { fireCfg } from './fire';
 import { FORMATIONS, screenCalc, screenOf } from './borehole';
 import { isForage as isForageI } from './hydraulics';
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
-import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro } from './hydraulics';
+import { isForage, losses, nRun, patm, pressureHead, pumpHead, pumpNpshr, solve, speedFor, staticHead, suctionZ, vaporPressure, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
 import { proposePump } from './sizing';
@@ -56,12 +57,23 @@ const MISSING: Record<string, { sev: Sev; why: string; consequences: string[]; p
   flotteur_marche: { sev: 'critical', why: 'Rien ne démarre la pompe quand la fosse se remplit.', consequences: ['Débordement de la fosse'], parts: [] },
   flotteur_alarme: { sev: 'warning', why: 'Une panne de pompe ne serait signalée par aucune alarme.', consequences: ['Débordement non détecté', 'Pollution, dégâts des eaux'], parts: [] },
   barres: { sev: 'warning', why: 'Il faudrait descendre dans la fosse pour sortir la pompe.', consequences: ['Intervention dangereuse (H₂S, espace confiné)', 'Maintenance coûteuse'], parts: [] },
+  coffret_inc: { sev: 'critical', why: 'Un coffret ordinaire arrête la pompe sur surcharge ou à la pression d\'arrêt : en plein incendie, c\'est l\'extinction qui s\'arrête.', consequences: ['Pompe arrêtée pendant l\'incendie', 'Non-conformité'], parts: [] },
+  alim_inc: { sev: 'critical', why: 'Si la pompe est alimentée après le disjoncteur général, couper le bâtiment (pompiers, court-circuit) coupe aussi la pompe incendie.', consequences: ['Plus d\'eau pour l\'extinction', 'Non-conformité'], parts: ['cable'] },
+  alarme_inc: { sev: 'warning', why: 'Un défaut de la pompe incendie doit être vu immédiatement.', consequences: ['Panne découverte le jour de l\'incendie'], parts: [] },
+  jockey: { sev: 'warning', why: 'Les petites fuites font baisser la pression : la pompe principale démarre, et comme elle ne s\'arrête qu\'à la main, elle tourne pour rien.', consequences: ['Démarrages intempestifs', 'Pompe principale qui tourne à débit nul'], parts: ['garniture'] },
+  amorcage: { sev: 'critical', why: 'En aspiration, un clapet de pied qui fuit vide la pompe : elle ne débiterait pas au moment de l\'incendie.', consequences: ['Pompe désamorcée au démarrage', 'Non-conformité'], parts: ['garniture'] },
+  anti_vortex: { sev: 'warning', why: 'Quand la réserve baisse, un tourbillon se forme et fait aspirer de l\'air à la pompe.', consequences: ['Chute de débit en fin de réserve', 'Cavitation'], parts: ['roue'] },
+  essai: { sev: 'warning', why: 'Les essais périodiques (débit, pression) sont obligatoires et ne doivent pas vider la réserve.', consequences: ['Performances jamais vérifiées', 'Non-conformité'], parts: [] },
+  soupape_circ: { sev: 'warning', why: 'Arrêt manuel uniquement : vanne fermée, la pompe chauffe l\'eau qu\'elle contient jusqu\'à la vaporisation.', consequences: ['Garniture détruite', 'Pompe hors service'], parts: ['garniture', 'roulements'] },
+  diesel: { sev: 'critical', why: 'Les deux pompes dépendent du même réseau électrique : une coupure les arrête toutes les deux.', consequences: ['Plus de pompe pendant une coupure', 'Non-conformité sprinkleur'], parts: [] },
   atex: { sev: 'critical', why: 'Liquide inflammable : étincelle et électricité statique interdites.', consequences: ['Risque d\'incendie et d\'explosion', 'Non-conformité réglementaire'], parts: ['moteur'] },
 };
 
 const AVOID: Record<string, { why: string; consequences: string[]; parts: string[] }> = {
   clapet_ar: { why: 'Un clapet à ressort se bouche avec des fibres et des boues.', consequences: ['Clapet bloqué ouvert ou fermé', 'Retours d\'effluents'], parts: ['clapet'] },
   filtre_asp: { why: 'Un filtre colmaté priverait d\'eau la pompe incendie au pire moment.', consequences: ['Débit incendie insuffisant', 'Non-conformité'], parts: [] },
+  marche_sec: { why: 'Une pompe incendie ne doit pas être arrêtée par une protection manque d\'eau : mieux vaut perdre la pompe que l\'extinction (seule une alarme est admise).', consequences: ['Arrêt de la pompe en plein incendie', 'Non-conformité'], parts: [] },
+  variateur: { why: 'Un variateur ajoute un point de panne et réduit la pression en cas de défaut : les pompes incendie tournent à vitesse fixe.', consequences: ['Pompe bridée ou arrêtée par un défaut du variateur', 'Non-conformité'], parts: [] },
 };
 
 export interface Evaluation {
@@ -600,6 +612,51 @@ export function evaluate(input: Installation): Evaluation {
       }
       if (h.q <= aq.qMax && above >= 2) goods.push(`Forage : ${f1(aq.qTest)} m³/h à l'essai (${f1(aq.c, 2)} m³/h par mètre de rabattement) ; à ${f1(h.q)} m³/h, l'eau se stabilise à ${f1(g.dynamicLevel)} m, ${f1(above)} m au-dessus de la pompe`);
     }
+  }
+
+  // ---------- Incendie : règles des installations de pompage incendie ----------
+  if (i.app === 'incendie') {
+    const fc = fireCfg(i);
+    const std = fc.kind === 'sprinkler' ? 'EN 12845 / APSAD R1' : 'NF S 62-201 (RIA)';
+    // Aspiration : hauteur limitée, une conduite par pompe, vitesse et diamètre minimaux
+    if (i.mode === 'aspiration') {
+      if (i.geo.suctionLift > 3.2) add({ id: 'fire_lift', sev: 'critical', cat: 'aspiration', title: 'Hauteur d\'aspiration trop grande pour une pompe incendie',
+        detail: `${f1(i.geo.suctionLift)} m entre le niveau bas de la réserve et l'axe de la pompe : une pompe incendie en aspiration est limitée à 3,2 m (${std}). Au-delà, le moindre défaut d'étanchéité la désamorce.`,
+        consequences: ['Pompe désamorcée au moment de l\'incendie', 'Non-conformité'], parts: ['garniture', 'roue'],
+        solutions: ['Poser les pompes en charge, sous le niveau bas de la réserve (solution à privilégier)', 'Sinon : abaisser les pompes à 3,2 m au plus du niveau bas'],
+        fix: { label: 'Pompes en charge', apply: (x) => ({ ...x, mode: 'charge', geo: { ...x.geo, chargeHead: Math.max(0.5, x.geo.chargeHead || 0.5) } }) } });
+      if (nRun(i) + (i.pump.standby ?? 0) > 1) add({ id: 'fire_asp_sep', sev: 'info', cat: 'aspiration', title: 'Une aspiration par pompe',
+        detail: 'En aspiration, chaque pompe incendie doit avoir sa propre conduite, son clapet de pied et son réservoir d\'amorçage : une fuite sur une aspiration commune désamorcerait toutes les pompes. Le devis en tient compte.',
+        consequences: [], parts: [], solutions: [`${(i.pump.count ?? 1)} conduites d'aspiration indépendantes`] });
+    }
+    if (i.mode !== 'immergee' && (h.vAsp > 1.5 || i.asp.dn < 65)) add({ id: 'fire_vasp', sev: 'warning', cat: 'aspiration', title: 'Conduite d\'aspiration incendie trop petite',
+      detail: `DN${i.asp.dn}, ${f1(h.vAsp, 2)} m/s : une aspiration incendie doit faire au moins DN65 avec une vitesse de 1,5 m/s au plus.`,
+      consequences: ['Pertes à l\'aspiration, NPSH réduit au débit maximal'], parts: [],
+      solutions: [`Aspiration en DN${Math.max(65, nextDn(i.asp.dn))}`], fix: { label: `Aspiration DN${Math.max(65, nextDn(i.asp.dn))}`, apply: (x) => withPipe(x, 'asp', Math.max(65, nextDn(x.asp.dn))) } });
+    // Courbe : à 140 % du débit nominal, au moins 70 % de la pression, et NPSH suffisant
+    if (h.ok) {
+      const q0 = i.duty.qReq, q14 = 1.4 * q0, n = nRun(i);
+      const h0 = pumpHead(i, q0), h14 = pumpHead(i, q14);
+      const npsha14 = ((patm(i.geo.altitude) - vaporPressure(i)) * 1000) / rhoG + suctionZ(i) - losses(i, q14).asp;
+      const npshr14 = pumpNpshr(i, q14 / n);
+      if (h14 < 0.7 * h0) add({ id: 'fire_140', sev: 'warning', cat: 'hydraulique', title: 'Courbe trop plongeante à 140 % du débit',
+        detail: `À ${f1(q14)} m³/h (140 %), la pompe ne donne plus que ${f0(h14)} m, soit ${f0((h14 / Math.max(1, h0)) * 100)} % de sa hauteur au débit nominal : il en faut au moins 70 % (${std}).`,
+        consequences: ['Pression insuffisante si plus de têtes ou de RIA s\'ouvrent que prévu'], parts: [], solutions: ['Pompe à courbe plus plate (roue plus large, autre modèle)'] });
+      if (npsha14 < npshr14 + 1) add({ id: 'fire_npsh140', sev: i.mode === 'aspiration' ? 'critical' : 'warning', cat: 'aspiration', title: 'Cavitation à 140 % du débit',
+        detail: `À ${f1(q14)} m³/h, NPSH disponible ${f1(npsha14)} m pour ${f1(npshr14)} m requis (+1 m de marge) : la pompe cavite précisément quand l'incendie demande le plus d'eau.`,
+        consequences: ['Chute de débit en plein incendie', 'Roue érodée'], parts: ['roue'], solutions: ['Pompes en charge', 'Aspiration plus grosse et plus courte'] });
+    }
+    // Réserve d'eau : débit × durée
+    const need = (i.duty.qReq * fc.duration) / 60;
+    if (fc.reserve == null) add({ id: 'fire_reserve_unk', sev: 'info', cat: 'hydraulique', title: 'Réserve d\'eau incendie à vérifier',
+      detail: `Il faut au moins ${f1(need)} m³ utiles (${f1(i.duty.qReq)} m³/h pendant ${fc.duration} min), au-dessus de la plaque anti-vortex.`, consequences: [], parts: [], solutions: ['Renseigner la réserve disponible (Conception › Besoin et énergie)'] });
+    else if (fc.reserve < need) add({ id: 'fire_reserve', sev: 'critical', cat: 'hydraulique', title: 'Réserve d\'eau incendie insuffisante',
+      detail: `${f1(fc.reserve)} m³ pour ${f1(need)} m³ nécessaires (${f1(i.duty.qReq)} m³/h pendant ${fc.duration} min) : l'eau manquerait avant la fin de l'intervention.`,
+      consequences: ['Plus d\'eau avant la fin de l\'extinction'], parts: [], solutions: [`Réserve d'au moins ${Math.ceil(need)} m³ utiles`] });
+    // Pompe de secours électrique sur le même réseau (sans diesel)
+    if ((i.pump.standby ?? 0) > 0 && !i.acc.diesel?.on && fc.kind === 'sprinkler') { /* couvert par « Manque : motopompe diesel » */ }
+    const okList = ['coffret_inc', 'alim_inc', 'jockey', 'essai', 'soupape_circ', 'alarme_inc'].every((k) => i.acc[k]?.on);
+    if (okList && (i.pump.standby ?? 0) > 0 && (i.mode !== 'aspiration' || i.geo.suctionLift <= 3.2)) goods.push(`Installation incendie (${std}) : pompe de secours${i.acc.diesel?.on ? ' diesel' : ''}, pompe jockey, démarrage automatique et arrêt manuel, circuit d'essai, alimentation prioritaire`);
   }
 
   // ---------- Crépine du forage : position de la pompe, fentes, vitesse d'entrée ----------

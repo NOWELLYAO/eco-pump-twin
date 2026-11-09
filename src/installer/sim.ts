@@ -90,6 +90,8 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   }
   if (st.trip || st.t < st.outageUntil) return null;
   if (st.on && !st.hum && (st.q < 0.05 || st.noFlow)) return `ANORMALE : la pompe tourne mais ne débite rien (${st.noFlow ? 'plus d\'eau à l\'aspiration' : 'vanne fermée, colonne bouchée ou hauteur inatteignable'}) — l'eau s'échauffe dans la pompe (${f(st.tl ?? 0, 0)} °C), moteur à ${f(st.tm ?? 0, 0)} °C : à arrêter`;
+  if (i.app === 'incendie' && i.acc.coffret_inc?.on && st.on && er.vessel && st.x >= er.vessel.pOff - 0.05) return `pompe incendie : pression d'arrêt atteinte, mais elle reste en marche — arrêt MANUEL uniquement, au coffret, une fois l'incendie maîtrisé${i.acc.soupape_circ?.on ? ' (la soupape de circulation l\'empêche de chauffer)' : ''}`;
+  if (i.app === 'incendie' && !st.on && er.vessel) return `pompe incendie en veille : démarrage automatique sous ${f(er.vessel.pOn)} bar${i.acc.jockey?.on ? ' ; la pompe jockey compense les petites fuites' : ''}`;
   if (st.bkFeed) return `arrêtée : la maison est alimentée par le réservoir de secours (${Math.round((st.bk ?? 0) * 100)} %)`;
   if (st.lowLevel) return 'arrêtée : manque d\'eau au forage, attend que le niveau remonte';
   if (kind === 'vfd') return st.on ? `variateur à ${Math.round(st.s * 50)} Hz : la maison prend ${f(house)} m³/h${fillTxt}, pression tenue à ${f(st.x)} bar` : 'en veille : consommation trop faible';
@@ -413,6 +415,12 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const seen = (...xs: Sym[]) => { st.recent = { ...st.recent }; for (const x of xs) st.recent[x] = st.t; };
   const trip = (msg: string, kind: Sym = 'decl_thermique') => {
     if (st.trip) return;
+    // Coffret incendie : surcharge, sous-charge, manque d'eau = ALARME seulement (la pompe continue) ; seul un moteur grillé l'arrête
+    if (i.app === 'incendie' && i.acc.coffret_inc?.on && !/grillé|Différentiel|différentiel/.test(msg)) {
+      seen(kind);
+      once(`firealarm_${kind}`, { t: st.t, sev: 'critical', text: `ALARME (coffret incendie, pas d'arrêt) : ${msg}`, target: 'cable' });
+      return;
+    }
     if (multi && fx.tripLocal && !st.isolated) {
       const sb = Math.max(0, i.pump.standby ?? 0);
       st.isolated = msg; st.tripKind = kind; seen(kind);
@@ -467,6 +475,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
 
   for (let k = 0; k < n; k++) {
     const hr = hourOf(st.t);
+    const fireMode = i.app === 'incendie';
+    const fireManual = fireMode && !!i.acc.coffret_inc?.on; // coffret incendie : arrêt manuel seulement
     // Forage : niveau réel de l'eau maintenant (nappe qui descend en pompage, remonte à l'arrêt) ; dL = écart au niveau de calcul
     const dL = isForage(i) ? i.geo.staticLevel + (st.aqS ?? 0) + st.dd - i.geo.dynamicLevel : 0;
     const qAtLevel = (q0: number) => {
@@ -494,10 +504,14 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     const houseNet = serie ? 0 : use(ctx, hr) * i.duty.qReq;
     if (kind === 'vessel' && v) {
       const vt = (v.vol / 1000) * (fx.vesselK ?? 1); // m³ utiles
-      const qd = houseNet + leakQ + fillQ;
+      // Incendie : la pompe jockey compense les petites fuites, la soupape de circulation fait passer un débit minimal
+      const jockeyQ = fireMode && i.acc.jockey?.on ? Math.max(0.3, i.duty.qReq * 0.03) : 0;
+      const circQ = fireMode && i.acc.soupape_circ?.on && st.on ? Math.max(0.3, i.pump.qn * 0.03) : 0;
+      const qd = Math.max(0, houseNet + leakQ + fillQ - jockeyQ) + circQ;
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
       if (st.x <= v.pOn) start();
-      if (st.on && st.x >= v.pOff) {
+      if (st.on && st.x >= v.pOff && fireManual) once('fire_nostop', { t: st.t, sev: 'info', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte : pompe incendie maintenue en marche (arrêt manuel uniquement, au coffret)`, target: 'acc:coffret_inc' });
+      else if (st.on && st.x >= v.pOff) {
         if (fx.pswitch === 'stuck') { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte mais le pressostat ne coupe pas`, target: 'acc:pressostat' }); st.runaway = true; }
         else stop(`pressostat (${f1(v.pOff)} bar)`);
       }
@@ -511,6 +525,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         qq = lo;
       }
       st.q = qq;
+      // Soupape de circulation (incendie) : même vanne fermée, la pompe débite un petit filet vers la réserve et ne chauffe pas
+      if (circQ > 0 && st.on && !st.hum && !st.noFlow) {
+        const pC = Math.max(0, ((pumpHead(i, circQ) - losses(i, circQ).total + pressZ(i) - dL) * rhoG) / 1e5);
+        if (st.q < circQ && st.x >= pC - 0.05) { st.q = circQ; st.x = Math.min(st.x, pC); }
+      }
       if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
       vw += ((st.q - qd) / 3600) * sub;
       const pMax = Math.max(0, (h0 + (isForage(i) ? pressZ(i) : Math.max(0, suctionZ(i)))) * rhoG / 1e5);

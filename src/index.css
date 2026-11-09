@@ -1450,3 +1450,4 @@ html, body { overflow-x: clip; }
 .live-bar .btn{margin-left:auto}.live-bar .btn + .btn{margin-left:0}
 .live-dot{width:9px;height:9px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.6);animation:livepulse 1.6s infinite}
 @keyframes livepulse{70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
+.r-pump-small{fill:#2b7fd6;stroke:#1d4f86;stroke-width:1.5}

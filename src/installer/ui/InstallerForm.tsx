@@ -7,9 +7,10 @@ import { defaultDn, withPipe } from '../evaluate';
 import { SECTIONS, START_LABEL, SUPPLY_LABEL, TANK_SIZES, type ElecResult } from '../electrical';
 import { fluidAt, solve } from '../hydraulics';
 import { aquiferOf, withAquifer } from '../aquifer';
+import { fireCfg } from '../fire';
 import { FORMATIONS, SLOTS, screenCalc, screenProposal, type FormationId } from '../borehole';
 import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
-import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
+import type { FireCfg, AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
 import { PumpCurveEditor } from './PumpCurveEditor';
 import { isDefault, touch } from '../defaults';
@@ -80,7 +81,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
 
       <Section n={1} title="Application et type de pompe" summary={`${APPS[i.app].label} · ${MODES[i.mode].label}`} open>
         <div className="igrid">
-          <TextField label="Nom du projet" value={i.name} onChange={(v) => upd('name', v)} wide />
+          <TextField label="Nom du projet" value={i.name} onChange={(v) => set((x) => ({ ...x, name: v, nameAuto: !v.trim() }))} wide />
           <SelField label="Application" value={i.app} wide options={(Object.keys(APPS) as AppId[]).map((a) => ({ v: a, l: APPS[a].label }))}
             onChange={(v) => set((x) => {
               const pt = APPS[v].pumps.includes(x.pumpType) ? x.pumpType : APPS[v].pumps[0];
@@ -197,6 +198,18 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
           <NumField label="Fonctionnement" unit="h/jour" value={i.duty.hoursPerDay} onChange={(v) => duty({ hoursPerDay: Math.min(24, v) })} />
           <NumField label="Prix du kWh" unit={i.duty.currency} value={i.duty.pricePerKwh} onChange={(v) => duty({ pricePerKwh: v })} />
           <SelField label="Devise" value={i.duty.currency} options={['FCFA', 'KES', 'EUR', 'USD', 'MAD', 'GNF', 'CDF', 'XAF'].map((c) => ({ v: c, l: c }))} onChange={(v) => duty({ currency: v })} />
+          {i.app === 'incendie' && (() => {
+            const fc = fireCfg(i);
+            const fu = (p: Partial<FireCfg>) => set((x) => ({ ...x, fire: { ...fireCfg(x), ...p } }));
+            const need = (i.duty.qReq * fc.duration) / 60;
+            return (
+              <>
+                <SelField label="Installation incendie" value={fc.kind} wide options={[{ v: 'ria', l: 'Robinets d\'incendie armés (RIA) — NF S 62-201' }, { v: 'sprinkler', l: 'Sprinkleurs — EN 12845 / APSAD R1' }]} onChange={(v) => fu({ kind: v as FireCfg['kind'], duration: v === 'sprinkler' ? 60 : 20 })} />
+                <NumField label="Durée d'autonomie exigée" unit="min" value={fc.duration} onChange={(v) => v > 0 && fu({ duration: v })} hint={fc.kind === 'sprinkler' ? '30 (risque léger), 60 (ordinaire), 90 (élevé)' : '20 min en général'} />
+                <NumField label="Réserve d'eau incendie disponible" unit="m³" value={fc.reserve ?? 0} onChange={(v) => fu({ reserve: v > 0 ? v : undefined })} hint={`il faut au moins ${need.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³ utiles`} />
+              </>
+            );
+          })()}
         </div>
       </Section>
 

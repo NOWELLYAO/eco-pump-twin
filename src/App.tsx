@@ -14,6 +14,7 @@ import { createProject, currentId, fromLink, listProjects, loadProject, saveProj
 import { buildReportPdf, shareOrDownload } from './ui/pdf';
 import { DesignPage, DiagPage, type Shared } from './installer/ui/Pages';
 import type { LiveShare } from './installer/ui/SimPage';
+import { withAutoName } from './installer/fire';
 // Pages et fenêtres chargées à la demande : démarrage plus rapide sur réseau mobile
 const SimPage = lazy(() => import('./installer/ui/SimPage').then((m) => ({ default: m.SimPage })));
 const MaterialPage = lazy(() => import('./installer/ui/Pages').then((m) => ({ default: m.MaterialPage })));
@@ -35,7 +36,7 @@ const START_HASH = window.location.hash; // lu avant que la navigation ne le rem
 function initial(): { id: string; inst: Installation } {
   const cur = currentId();
   const ids = [cur, ...listProjects().map((p) => p.id)].filter(Boolean) as string[];
-  for (const id of ids) { const x = loadProject(id); if (x) return { id, inst: sanitizeAcc(x) }; }
+  for (const id of ids) { const x = loadProject(id); if (x) return { id, inst: withAutoName(sanitizeAcc(x)) }; }
   const inst = PRESETS[3].build();
   return { id: createProject(inst), inst };
 }
@@ -112,10 +113,10 @@ export default function App() {
   const openProject = (id: string) => {
     const x = id ? loadProject(id) : null;
     if (!x) return;
-    setProjId(id); setCurrent(id); setInst(sanitizeAcc(x)); setSelected(null); setActiveIssue(null); setProjOpen(false);
+    setProjId(id); setCurrent(id); setInst(withAutoName(sanitizeAcc(x))); setSelected(null); setActiveIssue(null); setProjOpen(false);
   };
   const newProject = (x: Installation, msg?: string) => {
-    const n = ensureElec(sanitizeAcc(x));
+    const n = withAutoName(ensureElec(sanitizeAcc(x)));
     const id = createProject(n);
     setProjId(id); setInst(n); setSelected(null); setActiveIssue(null); setProjOpen(false); setPage('design');
     if (msg) say(msg);
@@ -154,7 +155,7 @@ export default function App() {
   }, 30);
   const s: Shared = {
     inst, ev, highlight, selected, activeIssue,
-    set: (fn) => setInst((i) => ensureElec(sanitizeAcc(fn(i)))),
+    set: (fn) => setInst((i) => withAutoName(ensureElec(sanitizeAcc(fn(i))))),
     pick: (t) => { setSelected(t); setActiveIssue(null); },
     selectIssue: (x) => { setActiveIssue(x); setSelected(targetsOf(x.id)[0] ?? null); showDiagram(); },
     fix: (x) => { if (x.fix) setInst((i) => ensureElec(sanitizeAcc(x.fix!.apply(i)))); },

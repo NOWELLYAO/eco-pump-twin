@@ -104,8 +104,15 @@ export interface Elec {
   solar: Solar;
 }
 
+export interface FireCfg {
+  kind: 'ria' | 'sprinkler'; // robinets d'incendie armés (NF S 62-201) ou sprinkleurs (EN 12845 / APSAD R1)
+  duration: number; // durée d'autonomie exigée (min)
+  reserve?: number; // réserve d'eau incendie disponible (m³)
+}
 export interface Installation {
   name: string;
+  nameAuto?: boolean; // nom généré automatiquement (application + débit) tant qu'il n'est pas saisi
+  fire?: FireCfg;
   app: AppId;
   pumpType: PumpTypeId;
   mode: ModeId;
