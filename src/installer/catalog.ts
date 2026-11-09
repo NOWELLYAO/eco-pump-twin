@@ -260,3 +260,6 @@ export function withPipe(i: Installation, side: 'asp' | 'ref', dn: number): Inst
   }
   return { ...i, [side]: { ...i[side], dn }, acc };
 }
+
+/** Réseaux pilotés en pression (pressostat / variateur possibles) — mêmes applications que la simulation. */
+export const pressNet = (i: Installation) => ['surpression', 'incendie', 'forage', 'irrigation', 'transfert'].includes(i.app);

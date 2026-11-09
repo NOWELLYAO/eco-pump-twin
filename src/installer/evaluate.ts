@@ -2,14 +2,14 @@ import { aquiferOf, withAquifer } from './aquifer';
 import { fireCfg } from './fire';
 import { FORMATIONS, screenCalc, screenOf } from './borehole';
 import { isForage as isForageI } from './hydraulics';
-import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pipeFor, withPipe, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
+import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pipeFor, pressNet, withPipe, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
 import { isForage, losses, nRun, patm, pressureHead, pumpHead, pumpNpshr, solve, speedFor, staticHead, suctionZ, vaporPressure, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, vessel as vesselCalc, vfdSet, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
 import { fitBore, proposePump } from './sizing';
 import { sizeFor, sizeLabel, sizeOf } from './borepump';
 import { backupApplies, backupCalc, backupMode, backupOf, backupProposal, floatKind, floatLow } from './backup';
-import type { Category, Installation, Issue, Need, Sev } from './types';
+import type { Category, Fix, Installation, Issue, Need, Sev } from './types';
 
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
 const f0 = (v: number) => Math.round(v).toLocaleString('fr-FR');
@@ -19,6 +19,19 @@ const setAcc = (id: string, on = true, extra: Partial<Installation['acc'][string
 });
 export { withPipe };
 const bigger = (side: 'asp' | 'ref') => (x: Installation) => withPipe(x, side, nextDn(x[side].dn));
+/** Débit insuffisant : le plus petit agrandissement de conduite qui suffit (jusqu'à 3 crans), sinon une pompe adaptée. */
+function lowqFix(i: Installation, side: 'asp' | 'ref', canGrow: boolean): Fix | undefined {
+  if (canGrow) {
+    let x = i;
+    for (let k = 0; k < 3; k++) {
+      x = withPipe(x, side, nextDn(x[side].dn));
+      const hx = solve(x);
+      if (hx.ok && hx.q >= i.duty.qReq * 0.97) { const dn = x[side].dn; return { label: `${side === 'asp' ? 'Aspiration' : 'Refoulement'} en DN${dn}`, apply: (y) => withPipe(y, side, dn) }; }
+    }
+  }
+  const s = sized(i);
+  return sameAs(s, i) ? undefined : { label: `Pompe adaptée : ${f1(s.pump.qn)} m³/h à ${f0(s.pump.hn)} m`, apply: sized };
+}
 
 export function defaultDn(i: Installation, id: string) {
   const a = ACC[id];
@@ -136,7 +149,7 @@ export function evaluate(input: Installation): Evaluation {
       detail: `Hauteur à débit nul : ${f1(h.h)} m. Hauteur géométrique + pression demandée : ${f1(h.hStatic + h.hPress)} m.`,
       consequences: ['Aucun débit en sortie', 'L\'eau chauffe dans la pompe', 'Garniture et roulements détruits'], parts: ['garniture', 'roulements', 'roue', 'moteur'],
       solutions: ['Choisir une pompe de plus forte HMT (plus d\'étages, roue plus grande)', 'Réduire la pression résiduelle demandée', 'Vérifier les hauteurs saisies'],
-      fix: { label: 'Choisir une pompe adaptée', apply: sized } });
+      fix: sameAs(sized(i), i) ? undefined : { label: 'Choisir une pompe adaptée', apply: sized } });
   } else {
     const r = h.q / i.duty.qReq;
     // Forage limité volontairement à son débit d'exploitation : ce n'est pas un défaut de la pompe (voir « aq_need »)
@@ -152,7 +165,7 @@ export function evaluate(input: Installation): Evaluation {
         detail: `L'installation débite ${f1(h.q)} m³/h pour ${f1(i.duty.qReq)} m³/h demandés (${f0(r * 100)} %).`,
         consequences: ['Besoin non couvert', 'Pompe sollicitée en continu'], parts: [],
         solutions: [canGrow ? `Réduire les pertes de charge (${f0(share * 100)} % de la hauteur) : ${side === 'asp' ? 'aspiration' : 'refoulement'} en DN${nextDn(i[side].dn)}` : `Choisir une pompe de plus forte HMT : il faut environ ${f1(h.hStatic + h.hPress + h.hLoss * (i.duty.qReq / Math.max(h.q, 0.1)) ** 2)} m à ${f1(i.duty.qReq)} m³/h`, 'Réduire la pression résiduelle demandée si possible'],
-        fix: canGrow ? { label: `${side === 'asp' ? 'Aspiration' : 'Refoulement'} en DN${nextDn(i[side].dn)}`, apply: bigger(side) } : undefined });
+        fix: lowqFix(i, side, canGrow) });
     } else if (r > 1.3) {
       add({ id: 'highq', sev: i.acc.variateur?.on ? 'info' : 'warning', cat: 'energie', title: 'Pompe surdimensionnée pour le besoin',
         detail: `${f1(h.q)} m³/h pour ${f1(i.duty.qReq)} m³/h demandés (+${f0((r - 1) * 100)} %).`,
@@ -163,7 +176,7 @@ export function evaluate(input: Installation): Evaluation {
 
     // Réservoir à vessie + pressostat : la pompe ne travaille jamais au point « tuyau ouvert » mais entre les pressions
     // de marche et d'arrêt ; son vrai point de fonctionnement est le débit de remplissage à la pression moyenne.
-    const ves = !vfdPt && effectiveStart(i) !== 'variateur' && i.acc.pressostat?.on && i.acc.vessie?.on ? vesselCalc(i, h) : null;
+    const ves = !vfdPt && pressNet(i) && i.app !== 'incendie' && effectiveStart(i) !== 'variateur' && i.acc.pressostat?.on && i.acc.vessie?.on ? vesselCalc(i, h) : null;
     const xv = ves && ves.qFill > 0 ? (ves.qFill / h.n) / i.pump.qn : null;
     const xr = vfdPt ? vfdPt.x : xv ?? h.x;
     const at = vfdPt ? ` avec le variateur réglé sur le besoin (≈ ${f0(vfdPt.hz)} Hz)` : xv != null ? ` entre ${f1(ves!.pOn)} et ${f1(ves!.pOff)} bar (pressostat)` : '';
@@ -177,7 +190,7 @@ export function evaluate(input: Installation): Evaluation {
         consequences: low ? ['Recirculation interne, vibrations', 'Échauffement du liquide', 'Efforts radiaux sur l\'arbre'] : ['Risque de cavitation', 'Surcharge du moteur', 'Bruit et vibrations'],
         parts: low ? ['roulements', 'garniture', 'arbre', 'roue'] : ['roue', 'moteur', 'garniture', 'roulements'],
         solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : rightSolutions(i, h, !!vfdPt),
-        fix: low ? undefined : { label: `Pompe adaptée : ${f1(sized(i).pump.qn)} m³/h à ${f0(sized(i).pump.hn)} m`, apply: sized } });
+        fix: low || sameAs(sized(i), i) ? undefined : { label: `Pompe adaptée : ${f1(sized(i).pump.qn)} m³/h à ${f0(sized(i).pump.hn)} m`, apply: sized } });
     } else if (xr >= 0.85 && xr <= 1.1) goods.push(`Point de fonctionnement proche du rendement optimal (${f0(xr * 100)} % du débit nominal${at})`);
 
     const share = h.hLoss / h.h;
@@ -832,7 +845,10 @@ export function evaluate(input: Installation): Evaluation {
 export { APPS };
 
 /** Pompe redimensionnée sur le besoin (débit demandé, hauteur réelle du réseau) */
-function sized(i: Installation): Installation { return proposePump(i); }
+const sizedCache = new WeakMap<Installation, Installation>();
+function sized(i: Installation): Installation { let r = sizedCache.get(i); if (!r) { r = proposePump(i); sizedCache.set(i, r); } return r; }
+/** La « pompe adaptée » est-elle déjà celle en place ? (pas de bouton qui ne changerait rien) */
+const sameAs = (a: Installation, b: Installation) => Math.abs(a.pump.qn - b.pump.qn) < 0.05 && Math.abs(a.pump.hn - b.pump.hn) < 0.5 && a.pump.motorKw === b.pump.motorKw;
 
 /** Que faire quand la pompe est trop à droite de sa courbe (débit > 120 % de son optimum) */
 function rightSolutions(i: Installation, h: Hydro, vfdHelps: boolean): string[] {

@@ -1,6 +1,7 @@
 /** Dimensionnement : pompe adaptée au besoin (débit demandé à la hauteur réellement nécessaire). */
-import { PUMP_TYPES, withPipe } from './catalog';
-import { solve, systemHeadAt } from './hydraulics';
+import { PUMP_TYPES, pressNet, withPipe } from './catalog';
+import { pressZ, solve, systemHeadAt } from './hydraulics';
+import { vessel } from './electrical';
 import { aquiferOf } from './aquifer';
 import type { Installation, PumpMatId } from './types';
 import { BORE_SIZES, outletFor, sizeFor } from './borepump';
@@ -34,6 +35,33 @@ export function proposePump(d0: Installation): Installation {
 }
 
 function sizeLoop(d: Installation): Installation {
+  const out = sizeLoop0(d);
+  // Pressostat déjà réglé (pressions de marche / d'arrêt saisies) : la pompe travaille entre ces deux pressions.
+  // On la choisit pour que son meilleur rendement tombe à la pression moyenne (au lieu du point « tuyau ouvert »).
+  // Pressostat + réservoir à vessie (sans variateur) : la pompe ne travaille qu'entre les pressions de marche et d'arrêt.
+  // Son meilleur rendement doit tomber à la pression MOYENNE : hauteur nominale = hauteur à cette pression
+  // (le rapport débit / débit nominal ne dépend que de H / Hn). Les réglages conseillés dépendant de la pompe, on itère.
+  if (pressNet(d) && d.app !== 'incendie' && d.acc.pressostat?.on && d.acc.vessie?.on && !(d.acc.variateur?.on && d.acc.capteur_p?.on)) {
+    const rhoG = d.fluid.rho * 9.81;
+    const nr = Math.max(1, (d.pump.count ?? 1) - (d.pump.standby ?? 0));
+    let p: Installation = { ...out, pump: { ...out.pump, qn: Math.round((d.duty.qReq / nr) * 10) / 10 } };
+    for (let n = 0; n < 5; n++) {
+      const v = vessel(p, solve(p)); if (!v) break;
+      const hMid = (((v.pOn + v.pOff) / 2) * 1e5) / rhoG - pressZ(p);
+      const hOff = (v.pOff * 1e5) / rhoG - pressZ(p);
+      const hn = Math.ceil(Math.max(hMid, (hOff + 3) / p.pump.shutoff));
+      if (hn === p.pump.hn) break;
+      p = { ...p, pump: { ...p.pump, hn } };
+    }
+    const h = solve(p);
+    const need = Math.max(h.ok ? h.pShaft * 1.15 : 0, ((rhoG * (p.pump.qn / 3600) * p.pump.hn) / p.pump.eta / 1000) * 1.15);
+    p = { ...p, pump: { ...p.pump, motorKw: MOTORS.find((m) => m >= need) ?? 300 } };
+    return p.pumpType === 'immergee_forage' ? fitBore(p) : p;
+  }
+  return out;
+}
+
+function sizeLoop0(d: Installation): Installation {
   let k = 1, best = proposeOnce(d, 1);
   for (let n = 0; n < 6; n++) {
     const h = solve(best);
@@ -65,7 +93,7 @@ function proposeOnce(d: Installation, kH: number): Installation {
   const shutoff = pt === 'immergee_forage' ? 1.3 : pt === 'submersible_relevage' ? 1.45 : 1.25;
   // Avec pressostat (sans variateur), la pompe doit pouvoir monter au-dessus de la pression de marche
   // pour atteindre l'arrêt : on garde ≥ 13 m (≈ 1,3 bar) de réserve à débit nul.
-  const pressostat = !!d.acc.pressostat?.on || !!d.acc.vessie?.on;
+  const pressostat = pressNet(d) && (!!d.acc.pressostat?.on || !!d.acc.vessie?.on);
   const h0 = Math.max(hReq * shutoff, pressostat ? hReq + 14 : 0);
   const hn = Math.ceil(h0 / shutoff);
   // Courbe H = h0 − k·q² passant par le besoin (q, hReq) : débit nominal correspondant
