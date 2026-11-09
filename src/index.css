@@ -1487,3 +1487,9 @@ html, body { overflow-x: clip; }
 .fgroup .flist{padding:0 10px 10px;margin:0}
 .factive{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
 .factive small{color:var(--muted)}
+
+/* Photos réelles en fenêtre */
+.btn.phbtn { align-self: flex-start; justify-self: start; width: auto; flex: 0 0 auto; display: inline-flex; margin-top: 4px; }
+.phmodal .photos > h5 { display: none; }
+.phmodal .photos { margin: 0; padding: 0; border: 0; }
+.phmodal .modal-head h2 { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }

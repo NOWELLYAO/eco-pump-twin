@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Activity, Camera, CircuitBoard, ExternalLink, Eye, Network, Plus, Trash2, X, Zap } from 'lucide-react';
 import { ACC, APPS, NEED_LABEL, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
 import type { Evaluation } from '../evaluate';
@@ -42,8 +43,30 @@ async function search(spec: PhotoSpec, signal: AbortSignal): Promise<Photo[]> {
   return out.slice(0, 6);
 }
 
+/** Petit bouton « Photos réelles » qui ouvre les photos dans une fenêtre (elles ne prennent plus de place dans la fiche). */
+export function Photos(p: { generic: PhotoSpec; label: string; brand?: BrandRange | null }) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, [open]);
+  return (
+    <>
+      <button className="btn sm phbtn" onClick={() => setOpen(true)}><Camera size={14} aria-hidden /> Photos réelles</button>
+      {open && createPortal(
+        <div className="backdrop" onClick={() => setOpen(false)}>
+          <div className="modal phmodal" role="dialog" aria-modal aria-label={`Photos réelles · ${p.label}`} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><h2><Camera size={18} aria-hidden /> {p.label}</h2><button className="icon-btn" onClick={() => setOpen(false)} aria-label="Fermer"><X size={20} /></button></div>
+            <PhotosBody {...p} />
+          </div>
+        </div>, document.body)}
+    </>
+  );
+}
+
 /** Photos réelles : d'abord la gamme Grundfos correspondante, sinon des photos libres génériques (Wikimedia Commons). */
-export function Photos({ generic, label, brand }: { generic: PhotoSpec; label: string; brand?: BrandRange | null }) {
+function PhotosBody({ generic, label, brand }: { generic: PhotoSpec; label: string; brand?: BrandRange | null }) {
   const key = `${brand?.q.join('|') ?? ''}#${generic.queries.join('|')}`;
   const [set, setSet] = useState<PhotoSet | null>(photoCache.get(key) ?? null);
   const [err, setErr] = useState(false);
