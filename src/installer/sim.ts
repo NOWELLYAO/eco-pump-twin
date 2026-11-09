@@ -225,6 +225,8 @@ export interface SimState {
   wd?: { on: number; house: number; q: number }; // moyennes glissantes (1 h) : part du temps en marche, consommation de la maison, débit pompé
   bkOver?: boolean; // réservoir de secours qui déborde par le trop-plein (robinet à flotteur bloqué ouvert)
   clog?: number; // colmatage de la crépine du forage (0 à 0,75)
+  tripT?: number; // instant du dernier déclenchement
+  dryTrips?: number[]; // déclenchements manque d'eau / sous-charge des dernières 24 h
   ulT?: number; // durée de marche sans débit vue par le relais de sous-charge (s)
   aqN?: number; // rabattement qu'aurait un forage sain au même débit (référence de la sonde)
   aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
@@ -420,7 +422,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       return;
     }
     if (st.on) hammer(true);
-    st.trip = msg; st.tripKind = kind; seen(kind); st.on = false; st.hum = false; st.noFlow = false; st.q = 0;
+    st.trip = msg; st.tripKind = kind; st.tripT = st.t; seen(kind); st.on = false; st.hum = false; st.noFlow = false; st.q = 0;
+    if (kind === 'decl_manque_eau' || kind === 'decl_sous_charge') st.dryTrips = [...(st.dryTrips ?? []).filter((t) => t > st.t - 86400), st.t];
     newEv.push({ t: st.t, sev: 'critical', text: `${msg} — la pompe est arrêtée, réarmement nécessaire`, target: 'cable' });
   };
   const start = () => {
@@ -465,7 +468,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   for (let k = 0; k < n; k++) {
     const hr = hourOf(st.t);
     // Forage : niveau réel de l'eau maintenant (nappe qui descend en pompage, remonte à l'arrêt) ; dL = écart au niveau de calcul
-    const dL = isForage(i) ? i.geo.staticLevel + (st.aqS ?? 0) - i.geo.dynamicLevel : 0;
+    const dL = isForage(i) ? i.geo.staticLevel + (st.aqS ?? 0) + st.dd - i.geo.dynamicLevel : 0;
     const qAtLevel = (q0: number) => {
       if (!isForage(i) || q0 <= 0 || Math.abs(dL) < 0.05) return q0;
       let lo = 0, hi = Math.max(q0 * 2, i.pump.qn * 2.5);
@@ -692,7 +695,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     }
     if (fx.drawdown) {
       st.dd = st.on && st.q > 0 ? st.dd + (fx.drawdown * sub) / 3600 : Math.max(0, st.dd - (fx.drawdown * 0.4 * sub) / 3600);
-      if (st.on && !st.hum) {
+      // Forage : le niveau réel (nappe + baisse de la source) est suivi plus haut (électrodes, dénoyage, débit)
+      if (st.on && !st.hum && !isForage(i)) {
         if (st.dd >= avail) {
           if (!st.noFlow) newEv.push({ t: st.t, sev: 'critical', text: `Niveau d'eau sous l'entrée de la pompe (−${f1(st.dd)} m) : la pompe aspire de l'air`, target: 'source' });
           st.noFlow = true; st.q = 0;
@@ -702,6 +706,16 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       }
     }
 
+
+    // ----- Protection manque d'eau : réarmement automatique temporisé (30 min), 3 essais par 24 h puis verrouillage -----
+    if (st.trip && hasDryProt && (st.tripKind === 'decl_manque_eau' || st.tripKind === 'decl_sous_charge') && st.t - (st.tripT ?? st.t) >= 1800) {
+      const n = (st.dryTrips ?? []).filter((t) => t > st.t - 86400).length;
+      const lvOk = !isForage(i) || i.geo.staticLevel + (st.aqS ?? 0) + st.dd < electrodeDepth(i) - 1;
+      if (n < 3 && lvOk) {
+        st.trip = null; st.tripKind = null;
+        newEv.push({ t: st.t, sev: 'info', text: `Réarmement automatique de la protection manque d'eau après 30 min (essai ${n}/3 sur 24 h)`, target: 'cable' });
+      } else if (n >= 3) once('drylock', { t: st.t, sev: 'critical', text: '3 déclenchements manque d\'eau en 24 h : protection verrouillée, intervention nécessaire (vérifier le forage, la vanne, la pompe)', target: 'cable' });
+    }
 
     // ----- Forage : électrodes / sonde de niveau (protection manque d'eau) -----
     if (isForage(i) && (hasDryProt || i.acc.sonde_niveau?.on)) {
