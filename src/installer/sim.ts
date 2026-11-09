@@ -192,8 +192,9 @@ export const KIND_LABEL: Record<SimKind, string> = {
 };
 
 export function simKind(i: Installation): SimKind {
-  if (i.elec.supply === 'solaire') return 'solar';
+  // Fosse (relevage, drainage) : on simule toujours les flotteurs, même alimentée par le soleil
   if (i.mode === 'immergee' && !isForage(i)) return 'pit';
+  if (i.elec.supply === 'solaire') return 'solar';
   // Réseaux sous pression (immeuble, incendie, mais aussi forage ou irrigation avec pressostat / variateur)
   if (['surpression', 'incendie', 'forage', 'irrigation', 'transfert'].includes(i.app)) {
     if (effectiveStart(i) === 'variateur' && i.acc.capteur_p?.on) return 'vfd';
@@ -327,6 +328,14 @@ function solarMinSpeed(ctx: SimCtx): number {
   if (!ctx.h.ok) { sMinCache.set(ctx, 0.67); return 0.67; } // pompe en panne : le contrôleur garde son seuil habituel (≈ 30 % de la puissance)
   for (let n = 0; n < 12; n++) { const m = (lo + hi) / 2; const hs = atSpeed(ctx.i, m); if (hs.ok && hs.q > 0.05 * ctx.h.q) hi = m; else lo = m; }
   sMinCache.set(ctx, hi); return hi;
+}
+
+/** Puissance du champ solaire à cette heure (kW) : courbe en cloche de 6 h à 18 h. */
+function sunKw(ctx: SimCtx, hr: number): number {
+  const sr = ctx.er.solar ?? solarCalc(ctx.i, ctx.h);
+  const gpk = (sr?.pshDesign ?? ctx.i.elec.solar.psh) / 7.64;
+  const g = Math.max(0, Math.sin((Math.PI * (hr - 6)) / 12)) * gpk;
+  return sr ? (sr.wc / 1000) * g * 0.75 : 0;
 }
 
 /** Événements de démarrage / arrêt, tirés des calculs électriques et hydrauliques. */
@@ -470,10 +479,14 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (kind === 'decl_manque_eau' || kind === 'decl_sous_charge') st.dryTrips = [...(st.dryTrips ?? []).filter((t) => t > st.t - 86400), st.t];
     newEv.push({ t: st.t, sev: 'critical', text: `${msg} — la pompe est arrêtée, réarmement nécessaire`, target: 'cable' });
   };
+  // Poste de relevage / drainage alimenté par panneaux solaires (sans batterie) : pas de soleil, pas de pompe
+  const solarPit = kind === 'pit' && i.elec.supply === 'solaire';
+  const pFullPit = Math.max(0.1, h.pElec / 0.95);
+  const sunOk = () => !solarPit || sunKw(ctx, hourOf(st.t)) >= 0.35 * pFullPit;
   const start = () => {
     if (st.on) return;
     if (!st.master) return;
-    const power = st.t >= st.outageUntil;
+    const power = st.t >= st.outageUntil && sunOk();
     if (!power || st.trip) { st.blocked = true; return; }
     st.blocked = false;
     if (fx.tripAtStart) { st.starts++; st.startLog = [...st.startLog, st.t].slice(-60); trip(fx.tripAtStart, fx.tripKind ?? 'decl_diff'); return; }
@@ -521,8 +534,9 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       for (let it = 0; it < 24; it++) { const m = (lo + hi) / 2; if (pumpHead(i, m) - systemHeadAt(i, m) - dL > 0) lo = m; else hi = m; }
       return lo;
     };
-    const power = st.t >= st.outageUntil;
-    if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: 'Coupure secteur : plus de tension, la pompe s\'arrête', target: 'cable' }); }
+    const power = st.t >= st.outageUntil && sunOk();
+    if (solarPit) st.pv = sunKw(ctx, hr);
+    if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: solarPit && st.t >= st.outageUntil ? 'Soleil insuffisant : les panneaux ne peuvent plus faire tourner la pompe (pas de batterie)' : 'Coupure secteur : plus de tension, la pompe s\'arrête', target: solarPit ? 'pv' : 'cable' }); }
     if (power && prev.outageUntil > 0 && st.t - sub < st.outageUntil && st.t >= st.outageUntil) newEv.push({ t: st.t, sev: 'ok', text: 'Retour du courant : redémarrage automatique possible', target: 'cable' });
     if (!st.master) { stop('arrêt manuel', true); st.q = 0; st.blocked = false; }
     // Moteur déjà lancé quand la panne apparaît : il cale et ronfle (rotor bloqué)

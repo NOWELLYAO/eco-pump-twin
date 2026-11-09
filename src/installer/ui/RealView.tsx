@@ -770,23 +770,29 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   const st = i.elec ? effectiveStart(i) : 'direct';
   if (i.elec && on('coffret')) {
     const cores = i.elec.supply === 'mono' ? '3G' : st === 'etoile' ? '7G' : '4G';
-    items.push(<text key="cablelbl" x={boxX - 22} y={boxY + 54} className="r-label"><tspan x={boxX - 22}>{`Câble ${cores} ${String(i.elec.cableSec).replace('.', ',')} mm²`}</tspan><tspan x={boxX - 22} dy={15}>{`${i.elec.cableLen} m`}</tspan></text>);
+    // Poste de relevage : le coffret est au-dessus des mesures (ampèremètre, manomètre) → étiquette du câble à gauche du coffret
+    const cx = pit ? boxX - 30 : boxX - 22, cy = pit ? boxY - 6 : boxY + 54;
+    items.push(<text key="cablelbl" x={cx} y={cy} textAnchor={pit ? 'end' : undefined} className="r-label"><tspan x={cx}>{`Câble ${cores} ${String(i.elec.cableSec).replace('.', ',')} mm²`}</tspan><tspan x={cx} dy={15}>{`${i.elec.cableLen} m`}</tspan></text>);
   }
   if (isSolar) {
     const sr = solar(i, h);
     const ns = sr?.ns ?? 1, np = sr?.np ?? 1;
     const cols = Math.min(ns, 10), rows = Math.min(np, 3);
     const x0 = 560, y0 = 14, pw = 17, ph = 12;
-    anchors.pv = { x: x0 + 90, y: y0 + 30, r: 70 };
+    // Afficheur de puissance posé SOUS le cadre (sinon il recouvre la ligne « kWc · m³/jour »)
+    anchors.pv = { x: x0 + 90, y: y0 + rows * (ph + 4) + 16, r: 70 };
     items.push(
       <g key="pv" {...pick('pv')}>
-        <rect x={x0 - 8} y={y0 - 4} width={Math.max(200, cols * (pw + 3) + 16)} height={rows * (ph + 4) + 42} rx={8} className="r-pvbox" />
+        <rect x={x0 - 8} y={y0 - 4} width={Math.max(200, cols * (pw + 3) + 16)} height={rows * (ph + 4) + 46} rx={8} className="r-pvbox" />
         {Array.from({ length: rows }).flatMap((_, r) => Array.from({ length: cols }).map((__, c) => (
           <path key={`pv${r}-${c}`} d={`M${x0 + c * (pw + 3) + 3} ${y0 + 4 + r * (ph + 4)} h${pw} l-3 ${ph} h${-pw} Z`} className="r-pv" />
         )))}
-        <text x={x0} y={y0 + rows * (ph + 4) + 18} className="r-label">{sr ? `${sr.n} panneaux ${i.elec.solar.panelWc} Wc · ${ns} série × ${np}` : 'Champ solaire'}</text>
-        <text x={x0} y={y0 + rows * (ph + 4) + 33} className="r-label">{sr ? `${(sr.wc / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kWc · ≈ ${sr.dailyM3.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} m³/jour` : ''}</text>
-        <path d={`M${x0 + 20} ${y0 + rows * (ph + 4) + 38} C ${x0} ${boxY - 60}, ${boxX + 40} ${boxY - 70}, ${boxX + 10} ${boxY - 30}`} className="r-dc" />
+        {/* Deux lignes dans UN seul texte : l'anti-chevauchement ne les sépare plus */}
+        <text x={x0} y={y0 + rows * (ph + 4) + 18} className="r-label">
+          <tspan x={x0}>{sr ? `${sr.n} panneaux ${i.elec.solar.panelWc} Wc · ${ns} série × ${np}` : 'Champ solaire'}</tspan>
+          {sr && <tspan x={x0} dy={15}>{`${(sr.wc / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} kWc · ≈ ${sr.dailyM3.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} m³/jour`}</tspan>}
+        </text>
+        <path d={`M${x0 + 20} ${y0 + rows * (ph + 4) + 44} C ${x0} ${boxY - 60}, ${boxX + 40} ${boxY - 70}, ${boxX + 10} ${boxY - 30}`} className="r-dc" />
       </g>,
     );
   }
@@ -978,7 +984,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
           <rect x={box.x0} y={box.y0} width={bw} height={20} rx={9} className="t-bar" />
           <rect x={box.x0} y={box.y0 + 12} width={bw} height={8} className="t-bar" />
           {[0, 1, 2].map((k) => <circle key={k} cx={box.x0 + 14 + k * 13} cy={box.y0 + 10} r={4} className={`t-dot d${k}`} />)}
-          <text x={box.x0 + 56} y={box.y0 + 14} className="t-title">ECO PUMP AFRIK — console {live ? '(temps réel)' : '(analyse)'}</text>
+          <text x={box.x0 + 56} y={box.y0 + 14} className="t-title">ECO PUMP AFRIK — {live ? 'temps réel' : 'analyse'}</text>
           {lines.map((l, n) => <text key={n} x={box.x0 + 12} y={box.y0 + 38 + n * lh} className={`t-line ${color[l.tag]}`} xmlSpace="preserve">{l.txt}</text>)}
           <text x={box.x0 + 12} y={box.y0 + 38 + lines.length * lh} className="t-line t-cmd">ecopump&gt; <tspan className="t-cursor">█</tspan></text>
         </g>,
@@ -1005,7 +1011,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       {hl}
       <g className="r-legend">
         <text x={16} y={26} className="r-title">{APPS[i.app].label} · {fluid.label} · {i.fluid.temp} °C</text>
-        <text x={16} y={47}>{asp ? `Asp DN${i.asp.dn} ${PIPE_MATS[i.asp.material].label} ${i.asp.length} m · ` : ''}Ref DN{i.ref.dn} {PIPE_MATS[i.ref.material].label} {i.ref.length} m</text>
+        <text x={16} y={47}>{asp ? `Asp DN${i.asp.dn} · ${PIPE_MATS[i.asp.material].label} · ${i.asp.length} m — ` : ''}Ref DN{i.ref.dn} · {PIPE_MATS[i.ref.material].label} · {i.ref.length} m</text>
         {h.ok && <text x={16} y={66}>Point de fonctionnement : {h.q.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h à {h.h.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m</text>}
       </g>
     </svg>

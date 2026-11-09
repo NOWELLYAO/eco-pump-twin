@@ -739,6 +739,20 @@ export function evaluate(input: Installation): Evaluation {
       goods.push(`Crépine ${f0(scr.top)}–${f0(scr.bottom)} m, fentes ${f1(scr.slot, 2)} mm adaptées au terrain, vitesse d'entrée ${cm(c.vIn)} cm/s, pompe ${f1(c.gap)} m au-dessus : crépine noyée, moteur bien refroidi`);
   }
 
+  // ---------- Poste de relevage / drainage : rejet libre et alimentation ----------
+  if (APPS[i.app].dest === 'regard') {
+    if (i.duty.pRes > 0.3) add({ id: 'pres_regard', sev: 'warning', cat: 'energie', title: 'Pression demandée inutile : rejet libre dans un regard',
+      detail: `${f1(i.duty.pRes)} bar (${f0(i.duty.pRes * 10.2)} m) sont demandés à l'arrivée, alors que l'eau se déverse à l'air libre dans le regard. Ces mètres sont ajoutés à la hauteur de la pompe pour rien.`,
+      consequences: ['Pompe plus grosse et plus chère que nécessaire', 'Énergie gaspillée à chaque cycle'], parts: [],
+      solutions: ['Pression résiduelle à 0 bar (rejet libre), puis pompe adaptée'],
+      fix: { label: 'Pression à l\'arrivée : 0 bar', apply: (x) => ({ ...x, duty: { ...x.duty, pRes: 0 } }) } });
+    if (i.elec.supply === 'solaire') add({ id: 'pit_solar', sev: i.app === 'relevage' ? 'critical' : 'warning', cat: 'electricite', title: i.app === 'relevage' ? 'Relevage sur panneaux solaires sans batterie : débordement la nuit' : 'Épuisement sur panneaux solaires : arrêt la nuit',
+      detail: i.app === 'relevage' ? 'Les eaux usées arrivent jour et nuit (pointes le soir et le matin). Sans soleil la pompe ne peut pas tourner : la fosse se remplit et déborde chaque nuit.' : 'La pompe ne tourne que de jour : l\'eau d\'infiltration s\'accumule la nuit.',
+      consequences: i.app === 'relevage' ? ['Débordement d\'eaux usées (risque sanitaire)', 'Refoulement dans les logements'] : ['Fouille ou cave inondée le matin'], parts: [],
+      solutions: ['Alimentation réseau (ou groupe électrogène en secours)', 'Sinon : batteries dimensionnées pour la nuit + onduleur', 'Ou fosse tampon assez grande pour stocker les apports de la nuit'],
+      fix: { label: 'Alimentation réseau triphasé', apply: (x) => ({ ...x, elec: { ...x.elec, supply: 'tri', voltage: 400, start: x.elec.start === 'variateur' ? 'direct' : x.elec.start } }) } });
+  }
+
   // ---------- Électricité, réservoir à vessie, solaire ----------
   const el = electrical(i, h);
   out.push(...el.issues);
