@@ -198,6 +198,21 @@ export interface Hydro {
 }
 
 /** Calcule tout le comportement hydraulique de l'installation. */
+/** Surpression d'un arrêt de pompe (m) : formule de Mendiluce pour le temps d'arrêt de la colonne,
+ *  puis Joukowsky (c·v/g) si la conduite est « longue » (T < 2L/c), sinon Michaud (2·L·v / g·T), plus faible. */
+export function surgeHead(i: Installation, v: number, hm: number): number {
+  if (v <= 0) return 0;
+  const c = PIPE_MATS[i.ref.material].celerity;
+  const L = Math.max(1, refLen(i));
+  const J = (c * v) / G;
+  const H = Math.max(1, hm);
+  const slope = H / L;
+  const C = slope < 0.2 ? 1 : slope > 0.4 ? 0 : 1 - (slope - 0.2) / 0.2;
+  const K = L < 500 ? 2 : L < 1500 ? 2 - 0.5 * (L - 500) / 1000 : L < 2500 ? 1.5 - 0.5 * (L - 1500) / 1000 : 1;
+  const T = C + (K * L * v) / (G * H);
+  return T < (2 * L) / c ? J : Math.min(J, (2 * L * v) / (G * T));
+}
+
 export function solve(i: Installation): Hydro {
   const hStatic = staticHead(i);
   const hPress = pressureHead(i);
@@ -226,7 +241,7 @@ export function solve(i: Installation): Hydro {
   const se = q > 0 ? pElec / q : 0;
   const kwhYear = pElec * i.duty.hoursPerDay * 365;
   const vRef = vel(q, i.ref.dn);
-  const surge = (PIPE_MATS[i.ref.material].celerity * vRef) / G;
+  const surge = surgeHead(i, vRef, h);
   const suctionPress = Math.max(0, suctionZ(i)) * (i.mode === 'charge' ? 1 : 0);
   const pMaxBar = ((h0 + suctionPress) * rhoG) / 1e5;
   const ann = i.geo.boreDia > i.pump.diameterMm ? area(i.geo.boreDia) - area(i.pump.diameterMm) : 1e-6;

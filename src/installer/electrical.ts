@@ -63,6 +63,7 @@ export interface ElecResult {
   genKva: number;
   vfdSpeed: { s: number; hz: number; pNow: number; pNew: number; saving: number } | null;
   vessel: VesselResult | null;
+  pSet: number; // consigne de pression (variateur + capteur)
   solar: SolarResult | null;
   feed: { iTot: number; rating: number; sec: number; drop: number; len: number } | null; // arrivée générale du coffret
 }
@@ -105,6 +106,24 @@ export function tankPlan(v: number) {
 }
 export const planLabel = (p: { n: number; size: number }) => (p.n > 1 ? `${p.n} × ${p.size} L` : `${p.size} L`);
 
+/** Pression nécessaire au refoulement (bar, lue au pressostat / capteur) pour servir le point le plus haut au débit demandé. */
+export function pressNeed(i: Installation): number {
+  const rhoG = i.fluid.rho * 9.81;
+  const forage = isForage(i);
+  // Pression nécessaire au refoulement pour servir le point le plus haut au débit demandé
+  // (forage : seules la hauteur au-dessus du sol et les pertes de la conduite de surface restent à vaincre)
+  const lossAll = losses(i, i.duty.qReq).ref;
+  const lossRef = forage ? lossAll * (i.ref.length / Math.max(1, i.ref.length + i.geo.pumpDepth)) : lossAll;
+  // Réservoir en série (château d'eau) : le pressostat doit relancer la pompe AU-DESSUS de la charge du réservoir
+  // (sinon, flotteur ouvert, la pression ne descend jamais jusqu'au seuil de redémarrage)
+  const bkS = backupOf(i);
+  return bkS && backupMode(bkS) === 'serie' ? backupCalc(i, bkS).headTop + 0.3
+    : Math.max(0.5, (((forage ? Math.max(0, i.geo.hRef) : refStatic(i)) + pressureHead(i) + lossRef) * rhoG) / 1e5);
+}
+
+/** Consigne du variateur (pression maintenue par le capteur) : celle réglée sur la vessie, sinon la pression dont le réseau a besoin (+0,2 bar). */
+export const vfdSet = (er: { vessel: { pOn: number } | null; pSet?: number }) => er.vessel?.pOn ?? er.pSet ?? 3;
+
 /** Réservoir à vessie : pressions de réglage, volume (loi de Boyle) et démarrages par heure. */
 export function vessel(i: Installation, h: Hydro): VesselResult | null {
   const st = i.acc.vessie;
@@ -114,15 +133,7 @@ export function vessel(i: Installation, h: Hydro): VesselResult | null {
   // Pressions lues au pressostat / à la vessie : au refoulement de la pompe, ou en surface pour un forage
   const forage = isForage(i);
   const z = pressZ(i);
-  // Pression nécessaire au refoulement pour servir le point le plus haut au débit demandé
-  // (forage : seules la hauteur au-dessus du sol et les pertes de la conduite de surface restent à vaincre)
-  const lossAll = losses(i, i.duty.qReq).ref;
-  const lossRef = forage ? lossAll * (i.ref.length / Math.max(1, i.ref.length + i.geo.pumpDepth)) : lossAll;
-  // Réservoir en série (château d'eau) : le pressostat doit relancer la pompe AU-DESSUS de la charge du réservoir
-  // (sinon, flotteur ouvert, la pression ne descend jamais jusqu'au seuil de redémarrage)
-  const bkS = backupOf(i);
-  const pReq = bkS && backupMode(bkS) === 'serie' ? backupCalc(i, bkS).headTop + 0.3
-    : Math.max(0.5, (((forage ? Math.max(0, i.geo.hRef) : refStatic(i)) + pressureHead(i) + lossRef) * rhoG) / 1e5);
+  const pReq = pressNeed(i);
   const pMax = Math.max(0, ((pumpHead(i, 0) + (forage ? z : Math.max(0, suctionZ(i)))) * rhoG) / 1e5);
   const r1 = (v: number) => Math.round(v * 10) / 10;
   // Débit de la pompe à une pression de refoulement donnée (inverse de la courbe)
@@ -431,5 +442,5 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
     const fsec = SECTIONS.find((sec) => ampacity(sec, 'cu') >= rating && dropPct(flen, iTot, sec, { ...e, cableMat: 'cu' }) <= 3 && dropPct(flen, iStartTot, sec, { ...e, cableMat: 'cu' }, 0.35) <= 8) ?? 120;
     feed = { iTot, rating, sec: fsec, drop: dropPct(flen, iTot, fsec, { ...e, cableMat: 'cu' }), len: flen };
   }
-  return { r: { inom, irun, istart, start, dropRun, dropStart, amp, secRec, cores, cableType, breaker, vfdKw, vfdA, filter, genKva, vfdSpeed: vs, vessel: ves, solar: sol, feed }, issues, goods };
+  return { r: { inom, irun, istart, start, dropRun, dropStart, amp, secRec, cores, cableType, breaker, vfdKw, vfdA, filter, genKva, vfdSpeed: vs, vessel: ves, pSet: ves?.pOn ?? Math.ceil((pressNeed(i) + 0.2) * 10) / 10, solar: sol, feed }, issues, goods };
 }

@@ -144,7 +144,7 @@ export const ACCESSORIES: AccDef[] = [
   { id: 'vanne_asp', label: 'Vanne d\'isolement aspiration', side: 'asp', k: 0.2, glyph: 'gate', tag: 'HV', desc: 'Isole la pompe pour la maintenance. Toujours grande ouverte en service.', inline: true,
     need: (i) => isImm(i) ? 'na' : i.mode === 'charge' || fire(i) ? 'required' : 'optional' },
   { id: 'filtre_asp', label: 'Filtre à tamis en Y', side: 'asp', k: 3.0, glyph: 'ystrainer', desc: 'Protège la pompe des particules.', inline: true,
-    need: (i) => isImm(i) || i.app === 'piscine' || lift(i) || i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : i.app === 'incendie' ? 'avoid' : i.mode === 'charge' && (i.app === 'carburant' || solids(i)) ? 'recommended' : 'optional' },
+    need: (i) => isImm(i) || i.app === 'piscine' || lift(i) || i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : i.app === 'incendie' ? 'avoid' : (i.mode === 'charge' && (i.app === 'carburant' || solids(i))) || i.fluid.particleMm > PUMP_TYPES[i.pumpType].passage ? 'recommended' : 'optional' },
   { id: 'prefiltre', label: 'Préfiltre à panier', side: 'asp', k: 1.5, glyph: 'basket', desc: 'Retient cheveux et feuilles avant la pompe.', inline: true,
     need: (i) => isImm(i) || i.app === 'carburant' || i.app === 'incendie' || i.fluid.type === 'eaux_usees' || i.fluid.type === 'boues' ? 'na' : i.app === 'piscine' ? 'required' : 'optional' },
   { id: 'manchon_asp', label: 'Manchon anti-vibratile (aspiration)', side: 'asp', k: 0.1, glyph: 'flex', desc: 'Évite de transmettre vibrations et efforts à la pompe.', inline: true,
@@ -235,3 +235,17 @@ export const refStatic = (i: Installation) =>
   i.pumpType === 'immergee_forage' ? i.geo.pumpDepth + i.geo.hRef : i.geo.hRef;
 
 export const NEED_LABEL: Record<Need, string> = { required: 'Requis', recommended: 'Conseillé', optional: 'Optionnel', avoid: 'Déconseillé', na: '' };
+
+/** Matériau de conduite adapté au liquide (compatibilité chimique et température) : on garde l'actuel s'il convient. */
+export function pipeFor(i: Installation, side: 'asp' | 'ref'): PipeMatId {
+  const cur = i[side].material;
+  const okM = (m: PipeMatId) => pipeCompat(i.fluid.type, m) === 'ok' && PIPE_MATS[m].tmax * 0.8 >= i.fluid.temp;
+  if (okM(cur)) return cur;
+  const order: PipeMatId[] = side === 'asp' ? ['pvc', 'pehd', 'ppr', 'acier', 'inox', 'cuivre', 'galva', 'fonte'] : ['pehd', 'pvc', 'ppr', 'acier', 'inox', 'cuivre', 'galva', 'fonte'];
+  return order.find(okM) ?? order.find((m) => pipeCompat(i.fluid.type, m) !== 'bad' && PIPE_MATS[m].tmax >= i.fluid.temp) ?? cur;
+}
+/** Conduites passées dans le matériau adapté (PN 16 pour l'acier). */
+export function withPipesFor(i: Installation): Installation {
+  const put = (side: 'asp' | 'ref') => { const m = pipeFor(i, side); return m === i[side].material ? i[side] : { ...i[side], material: m, pn: m === 'acier' || m === 'inox' ? 16 : i[side].pn }; };
+  return { ...i, asp: put('asp'), ref: put('ref') };
+}

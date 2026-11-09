@@ -169,3 +169,12 @@ export function sanitizeAcc(i: Installation): Installation {
   return cur;
 }
 
+
+/** Liquide qui va avec la source : une pompe immergée de forage pompe de l'eau de forage, même pour l'irrigation
+ *  (on ne change le liquide que s'il est encore celui proposé par défaut). */
+export function fluidForPump(i: Installation, pt: PumpTypeId): Installation {
+  const def = APPS[i.app].fluid;
+  if (pt === 'immergee_forage' && i.fluid.type === def && def !== 'eau_forage' && FLUIDS[def].water) return { ...i, fluid: makeFluid('eau_forage') };
+  if (pt !== 'immergee_forage' && i.fluid.type === 'eau_forage' && def !== 'eau_forage') return { ...i, fluid: makeFluid(def) };
+  return i;
+}

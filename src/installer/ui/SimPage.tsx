@@ -49,7 +49,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
     const c = Math.max(1, x.pump.count ?? 1), sb = Math.max(0, x.pump.standby ?? 0);
     return { ...x, pump: { ...x.pump, ...(sb > 0 ? { standby: sb - 1, count: c - 1 } : { count: Math.max(1, c - 1) }) } };
   }, [iView, iso]);
-  const ctx = useMemo(() => makeCtx(iSim, mods.draw, mods.faults), [iSim, mods.draw, mods.faults]);
+  const ctx = useMemo(() => makeCtx(iSim, mods.draw, mods.faults, mods.faults.length ? applyMods(s.inst, { ...mods, faults: [] }) : undefined), [iSim, mods, s.inst]);
   // Même installation sans panne : référence pour reconnaître les symptômes
   const nctx = useMemo(() => makeCtx(applyMods(s.inst, { ...mods, faults: [] }), mods.draw), [s.inst, mods]);
   const [mystery, setMystery] = useState<Mystery | null>(null);

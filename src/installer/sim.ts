@@ -1,9 +1,9 @@
-import { PIPE_MATS, refStatic } from './catalog';
+import { refStatic } from './catalog';
 import { aquiferOf, withAquifer } from './aquifer';
 import { screenCalc, screenOf } from './borehole';
 import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
-import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
-import { isForage, losses, nRun, pressZ, pumpHead, shaftPower, solve, speedFor, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
+import { effectiveStart, electrical, vfdSet, solar as solarCalc, type ElecResult } from './electrical';
+import { isForage, losses, nRun, pressZ, pumpHead, shaftPower, solve, speedFor, surgeHead, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
 import type { Installation } from './types';
 import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type NoiseKind, type Sym } from './faults';
 
@@ -286,17 +286,20 @@ const demand = (hr: number) => Math.min(1, 0.08 + 0.85 * Math.exp(-(((hr - 7) / 
 
 export interface SimCtx { i: Installation; h: Hydro; er: ElecResult; kind: SimKind; draw: number; fx: FaultEffect & { ids: string[] } }
 
-export function makeCtx(i0: Installation, draw = -1, faults: string[] = []): SimCtx {
+export function makeCtx(i0: Installation, draw = -1, faults: string[] = [], healthy?: Installation): SimCtx {
   const i = withAquifer(i0);
   const h = solve(i);
-  return { i, h, er: electrical(i, h).r, kind: simKind(i), draw, fx: combined(faults) };
+  const er = electrical(i, h).r;
+  // Champ solaire : c'est du matériel posé, dimensionné sur l'installation saine (une panne de pompe ne retire pas de panneaux)
+  if (healthy && i.elec.supply === 'solaire') { const hi = withAquifer(healthy); const sh = solarCalc(hi, solve(hi)); if (sh) er.solar = sh; }
+  return { i, h, er, kind: simKind(i), draw, fx: combined(faults) };
 }
 /** Fraction du besoin consommée à cette heure (profil journalier, ou valeur imposée). */
 const use = (ctx: SimCtx, hr: number) => (ctx.draw >= 0 ? ctx.draw / 100 : demand(hr));
 
 export function initSim(ctx: SimCtx): SimState {
   const { kind, er } = ctx;
-  const x = kind === 'vessel' ? (er.vessel?.pOn ?? 3) + 0.4 : kind === 'vfd' ? (er.vessel?.pOn ?? 3) + 0.5 : kind === 'pit' ? 0.2 : kind === 'tank' ? 0.6 : 0;
+  const x = kind === 'vessel' ? (er.vessel?.pOn ?? 3) + 0.4 : kind === 'vfd' ? vfdSet(er) : kind === 'pit' ? 0.2 : kind === 'tank' ? 0.6 : 0;
   return {
     t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [],
     bk: backupOf(ctx.i) ? 1 : undefined,
@@ -314,6 +317,16 @@ function atSpeed(i: Installation, s: number): Hydro {
     speedCache.set(k, h);
   }
   return h;
+}
+
+/** Pompage solaire : vitesse relative minimale pour que la pompe débite (au moins 5 % de son débit nominal de calcul). */
+const sMinCache = new WeakMap<SimCtx, number>();
+function solarMinSpeed(ctx: SimCtx): number {
+  const c = sMinCache.get(ctx); if (c != null) return c;
+  let lo = 0.2, hi = 1;
+  if (!ctx.h.ok) { sMinCache.set(ctx, 0.67); return 0.67; } // pompe en panne : le contrôleur garde son seuil habituel (≈ 30 % de la puissance)
+  for (let n = 0; n < 12; n++) { const m = (lo + hi) / 2; const hs = atSpeed(ctx.i, m); if (hs.ok && hs.q > 0.05 * ctx.h.q) hi = m; else lo = m; }
+  sMinCache.set(ctx, hi); return hi;
 }
 
 /** Événements de démarrage / arrêt, tirés des calculs électriques et hydrauliques. */
@@ -346,9 +359,8 @@ function submergence(i: Installation) {
 /** Pointe de pression d'un arrêt (coup de bélier, formule de Joukowsky ΔH = c·Δv / g), en bar au refoulement de la pompe. */
 export function surgePeak(i: Installation, h: Hydro, q: number, soft: boolean): { p: number; dH: number } {
   const v = h.q > 0 ? h.vRef * Math.min(1.5, q / h.q) : 0;
-  const c = PIPE_MATS[i.ref.material].celerity;
   const prot = i.acc.anti_belier?.on || i.acc.vessie?.on;
-  const dH = (c * v) / G * (prot ? 0.35 : 1) * (soft ? 0.3 : 1);
+  const dH = surgeHead(i, v, h.h) * (prot ? 0.35 : 1) * (soft ? 0.3 : 1);
   return { p: ((refStatic(i) + dH) * i.fluid.rho * G) / 1e5, dH };
 }
 /** Profondeur des électrodes de manque d'eau (ou du seuil de la sonde) dans un forage : 2 m au-dessus de la pompe au plus. */
@@ -580,7 +592,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (st.on && st.q < 0.05 * i.duty.qReq && st.x >= pMax - 0.05) st.x = pMax;
       st.s = 1;
     } else if (kind === 'vfd') {
-      const set = (v0?.pOn ?? 3) + 0.5;
+      const set = vfdSet(er);
       const qd = houseNet + leakQ + fillQ;
       if (fx.sensorZero) {
         // Le variateur croit la pression nulle : il reste à 50 Hz et ne se met jamais en veille
@@ -638,13 +650,17 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (st.x < 0.6) st.overflow = false;
       st.x = Math.min(st.x, 1.3);
     } else if (kind === 'solar') {
-      const sr = solarCalc(i, h);
+      const sr = ctx.er.solar ?? solarCalc(i, h);
       const gpk = (sr?.pshDesign ?? i.elec.solar.psh) / 7.64;
       const g = Math.max(0, Math.sin((Math.PI * (hr - 6)) / 12)) * gpk;
       st.pv = sr ? (sr.wc / 1000) * g * 0.75 : 0;
       const pFull = Math.max(0.1, h.pElec / 0.95);
-      if (st.pv >= 0.3 * pFull) start();
-      if (st.on && st.pv < 0.25 * pFull) stop(hr > 12 ? 'fin de journée, soleil insuffisant' : 'soleil insuffisant', true);
+      // Le contrôleur solaire ne lance la pompe que si la vitesse atteignable suffit à vaincre la hauteur
+      // (sinon elle tournerait sans débiter et chaufferait) : seuil de puissance = vitesse mini³
+      const sMin = solarMinSpeed(ctx);
+      const pOnTh = pFull * Math.max(0.3, Math.min(0.95, (sMin + 0.04) ** 3)), pOffTh = pFull * Math.max(0.25, Math.min(0.9, sMin ** 3));
+      if (st.pv >= pOnTh) start();
+      if (st.on && st.pv < pOffTh) stop(hr > 12 ? 'fin de journée, soleil insuffisant' : 'soleil insuffisant', true);
       if (st.on && !st.hum && !st.noFlow) {
         st.s = Math.min(1, Math.cbrt(st.pv / pFull));
         const hs = atSpeed(i, st.s);
@@ -690,13 +706,13 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (!wasEmpty && (st.bk ?? 0) <= 0.002) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir vide : plus d\'eau à la maison', target: 'dest' });
       if (!wasFull && (st.bk ?? 0) >= 0.999 && !fx.bkFloatStuck) newEv.push({ t: st.t, sev: 'ok', text: 'Réservoir plein : le robinet à flotteur se ferme, la pression monte jusqu\'à l\'arrêt du pressostat', target: 'dest' });
       // Pressostat réglé trop bas : flotteur ouvert, la pression s'arrête à la charge du réservoir et n'atteint jamais le redémarrage
-      const pOnNow = kind === 'vfd' ? (v0?.pOn ?? 3) + 0.5 : v?.pOn ?? 3;
+      const pOnNow = kind === 'vfd' ? vfdSet(er) : v?.pOn ?? 3;
       if (!st.on && st.t >= st.outageUntil && !st.trip && (st.bk ?? 1) < 0.9 && st.x <= bc.headTop + 0.05 && pOnNow < bc.headTop)
         once('bknostart', { t: st.t, sev: 'critical', text: `La pompe ne redémarre pas : flotteur ouvert, la pression reste à ${f1(bc.headTop)} bar (charge du réservoir), au-dessus du seuil de redémarrage ${f1(pOnNow)} bar`, target: 'acc:pressostat' });
     } else if (bc) {
       const qHouse = use(ctx, hr) * i.duty.qReq + leakQ;
       const wasFeed = !!st.bkFeed, wasFull = (st.bk ?? 1) >= 0.999, wasOpen = !!st.bkOpen;
-      const pLow = Math.max(0.3, (kind === 'vfd' ? (v0?.pOn ?? 3) + 0.5 : v?.pOn ?? 3) - 0.6);
+      const pLow = Math.max(0.3, (kind === 'vfd' ? vfdSet(er) : v?.pOn ?? 3) - 0.6);
       const power = st.t >= st.outageUntil;
       if (power && !st.trip && !st.lowLevel && st.x < pLow && !st.bkFeed) st.bkLowT = (st.bkLowT ?? 0) + sub; else if (!st.bkFeed) st.bkLowT = 0;
       if (!st.bkLatch && (st.bkLowT ?? 0) >= 120) { st.bkLatch = `pression restée sous ${f1(pLow)} bar`; newEv.push({ t: st.t, sev: 'critical', text: `Défaut pompe (pression restée sous ${f1(pLow)} bar pendant 2 min) : le coffret ouvre l'électrovanne du réservoir de secours`, target: 'dest' }); }
@@ -964,7 +980,7 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
     return { q: 0, pRef, pAsp: bar(z), amps: er.inom * 0.5 * Math.max(0.5, sp ** 2) * (fx.ampsK ?? 1), kw, hmt: h0, margin: h.margin, on: true };
   }
   const running = st.on && st.q > 0 && !st.hum && !st.noFlow;
-  const r = readings(i, h, running, er, running ? st.q : undefined, kind === 'vfd' && running ? st.s : 1);
+  const r = readings(i, h, running, er, running ? st.q : undefined, (kind === 'vfd' || kind === 'solar') && running ? st.s : 1);
   if (st.on && st.hum) return { ...r, on: true, q: 0, kw: i.pump.motorKw * 0.3, amps: er.inom * (i.elec.supply === 'mono' ? 4.5 : 3.2) };
   if (st.on && st.noFlow) return { ...r, on: true, q: 0, pRef: bar(Math.max(0, suctionZ(i))), pAsp: bar(Math.min(0, suctionZ(i))), kw: h.pElec * 0.35, amps: er.inom * 0.42 };
   if (st.on && !running && kind === 'vessel' && st.runaway) return { ...r, on: true, kw: h.pElec * 0.45, amps: er.inom * 0.5 * (fx.ampsK ?? 1) };
@@ -981,9 +997,13 @@ export function liveReadings(ctx: SimCtx, st: SimState): Readings {
 export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const { i, kind, fx, er } = ctx;
   const o = new Set<Sym>();
-  const r = liveReadings(ctx, st);
+  const r0 = liveReadings(ctx, st);
   const running = st.on && !st.hum && !st.noFlow;
-  const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : undefined, kind === 'vfd' ? st.s : 1);
+  // Forage : la nappe met du temps à descendre (ou remonter) jusqu'au niveau dynamique ; ce transitoire normal
+  // change la pression en tête, mais ce n'est pas un défaut — on compare à niveau d'eau égal.
+  const r = isForage(i) && running ? { ...r0, pRef: r0.pRef + (i.fluid.rho * G * (i.geo.staticLevel + (st.aqS ?? 0) - i.geo.dynamicLevel)) / 1e5 } : r0;
+  const solarQ = kind === 'solar' ? atSpeed(normal.i, st.s) : null; // solaire : machine saine à la MÊME vitesse (même soleil)
+  const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : solarQ ? Math.max(0.1, solarQ.q) : undefined, kind === 'vfd' || kind === 'solar' ? st.s : 1);
   if (st.t < st.outageUntil) { o.add('pas_de_tension'); o.add('ne_demarre_pas'); }
   if ((st.trip || st.isolated) && st.tripKind) o.add(st.tripKind);
   // Symptômes passagers : ceux des 3 dernières heures, ou des 3 heures avant le déclenchement (tant qu'il n'est pas réarmé)
@@ -1023,13 +1043,18 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
     if (r.amps < rn.amps * 0.86) o.add('courant_bas');
     if (i.mode !== 'immergee' && r.pAsp < rn.pAsp - 0.12) o.add('depression_forte');
   }
+  // Réseau sous pression : la pompe tourne mais la pression s'effondre et le débitmètre ne montre (presque) rien
+  if ((kind === 'vessel' || kind === 'vfd') && running && st.runT > 120) {
+    const pLow = kind === 'vfd' ? vfdSet(ctx.er) - 0.6 : (ctx.er.vessel?.pOn ?? 3) - 0.4;
+    if (st.x < pLow && st.q < 0.5 * Math.max(0.1, normal.h.q)) o.add(st.q < 0.1 * i.duty.qReq ? 'debit_nul' : 'debit_bas');
+  }
   if (kind === 'vessel' && ctx.er.vessel) {
     const v = ctx.er.vessel;
     if (st.x > v.pOff + 0.3) o.add('pression_haute');
     if (st.x < v.pOn - 0.4 || (fx.pswitch === 'drift' && st.x < v.pOff - 0.6)) o.add('pression_basse');
   }
   if (kind === 'vfd') {
-    const set = (ctx.er.vessel?.pOn ?? 3) + 0.5;
+    const set = vfdSet(ctx.er);
     if (st.x > set + 0.6) o.add('pression_haute');
     if (st.x < set - 0.5) o.add('pression_basse');
   }

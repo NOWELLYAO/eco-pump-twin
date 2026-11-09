@@ -2,9 +2,9 @@ import { aquiferOf, withAquifer } from './aquifer';
 import { fireCfg } from './fire';
 import { FORMATIONS, screenCalc, screenOf } from './borehole';
 import { isForage as isForageI } from './hydraulics';
-import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
+import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pipeFor, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
 import { isForage, losses, nRun, patm, pressureHead, pumpHead, pumpNpshr, solve, speedFor, staticHead, suctionZ, vaporPressure, type Hydro } from './hydraulics';
-import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
+import { effectiveStart, electrical, ensureElec, vessel as vesselCalc, vfdSet, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
 import { proposePump } from './sizing';
 import { backupApplies, backupCalc, backupMode, backupOf, backupProposal, floatKind, floatLow } from './backup';
@@ -167,8 +167,12 @@ export function evaluate(input: Installation): Evaluation {
         fix: i.acc.variateur?.on ? undefined : { label: 'Ajouter un variateur', apply: setAcc('variateur') } });
     } else goods.push(`Débit conforme au besoin : ${f1(h.q)} m³/h pour ${f1(i.duty.qReq)} m³/h demandés`);
 
-    const xr = vfdPt ? vfdPt.x : h.x;
-    const at = vfdPt ? ` avec le variateur réglé sur le besoin (≈ ${f0(vfdPt.hz)} Hz)` : '';
+    // Réservoir à vessie + pressostat : la pompe ne travaille jamais au point « tuyau ouvert » mais entre les pressions
+    // de marche et d'arrêt ; son vrai point de fonctionnement est le débit de remplissage à la pression moyenne.
+    const ves = !vfdPt && effectiveStart(i) !== 'variateur' && i.acc.pressostat?.on && i.acc.vessie?.on ? vesselCalc(i, h) : null;
+    const xv = ves && ves.qFill > 0 ? (ves.qFill / h.n) / i.pump.qn : null;
+    const xr = vfdPt ? vfdPt.x : xv ?? h.x;
+    const at = vfdPt ? ` avec le variateur réglé sur le besoin (≈ ${f0(vfdPt.hz)} Hz)` : xv != null ? ` entre ${f1(ves!.pOn)} et ${f1(ves!.pOff)} bar (pressostat)` : '';
     if (vfdPt && h.x > 1.2 && xr >= 0.7 && xr <= 1.2) {
       goods.push(`Le variateur ramène la pompe à ${f0(vfdPt.hz)} Hz : ${f0(xr * 100)} % du débit optimal (à 50 Hz elle serait à ${f0(h.x * 100)} %)`);
     } else if (xr < 0.7 || xr > 1.2) {
@@ -444,13 +448,15 @@ export function evaluate(input: Installation): Evaluation {
     if (c !== 'ok') {
       add({ id: `pipe_${side}`, sev: c === 'bad' ? 'critical' : 'warning', cat: 'materiaux', title: `${PIPE_MATS[run.material].label} déconseillé au ${side} pour ce fluide`,
         detail: fl.note, consequences: i.fluid.type === 'gasoil' ? ['Non-conformité incendie', 'Dégradation et fuite d\'hydrocarbure'] : ['Corrosion, rouille dans l\'eau', 'Fuites et casse'], parts: ['tuyauterie', 'joints'],
-        solutions: [i.fluid.type === 'gasoil' || i.fluid.type === 'huile' ? 'Acier noir ou inox, flexibles agréés hydrocarbures' : 'PEHD, PVC pression ou inox 316 selon la pression'] });
+        solutions: [i.fluid.type === 'gasoil' || i.fluid.type === 'huile' ? 'Acier noir ou inox, flexibles agréés hydrocarbures' : 'PEHD, PVC pression ou inox 316 selon la pression'],
+        fix: pipeFor(i, side === 'aspiration' ? 'asp' : 'ref') !== run.material ? { label: `Conduites en ${PIPE_MATS[pipeFor(i, side === 'aspiration' ? 'asp' : 'ref')].label}`, apply: withPipesFor } : undefined });
     }
     const tm = PIPE_MATS[run.material].tmax;
     if (i.fluid.temp > tm) {
       add({ id: `ptemp_${side}`, sev: 'critical', cat: 'materiaux', title: `Fluide trop chaud pour le ${PIPE_MATS[run.material].label} (${side})`,
         detail: `${f0(i.fluid.temp)} °C pour un matériau limité à ${tm} °C.`, consequences: ['Ramollissement, fluage', 'Éclatement de la conduite'], parts: ['tuyauterie', 'joints'],
-        solutions: ['PPR, cuivre, acier ou inox selon la température'] });
+        solutions: ['PPR, cuivre, acier ou inox selon la température'],
+        fix: pipeFor(i, side === 'aspiration' ? 'asp' : 'ref') !== run.material ? { label: `Conduites en ${PIPE_MATS[pipeFor(i, side === 'aspiration' ? 'asp' : 'ref')].label}`, apply: withPipesFor } : undefined });
     } else if (i.fluid.temp > tm * 0.8 && ['pvc', 'pehd', 'ppr'].includes(run.material)) {
       add({ id: `ptempw_${side}`, sev: 'warning', cat: 'materiaux', title: `Pression admissible réduite par la température (${side})`,
         detail: `À ${f0(i.fluid.temp)} °C, un ${PIPE_MATS[run.material].label} perd une partie de sa tenue en pression (PN${run.pn}).`, consequences: ['Fluage à long terme'], parts: ['tuyauterie'],
@@ -468,10 +474,20 @@ export function evaluate(input: Installation): Evaluation {
       consequences: ['Abrasion rapide des roues et diffuseurs', 'Chute de débit en quelques mois', 'Garniture rayée'], parts: ['roue', 'diffuseurs', 'bagues', 'garniture', 'roulements'],
       solutions: isForage(i) ? ['Développer le forage (soufflage) et vérifier le massif filtrant', 'Réduire le débit pour limiter la venue de sable', 'Pompe à roues flottantes / anti-sable'] : ['Dessableur ou décanteur en amont', 'Pompe en fonte au chrome'] });
   }
-  if (i.fluid.particleMm > i.pump.passage) {
+  // Particules : ce qui arrive à la pompe est limité par le filtre monté en amont (maille du tamis, du panier, de la crépine)
+  const mesh = Math.min(i.acc.filtre_asp?.on ? 1 : 99, i.acc.prefiltre?.on ? 2.5 : 99, i.acc.crepine?.on || i.acc.clapet_pied?.on ? 5 : 99);
+  const pEff = Math.min(i.fluid.particleMm, mesh);
+  if (pEff > i.pump.passage) {
+    const canFilter = !imm && i.app !== 'incendie' && i.pump.passage >= 1 && !i.acc.filtre_asp?.on;
     add({ id: 'particle', sev: 'critical', cat: 'materiaux', title: 'Particules plus grosses que le passage de la pompe',
-      detail: `Solides jusqu'à ${f0(i.fluid.particleMm)} mm pour ${i.pump.passage} mm de passage libre.`, consequences: ['Bouchage de la roue', 'Blocage et surcharge moteur'], parts: ['roue', 'moteur', 'garniture'],
-      solutions: ['Pompe à plus grand passage (vortex)', 'Ou crépine / dégrillage adapté en amont'] });
+      detail: `Solides jusqu'à ${f0(pEff)} mm${mesh < i.fluid.particleMm ? ' (après la crépine)' : ''} pour ${i.pump.passage} mm de passage libre.`, consequences: ['Bouchage de la roue', 'Blocage et surcharge moteur'], parts: ['roue', 'moteur', 'garniture'],
+      solutions: canFilter ? ['Filtre à tamis en Y (maille ≈ 1 mm) à l\'aspiration, à nettoyer régulièrement', 'Ou pompe à plus grand passage (vortex, centrifuge de surface)'] : ['Pompe à plus grand passage (vortex)', 'Ou crépine / dégrillage adapté en amont'],
+      fix: canFilter ? { label: 'Ajouter un filtre à tamis', apply: setAcc('filtre_asp', true, { dn: i.asp.dn }) } : undefined });
+  } else if (i.fluid.particleMm > i.pump.passage && i.fluid.solidsPct >= 0.1) {
+    add({ id: 'particle_filter', sev: 'warning', cat: 'accessoires', title: 'Filtre indispensable : il va se colmater vite',
+      detail: `Le filtre arrête des solides (jusqu'à ${f0(i.fluid.particleMm)} mm) que la pompe (${i.pump.passage} mm de passage) ne supporterait pas ; avec ${f1(i.fluid.solidsPct)} % de matières en suspension, il se charge vite.`,
+      consequences: ['Débit qui baisse au fil des jours', 'Cavitation si le filtre est à l\'aspiration et colmaté'], parts: ['filtre'],
+      solutions: ['Nettoyer le filtre chaque semaine (manomètre ou vacuomètre de part et d\'autre pour suivre le colmatage)', 'Pompe à plus grand passage pour s\'en passer'] });
   }
   if (i.fluid.nu > 150) {
     add({ id: 'visc', sev: 'critical', cat: 'materiaux', title: 'Liquide trop visqueux pour une pompe centrifuge',
@@ -725,7 +741,7 @@ export function evaluate(input: Installation): Evaluation {
       // d'arrêt moins une marge, sinon elle ne se remplit qu'en fin de cycle, ou jamais.
       const vr = el.r.vessel;
       const vfd = !!(i.acc.variateur?.on && i.acc.capteur_p?.on);
-      const pHi = vr ? (vfd ? vr.pOn + 0.5 : vr.pOff) : 3;
+      const pHi = vr ? (vfd ? vfdSet(el.r) : vr.pOff) : 3;
       const hMax = Math.floor(((pHi - 0.4) * 1e5) / rhoG - Math.max(0, i.geo.hRef) - c.tankH - 0.3);
       if (c.headTop >= pHi - 0.2) {
         const canRaise = !!vr && !vfd && c.headTop + 0.4 <= vr.pMax - 0.2;

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { SYM_LABEL, type Sym } from '../faults';
 import { X } from 'lucide-react';
-import { effectiveStart } from '../electrical';
+import { effectiveStart, vfdSet } from '../electrical';
 import type { Evaluation } from '../evaluate';
 import type { Installation } from '../types';
 import { fmt } from '../../ui/util';
@@ -330,7 +330,7 @@ export function CabinetHmi({ i, ev, cfg, L }: { i: Installation; ev: Evaluation;
   let cmd = '';
   const x = L.x ?? 0;
   if (cfg.auto === 'pressostat' && e.vessel) cmd = `Pression ${fmt(x, 2)} bar · marche ≤ ${fmt(e.vessel.pOn, 1)} · arrêt ≥ ${fmt(e.vessel.pOff, 1)} bar`;
-  else if (cfg.auto === 'capteur') cmd = `Pression mesurée ${fmt(x, 2)} bar · consigne ${fmt((e.vessel?.pOn ?? 3) + 0.5, 1)} bar`;
+  else if (cfg.auto === 'capteur') cmd = `Pression mesurée ${fmt(x, 2)} bar · consigne ${fmt(vfdSet(e), 1)} bar`;
   else if (cfg.auto === 'flotteurs') cmd = `Niveau ${fmt(x, 2)} m · ${L.floatPit === 'high' ? 'flotteur de marche basculé' : L.floatPit === 'low' ? 'flotteur d\'arrêt retombé' : L.on ? 'vidange en cours' : 'remplissage de la fosse'}`;
   else if (cfg.auto === 'flotteur_res') cmd = `Réservoir ${fmt(x, 1)} m³ · ${L.on ? 'remplissage' : 'plein : flotteur fermé'}`;
   else if (cfg.auto === 'soleil') cmd = `Puissance solaire ${fmt(L.pv ?? 0, 2)} kW · ${fmt(L.hz ?? 0, 1)} Hz`;
@@ -355,7 +355,7 @@ export function CabinetHmi({ i, ev, cfg, L }: { i: Installation; ev: Evaluation;
         })}
         <Tile l="Puissance absorbée" v={fmt(L.kw ?? 0, 2)} u=" kW" sub={L.on ? `cos φ ${fmt(i.elec.cosphi, 2)}` : 'moteur arrêté'} />
         {L.hz != null && <Tile l="Fréquence" v={fmt(L.on ? L.hz : 0, 1)} u=" Hz" bar={L.on ? L.hz / 50 : 0} sub="sortie variateur" />}
-        {(L.kind === 'vessel' || L.kind === 'vfd') ? <Tile l={cfg.auto === 'capteur' ? 'Pression (capteur)' : 'Pression (pressostat)'} v={fmt(x, 2)} u=" bar" bar={x / Math.max(1, (e.vessel?.pOff ?? pMax) * 1.15)} lvl={(L.syms ?? []).includes('pression_haute') || (L.syms ?? []).includes('pression_basse') ? 'warn' : undefined} sub={cfg.auto === 'capteur' ? `consigne ${fmt((e.vessel?.pOn ?? 3) + 0.5, 1)} bar` : e.vessel ? `marche ${fmt(e.vessel.pOn, 1)} / arrêt ${fmt(e.vessel.pOff, 1)} bar` : ''} /> : <Tile l="Pression refoulement" v={fmt(L.pRef ?? 0, 2)} u=" bar" bar={(L.pRef ?? 0) / Math.max(1, pMax)} lvl={(L.syms ?? []).includes('pression_haute') ? 'warn' : (L.syms ?? []).includes('pression_basse') ? 'warn' : undefined} sub={`maxi vanne fermée ${fmt(pMax, 1)} bar`} />}
+        {(L.kind === 'vessel' || L.kind === 'vfd') ? <Tile l={cfg.auto === 'capteur' ? 'Pression (capteur)' : 'Pression (pressostat)'} v={fmt(x, 2)} u=" bar" bar={x / Math.max(1, (e.vessel?.pOff ?? pMax) * 1.15)} lvl={(L.syms ?? []).includes('pression_haute') || (L.syms ?? []).includes('pression_basse') ? 'warn' : undefined} sub={cfg.auto === 'capteur' ? `consigne ${fmt(vfdSet(e), 1)} bar` : e.vessel ? `marche ${fmt(e.vessel.pOn, 1)} / arrêt ${fmt(e.vessel.pOff, 1)} bar` : ''} /> : <Tile l="Pression refoulement" v={fmt(L.pRef ?? 0, 2)} u=" bar" bar={(L.pRef ?? 0) / Math.max(1, pMax)} lvl={(L.syms ?? []).includes('pression_haute') ? 'warn' : (L.syms ?? []).includes('pression_basse') ? 'warn' : undefined} sub={`maxi vanne fermée ${fmt(pMax, 1)} bar`} />}
         {i.mode !== 'immergee' && <Tile l="Aspiration" v={fmt(L.pAsp ?? 0, 2)} u=" bar" lvl={(L.syms ?? []).includes('depression_forte') ? 'warn' : undefined} sub="relative (négatif = dépression)" />}
         {L.kind === 'pit' && <Tile l="Niveau fosse" v={fmt(x, 2)} u=" m" lvl={(L.syms ?? []).includes('debordement') ? 'crit' : undefined} sub={L.floatPit === 'high' ? 'flotteur haut basculé' : L.floatPit === 'low' ? 'flotteur bas' : 'entre les flotteurs'} />}
         {L.kind === 'tank' && <Tile l="Réservoir" v={fmt(x, 1)} u=" m³" sub={L.floatRes ? 'flotteur : plein' : 'flotteur : demande d\'eau'} />}

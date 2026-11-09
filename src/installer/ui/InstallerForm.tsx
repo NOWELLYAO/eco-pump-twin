@@ -9,7 +9,7 @@ import { fluidAt, solve } from '../hydraulics';
 import { aquiferOf, withAquifer } from '../aquifer';
 import { fireCfg } from '../fire';
 import { FORMATIONS, SLOTS, screenCalc, screenProposal, type FormationId } from '../borehole';
-import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
+import { PRESETS, autoEquip, blank, fluidForPump, makeFluid } from '../presets';
 import type { FireCfg, AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
 import { PumpCurveEditor } from './PumpCurveEditor';
@@ -53,7 +53,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
   const setPumpType = (pt: PumpTypeId) => set((x) => {
     const def = PUMP_TYPES[pt];
     const mode = def.modes.includes(x.mode) ? x.mode : def.modes[0];
-    return { ...x, pumpType: pt, mode, pump: { ...x.pump, tmax: def.tmax, passage: def.passage, diameterMm: pt === 'immergee_forage' ? 98 : x.pump.diameterMm } };
+    return fluidForPump({ ...x, pumpType: pt, mode, pump: { ...x.pump, tmax: def.tmax, passage: def.passage, diameterMm: pt === 'immergee_forage' ? 98 : x.pump.diameterMm } }, pt);
   });
   const allPumps = (Object.keys(PUMP_TYPES) as PumpTypeId[]).sort((a, b) => Number(!APPS[i.app].pumps.includes(a)) - Number(!APPS[i.app].pumps.includes(b)));
 

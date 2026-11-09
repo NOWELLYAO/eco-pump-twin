@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, MapPin, Wand2, X } from 'lucide-react';
-import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_TYPES } from '../catalog';
+import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_TYPES, withPipesFor } from '../catalog';
 import { evaluate, withPipe } from '../evaluate';
 import { ensureElec, SUPPLY_LABEL, START_LABEL } from '../electrical';
 import { fluidAt, staticHead, systemHeadAt, vel } from '../hydraulics';
 import { posAdvice } from '../positions';
-import { autoEquip, empty, makeFluid, sanitizeAcc } from '../presets';
+import { autoEquip, empty, fluidForPump, makeFluid, sanitizeAcc } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { HealthRing, LevelIcon } from '../../ui/Status';
 import { touch, trackedFields } from '../defaults';
@@ -16,7 +16,7 @@ export { proposePump };
 const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
 
 /** Besoin type par application, pour pré-remplir. */
-const DUTY0: Record<AppId, { q: number; p: number; h: number; hRef: number }> = {
+export const DUTY0: Record<AppId, { q: number; p: number; h: number; hRef: number }> = {
   forage: { q: 5, p: 0, h: 10, hRef: 12 },
   surpression: { q: 6, p: 2, h: 14, hRef: 15 },
   irrigation: { q: 10, p: 2.5, h: 8, hRef: 5 },
@@ -29,7 +29,7 @@ const DUTY0: Record<AppId, { q: number; p: number; h: number; hRef: number }> = 
 };
 
 /** Disposition des pompes conseillée par application (secours là où l'arrêt n'est pas acceptable). */
-const PUMPS0: Record<AppId, { count: number; standby: number; alternate: boolean }> = {
+export const PUMPS0: Record<AppId, { count: number; standby: number; alternate: boolean }> = {
   forage: { count: 1, standby: 0, alternate: false }, surpression: { count: 2, standby: 1, alternate: true }, irrigation: { count: 1, standby: 0, alternate: false },
   relevage: { count: 2, standby: 1, alternate: true }, drainage: { count: 1, standby: 0, alternate: false }, transfert: { count: 1, standby: 0, alternate: false },
   incendie: { count: 2, standby: 1, alternate: false }, carburant: { count: 1, standby: 0, alternate: false }, piscine: { count: 1, standby: 0, alternate: false },
@@ -211,7 +211,7 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
     const mat: PipeMatId = a === 'carburant' ? 'acier' : a === 'forage' || a === 'relevage' ? 'pehd' : 'pvc';
     return { ...base, name: x.name, pumpType: pt, asp: { ...base.asp, material: mat === 'pehd' ? 'pvc' : mat, pn: mat === 'acier' ? 16 : 10 }, ref: { ...base.ref, material: mat, pn: mat === 'acier' ? 16 : 10 }, mode: PUMP_TYPES[pt].modes[0], fluid: makeFluid(APPS[a].fluid), duty: { ...base.duty, qReq: z.q, pRes: z.p, hoursPerDay: z.h }, geo: { ...base.geo, hRef: z.hRef }, pump: { ...base.pump, ...PUMPS0[a] } };
   }); };
-  const pickPump = (pt: PumpTypeId) => { setEquipped(false); set((x) => ({ ...x, pumpType: pt, mode: PUMP_TYPES[pt].modes.includes(x.mode) ? x.mode : PUMP_TYPES[pt].modes[0] })); };
+  const pickPump = (pt: PumpTypeId) => { setEquipped(false); set((x) => fluidForPump({ ...x, pumpType: pt, mode: PUMP_TYPES[pt].modes.includes(x.mode) ? x.mode : PUMP_TYPES[pt].modes[0] }, pt)); };
   const setStart = (st: StartId) => set((x) => ({ ...x, elec: { ...x.elec, start: st }, acc: { ...x.acc, variateur: { ...((x.acc.variateur as AccState | undefined) ?? { dn: 0, qty: 1 }), on: st === 'variateur' } } }));
   const setSupply = (v: SupplyId) => set((x) => ({
     ...x,
@@ -281,9 +281,9 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
       const order = [APPS[d.app].fluid, ...(Object.keys(FLUIDS) as FluidId[]).filter((f) => f !== APPS[d.app].fluid)];
       content = (
         <>
-          <Cards value={d.fluid.type} onPick={(f: FluidId) => { setEquipped(false); set((x) => ({ ...x, fluid: makeFluid(f) })); }} items={order.map((f) => ({ v: f, l: FLUIDS[f].label, d: FLUIDS[f].note }))} />
+          <Cards value={d.fluid.type} onPick={(f: FluidId) => { setEquipped(false); set((x) => withPipesFor({ ...x, fluid: makeFluid(f) })); }} items={order.map((f) => ({ v: f, l: FLUIDS[f].label, d: FLUIDS[f].note }))} />
           <div className="igrid">
-            <NumField label="Température du liquide" unit="°C" min={-10} value={d.fluid.temp} onChange={(t) => set((x) => ({ ...x, fluid: { ...x.fluid, temp: t, ...fluidAt(x.fluid.type, t) } }))} />
+            <NumField label="Température du liquide" unit="°C" min={-10} value={d.fluid.temp} onChange={(t) => set((x) => withPipesFor({ ...x, fluid: { ...x.fluid, temp: t, ...fluidAt(x.fluid.type, t) } }))} />
             {(forage || d.fluid.type === 'eau_brute') && <NumField label="Sable (si connu)" unit="g/m³" value={d.fluid.sandGm3} onChange={(v) => set((x) => ({ ...x, fluid: { ...x.fluid, sandGm3: v } }))} hint="Laissez la valeur si inconnue" />}
           </div>
         </>
