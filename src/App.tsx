@@ -8,7 +8,7 @@ import { PRESETS, empty, sanitizeAcc } from './installer/presets';
 import { targetsOf } from './installer/targets';
 import type { AppId, Installation, Issue } from './installer/types';
 import { OfflineAndInstall } from './ui/Offline';
-import { UpdateBanner, appVersion } from './ui/Update';
+import { UpdateBanner, UpdateCheck, appVersion } from './ui/Update';
 import { ProjectsButton } from './ui/ProjectsButton';
 import { createProject, currentId, fromLink, listProjects, loadProject, saveProject, setCurrent } from './projects';
 import { buildReportPdf, shareOrDownload } from './ui/pdf';
@@ -57,6 +57,7 @@ function Guide() {
       <p><b>Mise en service</b> : saisissez les pressions, le débit, les courants et la tension relevés sur place ; l'application les compare au calcul et indique les causes probables d'écart (sens de rotation, vanne, colmatage, entrée d'air, usure, déséquilibre électrique).</p>
       <p><b>Matériel & rapport</b> : nomenclature complète, électricité, solaire, pertes de charge, courbes, et impression du rapport.</p>
       <p className="muted small">Version du {appVersion()}. Si un bandeau « Nouvelle version disponible » apparaît, touchez « Mettre à jour ».</p>
+      <p><UpdateCheck /></p>
       <p><b>Sans internet</b> : bouton « Installer » pour ajouter l'application à l'écran d'accueil du téléphone ; elle fonctionne ensuite hors ligne.</p>
     </div>
   );
