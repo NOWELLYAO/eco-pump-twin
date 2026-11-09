@@ -104,7 +104,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; jk?: boolean; circOnly?: boolean; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; jk?: boolean; circOnly?: boolean; leakQ?: number; leakVol?: number; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -135,6 +135,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   useDeclutter(svgRef, ['.r-note text', '.r-dim text', 'g.lcd', 'g.r-closed', 'g.r-tbadge', 'text.r-label', 'text.r-stuck', 'g.state'], '.r-legend, g.term, .r-obst');
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
   const on = (id: string) => !!i.acc[id]?.on;
+  // Vitesse de l'écoulement dessiné : plus le débit est fort, plus l'eau file (0,35 s à 2,6 s par motif)
+  const flowT = live ? Math.max(0.35, Math.min(2.6, 0.9 / Math.max(0.15, (live.r.q || 0) / Math.max(0.1, h.q || i.duty.qReq)))) : 1;
   // Seule la soupape de circulation débite (vanne fermée, lances fermées) : pas d'écoulement dans le réseau
   const flow = live ? live.on && live.r.q > 0.05 && !live.circOnly : h.ok && h.q > 0.05;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
@@ -616,7 +618,10 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
           destEls.push(
             <path key="jet" d={`M${jx} ${jy} Q ${(jx + ex) / 2} ${Math.min(jy, ey) - 40 * k} ${ex} ${ey}`} className="r-jet" />,
             <path key="jet2" d={`M${jx} ${jy} Q ${(jx + ex) / 2 - 4} ${Math.min(jy, ey) - 34 * k} ${ex - 6} ${ey + 4}`} className="r-jet thin" />,
-            ...[0, 1, 2, 3].map((m) => <circle key={`jd${m}`} cx={ex + (m - 1.5) * 4} cy={ey + 4} r={2.2} className="r-drop" style={{ animationDelay: `${m * 0.2}s` }} />),
+            <path key="jet3" d={`M${jx} ${jy} Q ${(jx + ex) / 2 + 5} ${Math.min(jy, ey) - 46 * k} ${ex + 7} ${ey - 3}`} className="r-jet thin" style={{ animationDelay: '0.12s' }} />,
+            ...[0, 1, 2, 3, 4, 5].map((m) => <circle key={`jd${m}`} cx={ex + (m - 2.5) * 5} cy={ey + 4} r={2.2} className="r-drop" style={{ animationDelay: `${m * 0.13}s` }} />),
+            ...[0, 1, 2].map((m) => <circle key={`js${m}`} cx={ex + (m - 1) * 8} cy={ey} r={5} className="r-splash" style={{ animationDelay: `${m * 0.18}s` }} />),
+            ...[0, 1, 2].map((m) => <path key={`st${m}`} d={`M${fx2 + 6 + m * 7} ${fy2 - 4} q -5 -8 0 -16 q 5 -8 0 -16`} className="r-vapor" style={{ animationDelay: `${m * 0.5}s` }} />),
           );
         }
       }
@@ -871,8 +876,19 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
     if (fl.includes('fuite_reseau') && ref.length > 1) {
       const a2 = ref[ref.length - 2], b2 = ref[ref.length - 1];
       const lx = a2[0] + (b2[0] - a2[0]) * 0.6, ly = a2[1] + (b2[1] - a2[1]) * 0.6;
-      const strong = live.on && live.r.q > 0.05;
-      lcd.push(<g key="leak" className="r-leak">{(strong ? [-14, 0, 14] : [0]).map((a3, k) => <path key={k} d={`M${lx} ${ly} q ${a3 * 0.5} ${strong ? -22 : -6} ${a3} ${strong ? -4 : 8}`} className="r-sprayjet" style={{ animationDelay: `${k * 0.15}s` }} />)}<ellipse cx={lx} cy={Math.max(ly + 14, G + 2)} rx={22} ry={4} className="r-puddle" /></g>);
+      // Jet de fuite : hauteur et nombre de filets selon le débit perdu (donc la pression) ; flaque qui s'étend avec le volume perdu
+      const lq = live.leakQ ?? (live.on ? 1 : 0), rel = Math.min(1.4, lq / Math.max(0.2, i.duty.qReq * 0.3));
+      const hJ = 6 + 46 * rel, n = rel > 0.6 ? 7 : rel > 0.25 ? 5 : rel > 0.03 ? 3 : 1;
+      const spread = 10 + 30 * rel, gY = Math.max(ly + 10, G + 2);
+      const pud = Math.min(90, 14 + Math.sqrt(live.leakVol ?? 0) * 26);
+      lcd.push(<g key="leak" className="r-leak">
+        <ellipse cx={lx} cy={gY} rx={pud} ry={Math.max(3, pud * 0.16)} className="r-puddle" />
+        <ellipse cx={lx} cy={gY + 3} rx={pud * 1.15} ry={Math.max(4, pud * 0.2)} className="r-wetsoil" />
+        {lq > 0.01 && Array.from({ length: n }, (_, k) => { const a3 = n === 1 ? 0 : -spread + (2 * spread * k) / (n - 1); return <path key={k} d={`M${lx} ${ly} q ${a3 * 0.4} ${-hJ * (1 - Math.abs(a3) / (spread * 2.2))} ${a3} ${gY - ly}`} className={`r-sprayjet${k % 2 ? ' thin' : ''}`} style={{ animationDelay: `${k * 0.09}s`, animationDuration: `${Math.max(0.22, 0.5 - 0.2 * rel)}s` }} />; })}
+        {lq > 0.01 && [0, 1, 2, 3, 4].map((k) => <circle key={`ld${k}`} cx={lx + (k - 2) * spread * 0.45} cy={ly - hJ * 0.5} r={1.8 + rel} className="r-drop" style={{ animationDelay: `${k * 0.17}s` }} />)}
+        {lq > 0.01 && [0, 1, 2].map((k) => <circle key={`ls${k}`} cx={lx + (k - 1) * spread * 0.8} cy={gY - 1} r={4} className="r-splash" style={{ animationDelay: `${k * 0.2}s` }} />)}
+        <g className="r-leakbadge"><rect x={lx - 70} y={gY + 12} width={140} height={18} rx={9} /><text x={lx} y={gY + 25} textAnchor="middle">{lq > 0.01 ? `FUITE · ${lq.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h perdus` : 'fuite (réseau sans pression)'}</text></g>
+      </g>);
     }
     if (fl.includes('garniture') && !(P && P.sealGone)) lcd.push(<g key="gar">{[0, 1].map((k) => <circle key={k} cx={pxp + 20} cy={pyp + 10} r={2.2} className="r-drop" style={{ animationDelay: `${k * 0.6}s` }} />)}<ellipse cx={pxp + 22} cy={pyp + 34} rx={14} ry={3} className="r-puddle" /></g>);
     // Retour d'eau pompe arrêtée (clapet anti-retour non étanche)
@@ -961,7 +977,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68 }} className={`realview${live?.faults?.includes('ensablement') ? ' sandy' : ''}`} role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
+    <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68, ['--flow-t' as string]: `${flowT}s` }} className={`realview${live?.faults?.includes('ensablement') ? ' sandy' : ''}`} role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
       <rect x={0} y={0} width={W} height={G} className="r-sky" />
       <g {...pick('source')}>{scene}</g>
       <g {...pick('dest')}>{destEls}</g>

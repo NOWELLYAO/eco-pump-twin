@@ -390,7 +390,7 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .r-plinth { fill: #9aa3ab; }
 .r-pipe { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .r-pipe-hl { fill: none; stroke: rgba(255,255,255,.35); stroke-linecap: round; stroke-linejoin: round; }
-.r-flow { fill: none; stroke: rgba(160, 220, 255, .85); stroke-dasharray: 6 12; animation: flow 1s linear infinite; stroke-linecap: round; }
+.r-flow { fill: none; stroke: rgba(160, 220, 255, .85); stroke-dasharray: 6 12; animation: flow var(--flow-t, 1s) linear infinite; stroke-linecap: round; }
 .r-pumpbody { fill: #1689c6; stroke: #0d6699; stroke-width: 2; }
 .r-hub { fill: #0d6699; }
 .r-motor { fill: #5d6b78; stroke: #3e4a55; stroke-width: 2; }
@@ -1309,7 +1309,8 @@ html, body { overflow-x: clip; }
 .r-hose { fill: none; stroke: #c94a3a; stroke-width: 5; stroke-linecap: round; }
 .r-lance { stroke: #3a4650; stroke-width: 5; stroke-linecap: round; }
 .r-arm { stroke: #3a4650; stroke-width: 3; stroke-linecap: round; }
-@media (prefers-reduced-motion: reduce) { .r-stream, .r-jet, .r-sprayjet, .r-sweep, .r-drop, .r-bubble, .r-splash { animation: none; } }
+/* « Réduire les animations » (iPhone) : l'eau reste en mouvement — c'est l'information principale — mais plus calmement */
+@media (prefers-reduced-motion: reduce) { .r-stream, .r-jet, .r-sprayjet, .r-drop, .r-bubble, .r-splash, .r-flow { animation-duration: 1.4s !important; } .r-sweep { animation-duration: 4s !important; } }
 .firebtn { min-height: 50px; justify-content: center; background: #d03b3b; color: #fff; border-color: #a42a2a; font-weight: 800; margin-bottom: 6px; }
 .firebtn.on { background: #17242e; border-color: #17242e; }
 .r-flame path { fill: #f08a1c; animation: flicker .35s ease-in-out infinite alternate; transform-box: fill-box; transform-origin: bottom; }
@@ -1462,3 +1463,5 @@ html, body { overflow-x: clip; }
   .vbody.fit .realview,.vbody.fit .pidview{min-width:0 !important}
 }
 .r-jk-on .r-pump-small{fill:#16a34a;stroke:#0f6b30;animation:bkpulse 1s infinite}
+.r-wetsoil{fill:rgba(70,55,35,.18)}
+.r-leakbadge rect{fill:#d03b3b}.r-leakbadge text{fill:#fff;font-size:11px;font-weight:700}

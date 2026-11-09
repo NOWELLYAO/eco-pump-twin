@@ -251,6 +251,8 @@ export interface SimState {
   aqN?: number; // rabattement qu'aurait un forage sain au même débit (référence de la sonde)
   aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
   aqDry?: boolean; // forage : l'eau est descendue sous l'entrée de la pompe (le forage ne suit pas)
+  leakQ?: number; // débit perdu par la fuite visible (m³/h)
+  leakVol?: number; // volume perdu cumulé (m³)
   circOnly?: boolean; // incendie : la pompe ne débite que dans la soupape de circulation (vers la réserve)
   jk?: boolean; // pompe jockey (incendie) en marche
   jkStarts?: number;
@@ -513,6 +515,9 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // Moteur déjà lancé quand la panne apparaît : il cale et ronfle (rotor bloqué)
     if (fx.noStart && st.on && !st.hum) { st.hum = true; st.runT = 0; seen('ronfle', 'ne_demarre_pas', 'courant_haut'); newEv.push({ t: st.t, sev: 'critical', text: 'Le moteur cale et ronfle — courant de rotor bloqué', target: 'cable' }); }
     const leakQ = ((fx.leak ?? 0) + (st.burst === 'rupture' ? 0.7 : st.burst === 'fuite' ? 0.2 : 0) + (st.sealGone ? 0.03 : 0)) * i.duty.qReq;
+    // Fuite visible : son débit suit la pression du réseau (√p) ; on cumule le volume perdu (flaque)
+    { const pr = kind === 'vessel' || kind === 'vfd' ? Math.max(0, st.x) : st.on ? 1 : 0; const pRef0 = kind === 'vessel' || kind === 'vfd' ? Math.max(0.5, (ctx.er.vessel?.pOn ?? 3)) : 1;
+      st.leakQ = (fx.leak ?? 0) > 0 || st.burst ? leakQ * Math.sqrt(pr / pRef0) : 0; st.leakVol = (st.leakVol ?? 0) + ((st.leakQ ?? 0) * sub) / 3600; }
     st.backDrop = false;
 
     // Robinet à flotteur : tant que le réseau est sous pression et le réservoir de secours pas plein, il se remplit
