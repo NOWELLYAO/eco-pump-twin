@@ -91,7 +91,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
               return { ...x, app: v, pumpType: pt, mode: modes.includes(x.mode) ? x.mode : modes[0], fluid: makeFluid(APPS[v].fluid) };
             })} />
           <SelField label="Type de pompe" value={i.pumpType} wide
-            options={allPumps.map((p) => ({ v: p, l: `${PUMP_TYPES[p].label}${APPS[i.app].pumps.includes(p) ? '' : ' (inhabituel ici)'}` }))} onChange={setPumpType} />
+            options={allPumps.map((p) => ({ v: p, l: p === 'immergee_forage' && i.pumpType === p ? `Immergée de forage ${sizeOf(i).inch}" ${sizeOf(i).phase === 'mono' ? 'monophasée' : 'triphasée'}` : `${PUMP_TYPES[p].label}${APPS[i.app].pumps.includes(p) ? '' : ' (inhabituel ici)'}` }))} onChange={setPumpType} />
           <p className="ihint wide">{PUMP_TYPES[i.pumpType].desc}</p>
           <div className="ifld wide">
             <span>Montage</span>
@@ -119,7 +119,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
         </div>
       </Section>
 
-      <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW${(i.pump.standby ?? 0) > 0 ? ` · ${(i.pump.count ?? 1) - (i.pump.standby ?? 0)} en service + ${i.pump.standby} secours` : ''}`}>
+      <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW${forage ? ` · ${sizeOf(i).inch}" ${sizeOf(i).phase}` : ''}${(i.pump.standby ?? 0) > 0 ? ` · ${(i.pump.count ?? 1) - (i.pump.standby ?? 0)} en service + ${i.pump.standby} secours` : ''}`}>
         <p className="ihint">{i.pump.usePts ? `Courbe du fabricant active (plus bas) : débit, hauteur, rendement${imm ? '' : ' et NPSH'} nominaux sont recalculés à partir des points.` : 'Valeurs de la fiche constructeur, au point de meilleur rendement (BEP). Pour plus de précision, saisissez la courbe du fabricant plus bas.'}</p>
         <div className="igrid">
           <NumField label="Débit nominal" unit="m³/h" value={i.pump.qn} onChange={(v) => v > 0 && pump({ qn: v })} />

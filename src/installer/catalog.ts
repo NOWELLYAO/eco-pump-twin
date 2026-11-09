@@ -17,7 +17,7 @@ export const PUMP_TYPES: Record<PumpTypeId, { label: string; modes: ModeId[]; se
   auto_amorcante: { label: 'Auto-amorçante', modes: ['aspiration', 'charge'], selfPriming: true, tmax: 60, passage: 6, desc: 'S\'amorce seule une fois le corps rempli ; rendement plus faible.' },
   multi_h: { label: 'Multicellulaire horizontale', modes: ['charge', 'aspiration'], selfPriming: false, tmax: 90, passage: 2, desc: 'Haute pression ; sensible au sable et au NPSH.' },
   multi_v: { label: 'Multicellulaire verticale', modes: ['charge', 'aspiration'], selfPriming: false, tmax: 110, passage: 2, desc: 'Compacte, haute pression ; idéale en charge.' },
-  immergee_forage: { label: 'Immergée de forage (4" / 6")', modes: ['immergee'], selfPriming: true, tmax: 35, passage: 2, desc: 'Moteur immergé refroidi par l\'eau qui le longe.' },
+  immergee_forage: { label: 'Immergée de forage (3" à 12")', modes: ['immergee'], selfPriming: true, tmax: 35, passage: 2, desc: 'Moteur immergé refroidi par l\'eau qui le longe.' },
   submersible_relevage: { label: 'Submersible de relevage (vortex / monocanal)', modes: ['immergee'], selfPriming: true, tmax: 40, passage: 50, desc: 'Grand passage libre pour eaux chargées.' },
   drainage_immergee: { label: 'Pompe de drainage immergée', modes: ['immergee'], selfPriming: true, tmax: 35, passage: 10, desc: 'Épuisement d\'eaux claires ou peu chargées.' },
 };
