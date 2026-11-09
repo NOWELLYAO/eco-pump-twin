@@ -3,7 +3,7 @@ import { CheckCircle2, ChevronDown, Eye, ListChecks, PenLine, Package, ShieldAle
 import { MONTHS, START_LABEL, SUPPLY_LABEL, planLabel } from '../electrical';
 import { mountSequence, posAdvice } from '../positions';
 import { ACC, ACCESSORIES, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from '../catalog';
-import { CAT_LABEL, type Evaluation } from '../evaluate';
+import { CAT_LABEL, catLabel, type Evaluation } from '../evaluate';
 import type { Category, Installation, Issue, Sev } from '../types';
 import { LevelIcon } from '../../ui/Status';
 import { gotoTarget, targetsFor } from '../goto';
@@ -18,7 +18,7 @@ function SolarMonths(p: { s: NonNullable<Evaluation['elec']['solar']>; need: num
 const LV: Record<Sev, 'critical' | 'warning' | 'info'> = { critical: 'critical', warning: 'warning', info: 'info' };
 const SEV_LABEL: Record<Sev, string> = { critical: 'Critique', warning: 'Attention', info: 'Conseil' };
 
-export function ScoreCard({ ev }: { ev: Evaluation }) {
+export function ScoreCard({ ev, imm = false }: { ev: Evaluation; imm?: boolean }) {
   const lvl = ev.verdict.level;
   const ring = lvl === 'excellent' || lvl === 'good' ? 'ok' : lvl === 'fair' ? 'warning' : 'critical';
   const r = 46, c = 2 * Math.PI * r;
@@ -50,7 +50,7 @@ export function ScoreCard({ ev }: { ev: Evaluation }) {
           const l = v >= 80 ? 'ok' : v >= 50 ? 'warning' : 'critical';
           return (
             <div key={k} className="cat">
-              <span>{CAT_LABEL[k]}</span>
+              <span>{catLabel(k, imm)}</span>
               <div className="bar"><i className={`lv-${l}`} style={{ width: `${Math.max(4, v)}%` }} /></div>
               <b>{v}</b>
             </div>
@@ -68,7 +68,8 @@ export function KeyFigures({ i, ev }: { i: Installation; ev: Evaluation }) {
     { l: 'Débit obtenu', v: h.ok ? `${fmt(h.q, 1)} m³/h` : 'nul', s: `besoin ${fmt(i.duty.qReq, 1)} m³/h` },
     { l: 'HMT', v: `${fmt(h.h, 1)} m`, s: `géo ${fmt(h.hStatic, 1)} + pression ${fmt(h.hPress, 1)} + pertes ${fmt(h.hLoss, 1)}` },
     { l: 'Position sur la courbe', v: `${fmt(h.x * 100, 0)} %`, s: 'du débit optimal (70–120 %)' },
-    { l: 'Marge NPSH', v: `${fmt(h.margin, 1)} m`, s: `dispo ${fmt(h.npsha, 1)} / requis ${fmt(h.npshr, 1)}` },
+    imm ? { l: 'Immersion', v: `${fmt(Math.max(0, (i.pumpType === 'immergee_forage' ? i.geo.pumpDepth - i.geo.dynamicLevel : i.geo.wetLevel)), 1)} m`, s: i.pumpType === 'immergee_forage' ? `d'eau au-dessus de la pompe (niveau dynamique ${fmt(i.geo.dynamicLevel, 1)} m)` : 'd\'eau au-dessus de la pompe à l\'arrêt' }
+      : { l: 'Marge NPSH', v: `${fmt(h.margin, 1)} m`, s: `dispo ${fmt(h.npsha, 1)} / requis ${fmt(h.npshr, 1)}` },
     { l: 'Vitesses', v: imm ? `${fmt(h.vRef, 2)} m/s` : `${fmt(h.vAsp, 2)} / ${fmt(h.vRef, 2)}`, s: imm ? 'refoulement' : 'aspiration / refoulement (m/s)' },
     { l: 'Puissance absorbée', v: `${fmt(h.pShaft, 2)} kW`, s: `moteur ${fmt(i.pump.motorKw, 1)} kW · rendement ${fmt(h.eta * 100, 0)} %` },
     { l: 'Coût énergie / an', v: money(h.costYear, i.duty.currency), s: `${fmt(h.se * 1000, 0)} Wh/m³ · ${i.duty.hoursPerDay} h/j` },

@@ -36,7 +36,7 @@ export function syncNominal(p: Installation['pump']): Installation['pump'] {
   return hn > 0 ? { ...p, hn: r(hn), shutoff: Math.max(1.02, r(f.H(0) / hn, 100)), npshr: f.N ? r(f.N(p.qn)) : p.npshr } : p;
 }
 
-export function PumpCurveEditor({ pump, onChange }: { pump: Installation['pump']; onChange: (p: Installation['pump']) => void }) {
+export function PumpCurveEditor({ pump, onChange, npsh = true }: { pump: Installation['pump']; onChange: (p: Installation['pump']) => void; npsh?: boolean }) {
   const pts = pump.pts ?? [];
   const f = fitCurve(pts);
   const valid = validPts(pts);
@@ -57,18 +57,18 @@ export function PumpCurveEditor({ pump, onChange }: { pump: Installation['pump']
   return (
     <div className="pce">
       <h4 className="isub"><LineChart size={15} aria-hidden /> Courbe du fabricant</h4>
-      <p className="ihint">Relevez 3 à 8 points sur la courbe de la fiche technique (débit, hauteur ; rendement et NPSH requis si disponibles). Plus il y a de points, plus les calculs sont justes, surtout loin du point nominal.</p>
+      <p className="ihint">Relevez 3 à 8 points sur la courbe de la fiche technique (débit, hauteur ; rendement{npsh ? ' et NPSH requis' : ''} si disponibles). Plus il y a de points, plus les calculs sont justes, surtout loin du point nominal.</p>
       <Toggle label="Utiliser cette courbe pour tous les calculs" checked={!!pump.usePts} onChange={(v) => set(pts.length ? pts : ptsFromNominal(pump.qn, pump.hn, pump.shutoff, pump.eta, pump.npshr), v)} />
       {(pump.usePts || pts.length > 0) && (
         <>
           <div className="pce-table" role="table">
-            <div className="pce-row head" role="row"><span>Débit m³/h</span><span>Hauteur m</span><span>Rendement %</span><span>NPSHr m</span><span /></div>
+            <div className={`pce-row head${npsh ? '' : ' n3'}`} role="row"><span>Débit m³/h</span><span>Hauteur m</span><span>Rendement %</span>{npsh && <span>NPSHr m</span>}<span /></div>
             {pts.map((p, k) => (
-              <div className="pce-row" role="row" key={k}>
+              <div className={`pce-row${npsh ? '' : ' n3'}`} role="row" key={k}>
                 <Cell value={p.q} onChange={(v) => upd(k, { q: v ?? NaN })} />
                 <Cell value={p.h} onChange={(v) => upd(k, { h: v ?? NaN })} />
                 <Cell value={p.eta} onChange={(v) => upd(k, { eta: v })} ph="—" />
-                <Cell value={p.npshr} onChange={(v) => upd(k, { npshr: v })} ph="—" />
+                {npsh && <Cell value={p.npshr} onChange={(v) => upd(k, { npshr: v })} ph="—" />}
                 <button type="button" className="icon-btn sm" aria-label="Supprimer ce point" onClick={() => set(pts.filter((_, n) => n !== k))}><Trash2 size={14} /></button>
               </div>
             ))}

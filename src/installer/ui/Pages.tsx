@@ -94,7 +94,7 @@ export function DiagPage({ s }: { s: Shared }) {
   return (
     <div className="page-diag">
       <div className="diag-list">
-        <ScoreCard ev={s.ev} />
+        <ScoreCard ev={s.ev} imm={s.inst.mode === 'immergee'} />
         <Alerts ev={s.ev} onFix={s.fix} onSelect={s.selectIssue} activeId={s.activeIssue?.id} />
         <Recommendations ev={s.ev} />
         <PartsAtRisk ev={s.ev} />

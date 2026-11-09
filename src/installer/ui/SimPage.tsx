@@ -247,7 +247,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
             : kind === 'pit' ? <div><small>Niveau dans la fosse</small><b>{fmt(sim.x * 100, 0)}<span>cm</span></b><em>marche à 50 cm · arrêt à 0</em></div> : null}
           <div><small><Zap size={13} aria-hidden /> Courant</small><b>{fmt(r.amps, 1)}<span>A</span></b></div>
           <div><small>Puissance</small><b>{fmt(r.kw, 2)}<span>kW</span></b></div>
-          <div className={sim.on && ctx.h.margin < 1 ? 'bad' : ''}><small>Marge NPSH</small><b>{fmt(ctx.h.margin, 1)}<span>m</span></b></div>
+          {ctx.i.mode !== 'immergee' && <div className={sim.on && ctx.h.margin < 1 ? 'bad' : ''}><small>Marge NPSH</small><b>{fmt(ctx.h.margin, 1)}<span>m</span></b></div>}
           <div><small>Volume pompé</small><b>{fmt(sim.vol, 1)}<span>m³</span></b></div>
           <div><small>Énergie</small><b>{fmt(sim.kwh, 1)}<span>kWh</span></b><em>{money(sim.kwh * s.inst.duty.pricePerKwh, s.inst.duty.currency)}</em></div>
           <div className={sim.starts / hours > s.inst.pump.maxStarts ? 'bad' : ''}><small>Démarrages</small><b>{sim.starts}</b><em>{fmt(sim.starts / hours, 1)} /h (maxi {s.inst.pump.maxStarts})</em></div>

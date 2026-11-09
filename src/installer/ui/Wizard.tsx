@@ -11,6 +11,7 @@ import { HealthRing, LevelIcon } from '../../ui/Status';
 import { touch, trackedFields } from '../defaults';
 import { NumField, SelField, TextField } from './Fields';
 import { proposePump } from '../sizing';
+import { sizeLabel, sizeOf } from '../borepump';
 export { proposePump };
 
 const fx = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
@@ -428,7 +429,7 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
               <b>{(d.pump.count ?? 1) > 1 ? `${d.pump.count} pompes identiques à rechercher (caractéristiques d'une pompe)` : 'Pompe à rechercher'}</b>
               <span>{PUMP_TYPES[d.pumpType].label}</span>
               <span className="big">{fx(d.pump.qn)} m³/h à {fx(d.pump.hn, 0)} m</span>
-              <span>Moteur {fx(d.pump.motorKw, 2)} kW · rendement visé ≈ {Math.round(d.pump.eta * 100)} %{forage ? ` · ${d.pump.diameterMm <= 100 ? '4"' : '6"'}` : ''}</span>
+              <span>Moteur {fx(d.pump.motorKw, 2)} kW · rendement visé ≈ {Math.round(d.pump.eta * 100)} %{forage ? ` · pompe ${sizeLabel(sizeOf(d))}, sortie DN${d.pump.dnRef}` : ''}</span>
               <small>Choisissez une pompe dont la courbe passe par ce point (ou légèrement au-dessus), le plus près possible de son meilleur rendement.</small>
             </div>
           )}

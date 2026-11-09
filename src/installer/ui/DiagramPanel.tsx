@@ -128,7 +128,7 @@ function Detail({ t, i, ev, onIssue, onSet, onClose }: {
     rows.push(['Type', PUMP_TYPES[i.pumpType].label], ['Nominal', `${fmt(i.pump.qn, 1)} m³/h à ${fmt(i.pump.hn, 1)} m · ${i.pump.nn} tr/min`],
       ['Point de fonctionnement', h.ok ? `${fmt(h.q, 1)} m³/h à ${fmt(h.h, 1)} m (${fmt(h.x * 100, 0)} % du BEP)` : 'aucun débit'],
       ['Rendement / puissance', `${fmt(h.eta * 100, 0)} % · ${fmt(h.pShaft, 2)} kW sur ${fmt(i.pump.motorKw, 1)} kW`],
-      ['NPSH', `disponible ${fmt(h.npsha, 1)} m / requis ${fmt(h.npshr, 1)} m`], ['Matériau', PUMP_MATS[i.pump.material]]);
+      i.mode === 'immergee' ? ['Immersion', `${fmt(Math.max(0, i.pumpType === 'immergee_forage' ? i.geo.pumpDepth - i.geo.dynamicLevel : i.geo.wetLevel), 1)} m d'eau au-dessus de la pompe`] : ['NPSH', `disponible ${fmt(h.npsha, 1)} m / requis ${fmt(h.npshr, 1)} m`], ['Matériau', PUMP_MATS[i.pump.material]]);
   } else if (t === 'asp' || t === 'ref') {
     const r = t === 'asp' ? i.asp : i.ref;
     rows.push(['Tube', `${PIPE_MATS[r.material].label} DN${r.dn} PN${r.pn}`], ['Longueur', `${fmt(t === 'ref' ? refLen(i) : r.length, 0)} m · ${r.elbows} coude(s)`],

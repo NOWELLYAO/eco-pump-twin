@@ -1503,3 +1503,5 @@ html, body { overflow-x: clip; }
 .dcauses .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .dcauses .dc-ic { color: var(--crit-ink); flex: 0 0 auto; margin-top: 2px; }
 .dcauses > p.muted { margin: 10px 0 0; }
+
+.pce-row.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)) 34px; }

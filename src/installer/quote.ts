@@ -1,3 +1,4 @@
+import { sizeLabel, sizeOf } from './borepump';
 import { BIG_TANK, backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { fireCfg } from './fire';
 import { ACCESSORIES, FLUIDS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, refLen } from './catalog';
@@ -41,7 +42,7 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
 
   // ---------- Pompes ----------
   add({ id: 'pompe', cat: 'pompes', desig: `Pompe ${PUMP_TYPES[i.pumpType].label}`, unit: 'u', qty: nP,
-    spec: `${f(i.pump.qn)} m³/h à ${f(i.pump.hn)} m (point nominal)${i.pump.usePts ? ', selon courbe constructeur jointe' : ''} · point de service ${f(h.q / Math.max(1, h.n))} m³/h à ${f(h.h)} m par pompe · ${PUMP_MATS[i.pump.material]} · ${i.pump.nn} tr/min · brides ${imm ? `DN${i.pump.dnRef}` : `DN${i.pump.dnAsp}/DN${i.pump.dnRef}`} · liquide : ${fl.label} ${i.fluid.temp} °C${i.fluid.sandGm3 > 20 ? `, sable ${f(i.fluid.sandGm3, 0)} g/m³` : ''}${i.pump.passage > 5 ? ` · passage libre ≥ ${i.pump.passage} mm` : ''}${forage ? ` · Ø ${i.pump.diameterMm <= 100 ? '4"' : '6"'} pour forage Ø ${i.geo.boreDia} mm` : ''}`,
+    spec: `${f(i.pump.qn)} m³/h à ${f(i.pump.hn)} m (point nominal)${i.pump.usePts ? ', selon courbe constructeur jointe' : ''} · point de service ${f(h.q / Math.max(1, h.n))} m³/h à ${f(h.h)} m par pompe · ${PUMP_MATS[i.pump.material]} · ${i.pump.nn} tr/min · brides ${imm ? `DN${i.pump.dnRef}` : `DN${i.pump.dnAsp}/DN${i.pump.dnRef}`} · liquide : ${fl.label} ${i.fluid.temp} °C${i.fluid.sandGm3 > 20 ? `, sable ${f(i.fluid.sandGm3, 0)} g/m³` : ''}${i.pump.passage > 5 ? ` · passage libre ≥ ${i.pump.passage} mm` : ''}${forage ? ` · pompe ${sizeLabel(sizeOf(i))} (Ø ${sizeOf(i).mm} mm) pour forage Ø ${i.geo.boreDia} mm` : ''}`,
     note: nP > 1 ? `${nP - sb} en service${sb ? ` + ${sb} de secours` : ''}` : undefined });
   add({ id: 'moteur', cat: 'pompes', desig: `Moteur ${forage ? 'immergé 4"/6"' : pit ? 'submersible (intégré)' : 'électrique'}${i.acc.atex?.on ? ' ATEX' : ''}`, unit: 'u', qty: nP,
     spec: `${f(i.pump.motorKw, 2)} kW · ${i.elec.supply === 'mono' ? '230 V mono' : '400 V tri'} · ${i.pump.nn} tr/min · ${forage || pit ? 'IP68' : 'IP55, rendement IE3'}${e.start === 'variateur' ? ' · compatible variateur' : ''}`, note: 'souvent fourni avec la pompe' });
@@ -50,7 +51,7 @@ export function quoteItems(i: Installation, ev: Evaluation): QItem[] {
     add({ id: 'corde', cat: 'pompes', desig: 'Câble de suspension inox + serre-câbles', spec: `Ø 4–6 mm, charge ≥ 5 × poids pompe + colonne pleine`, qty: up((i.geo.pumpDepth + 5) * nP), unit: 'm' });
     add({ id: 'colliers', cat: 'pompes', desig: 'Colliers de fixation câble sur colonne', spec: 'tous les 3 m', qty: up(i.geo.pumpDepth / 3) * nP, unit: 'u' });
     add({ id: 'tete', cat: 'pompes', desig: 'Tête de forage (plaque d\'obturation) avec presse-étoupe câble', spec: `pour tubage Ø ${i.geo.boreDia} mm, sortie DN${i.ref.dn}`, qty: 1, unit: 'u' });
-    if (on('chemise')) add({ id: 'chemise', cat: 'pompes', desig: 'Chemise de refroidissement', spec: `pour moteur ${i.pump.diameterMm <= 100 ? '4"' : '6"'}`, qty: nP, unit: 'u' });
+    if (on('chemise')) add({ id: 'chemise', cat: 'pompes', desig: 'Chemise de refroidissement', spec: `pour moteur ${sizeOf(i).inch}"`, qty: nP, unit: 'u' });
   }
   if (pit && on('barres')) {
     add({ id: 'pied', cat: 'pompes', desig: 'Pied d\'assise à accouplement automatique', spec: `DN${i.ref.dn}`, qty: nP, unit: 'u' });

@@ -2,11 +2,12 @@ import { aquiferOf, withAquifer } from './aquifer';
 import { fireCfg } from './fire';
 import { FORMATIONS, screenCalc, screenOf } from './borehole';
 import { isForage as isForageI } from './hydraulics';
-import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pipeFor, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
+import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pipeFor, withPipe, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
 import { isForage, losses, nRun, patm, pressureHead, pumpHead, pumpNpshr, solve, speedFor, staticHead, suctionZ, vaporPressure, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, vessel as vesselCalc, vfdSet, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
-import { proposePump } from './sizing';
+import { fitBore, proposePump } from './sizing';
+import { sizeFor, sizeLabel, sizeOf } from './borepump';
 import { backupApplies, backupCalc, backupMode, backupOf, backupProposal, floatKind, floatLow } from './backup';
 import type { Category, Installation, Issue, Need, Sev } from './types';
 
@@ -16,16 +17,7 @@ const f0 = (v: number) => Math.round(v).toLocaleString('fr-FR');
 const setAcc = (id: string, on = true, extra: Partial<Installation['acc'][string]> = {}) => (i: Installation): Installation => ({
   ...i, acc: { ...i.acc, [id]: { ...((i.acc[id] as Installation['acc'][string] | undefined) ?? { dn: defaultDn(i, id), qty: 1 }), ...extra, on } },
 });
-/** Change le DN d'une conduite ; les accessoires qui étaient au DN de la conduite suivent. */
-export function withPipe(i: Installation, side: 'asp' | 'ref', dn: number): Installation {
-  const old = i[side].dn;
-  const acc = { ...i.acc };
-  for (const a of ACCESSORIES) {
-    const st = acc[a.id];
-    if (a.inline && a.side === side && st && (st.dn === old || !st.dn)) acc[a.id] = { ...st, dn };
-  }
-  return { ...i, [side]: { ...i[side], dn }, acc };
-}
+export { withPipe };
 const bigger = (side: 'asp' | 'ref') => (x: Installation) => withPipe(x, side, nextDn(x[side].dn));
 
 export function defaultDn(i: Installation, id: string) {
@@ -88,6 +80,8 @@ export interface Evaluation {
   elec: ElecResult;
 }
 
+/** Libellé de catégorie (« Aspiration & NPSH » devient « Immersion » pour une pompe immergée). */
+export const catLabel = (k: Category, imm: boolean) => (imm && k === 'aspiration' ? 'Immersion & niveau d\'eau' : CAT_LABEL[k]);
 export const CAT_LABEL: Record<Category, string> = {
   hydraulique: 'Hydraulique', aspiration: 'Aspiration & NPSH', materiaux: 'Matériaux & fluide',
   accessoires: 'Accessoires', securite: 'Sécurité & pression', electricite: 'Électricité', energie: 'Énergie',
@@ -253,9 +247,9 @@ export function evaluate(input: Installation): Evaluation {
     const vOkR = h.vRef >= 0.6 && h.vRef <= 2.5;
     if (vOkA && vOkR && !out.some((x) => ['vasp', 'vref', 'vsed', 'vlow'].includes(x.id))) goods.push(`Vitesses dans les plages recommandées (${imm ? '' : `aspiration ${f1(h.vAsp, 2)} m/s, `}refoulement ${f1(h.vRef, 2)} m/s)`);
 
-    // ---------- NPSH ----------
+    // ---------- NPSH (pompes de surface seulement : une pompe immergée est noyée, c'est son immersion qui compte) ----------
     const need = Math.max(1, 0.2 * h.npshr);
-    if (h.margin < need) {
+    if (!imm && h.margin < need) {
       const crit = h.margin < 0.5;
       add({ id: 'npsh', sev: crit ? 'critical' : 'warning', cat: 'aspiration', title: crit ? 'Cavitation certaine' : 'Marge NPSH insuffisante',
         detail: `NPSH disponible ${f1(h.npsha)} m pour ${f1(h.npshr)} m requis : marge ${f1(h.margin)} m (conseillé ≥ ${f1(need)} m). Altitude ${f0(i.geo.altitude)} m, liquide à ${f0(i.fluid.temp)} °C.`,
@@ -270,7 +264,7 @@ export function evaluate(input: Installation): Evaluation {
         fix: i.mode === 'aspiration' && i.geo.suctionLift - (need - h.margin) - 0.3 > 0.3
           ? { label: `Aspiration ramenée à ${f1(i.geo.suctionLift - (need - h.margin) - 0.3)} m`, apply: (x) => ({ ...x, geo: { ...x.geo, suctionLift: Math.round((x.geo.suctionLift - (need - h.margin) - 0.3) * 10) / 10 } }) }
           : i.mode === 'aspiration' ? { label: 'Installer la pompe en charge', apply: (x) => ({ ...x, mode: 'charge', geo: { ...x.geo, chargeHead: 0.5 } }) } : undefined });
-    } else if (h.margin >= 1.5) goods.push(`Marge NPSH confortable : ${f1(h.margin)} m`);
+    } else if (!imm && h.margin >= 1.5) goods.push(`Marge NPSH confortable : ${f1(h.margin)} m`);
   }
 
   // ---------- Aspiration : géométrie ----------
@@ -387,6 +381,18 @@ export function evaluate(input: Installation): Evaluation {
         detail: `Pompe à ${f0(i.geo.pumpDepth)} m pour un forage de ${f0(i.geo.boreDepth)} m (garder ≥ 3 m).`,
         consequences: ['Aspiration de sable et de sédiments', 'Moteur enfoui dans les dépôts, mal refroidi'], parts: ['roue', 'diffuseurs', 'moteur'],
         solutions: ['Remonter la pompe d\'au moins 3 m au-dessus du fond'] });
+    }
+    { // Gamme de la pompe de forage (3" mono … 12" tri) : débit et moteur dans les limites de la taille choisie
+      const z = sizeOf(i);
+      if (i.pump.qn > z.qMax * 1.05 || i.pump.motorKw > z.kwMax) {
+        const up = sizeFor(i.pump.qn, i.pump.motorKw, 9999);
+        add({ id: 'bore_range', sev: 'critical', cat: 'hydraulique', title: `Pas de pompe ${z.inch}" pour ce débit`,
+          detail: `Les pompes ${z.inch}" vont jusqu'à ${z.qMax} m³/h et ${z.kwMax} kW ; il faut ${f1(i.pump.qn)} m³/h et ${f1(i.pump.motorKw)} kW, soit une pompe ${up.inch}" (Ø${up.mm} mm, forage Ø${up.mm + 10} mm minimum).`,
+          consequences: ['Pompe introuvable chez les fabricants', 'Ou moteur hors gamme'], parts: ['moteur'],
+          solutions: [`Pompe ${sizeLabel(up)}`, 'Ou réduire le débit demandé'], fix: { label: `Pompe ${up.inch}"`, apply: (x) => fitBore({ ...x, pump: { ...x.pump, boreIn: up.inch } }) } });
+      }
+      if (z.phase === 'mono' && i.elec.supply === 'tri') add({ id: 'bore_mono', sev: 'info', cat: 'electricite', title: 'Pompe 3" : moteur monophasé',
+        detail: 'Les pompes 3" sont en 230 V monophasé (avec coffret de démarrage à condensateur).', consequences: [], parts: [], solutions: ['Alimentation 230 V'] });
     }
     if (i.geo.boreDia < i.pump.diameterMm + 10) {
       add({ id: 'bore', sev: 'critical', cat: 'aspiration', title: 'Pompe trop grosse pour le forage',

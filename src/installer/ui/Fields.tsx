@@ -28,8 +28,8 @@ export function NumField({ label, value, onChange, unit, min = 0, hint, wide, df
   );
 }
 
-export function SelField<T extends string | number>({ label, value, options, onChange, wide }: {
-  label: string; value: T; options: { v: T; l: string }[]; onChange: (v: T) => void; wide?: boolean;
+export function SelField<T extends string | number>({ label, value, options, onChange, wide, hint }: {
+  label: string; value: T; options: { v: T; l: string }[]; onChange: (v: T) => void; wide?: boolean; hint?: string;
 }) {
   return (
     <label className={wide ? 'ifld wide' : 'ifld'}>
@@ -40,6 +40,7 @@ export function SelField<T extends string | number>({ label, value, options, onC
       }}>
         {options.map((o) => <option key={String(o.v)} value={String(o.v)}>{o.l}</option>)}
       </select>
+      {hint && <small>{hint}</small>}
     </label>
   );
 }

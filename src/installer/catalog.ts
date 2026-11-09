@@ -249,3 +249,14 @@ export function withPipesFor(i: Installation): Installation {
   const put = (side: 'asp' | 'ref') => { const m = pipeFor(i, side); return m === i[side].material ? i[side] : { ...i[side], material: m, pn: m === 'acier' || m === 'inox' ? 16 : i[side].pn }; };
   return { ...i, asp: put('asp'), ref: put('ref') };
 }
+
+/** Change le DN d'une conduite ; les accessoires qui étaient au DN de la conduite suivent. */
+export function withPipe(i: Installation, side: 'asp' | 'ref', dn: number): Installation {
+  const old = i[side].dn;
+  const acc = { ...i.acc };
+  for (const a of ACCESSORIES) {
+    const st = acc[a.id];
+    if (a.inline && a.side === side && st && (st.dn === old || !st.dn)) acc[a.id] = { ...st, dn };
+  }
+  return { ...i, [side]: { ...i[side], dn }, acc };
+}

@@ -27,7 +27,9 @@ export function defaultElec(i: Pick<Installation, 'pump' | 'pumpType' | 'geo' | 
 /** Complète une installation ancienne ou partielle avec les réglages électriques par défaut. */
 export function ensureElec<T extends Omit<Installation, 'elec'> & { elec?: Partial<Elec> }>(i: T): Installation {
   const d = defaultElec(i);
-  return { ...i, elec: { ...d, ...i.elec, solar: { ...d.solar, ...(i.elec?.solar ?? {}) } } } as Installation;
+  // Forage : une seule pompe dans le tubage
+  const pump = i.pumpType === 'immergee_forage' && ((i.pump.count ?? 1) > 1 || (i.pump.standby ?? 0) > 0) ? { ...i.pump, count: 1, standby: 0, alternate: false } : i.pump;
+  return { ...i, pump, elec: { ...d, ...i.elec, solar: { ...d.solar, ...(i.elec?.solar ?? {}) } } } as Installation;
 }
 
 export const motorEff = (kw: number) => Math.min(0.94, 0.78 + 0.045 * Math.log(kw + 1));

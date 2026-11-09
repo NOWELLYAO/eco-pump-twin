@@ -43,7 +43,7 @@ export function PrintReport({ inst, ev, extra }: { inst: Installation; ev: Evalu
     <div className="print-report main" aria-hidden>
       <h1>Rapport d'installation — {inst.name}</h1>
       <p className="muted small">Établi le {date} avec le configurateur ECO PUMP AFRIK.</p>
-      <Part n={++n} title="Synthèse"><ScoreCard ev={ev} /><KeyFigures i={inst} ev={ev} /></Part>
+      <Part n={++n} title="Synthèse"><ScoreCard ev={ev} imm={inst.mode === 'immergee'} /><KeyFigures i={inst} ev={ev} /></Part>
       <Part n={++n} title="Vue d'ensemble de l'installation"><section className="card rp-fig"><RealView i={inst} h={ev.hydro} /></section></Part>
       <Part n={++n} title="Schéma P&ID"><section className="card rp-fig"><PidView i={inst} h={ev.hydro} /></section></Part>
       <Part n={++n} title="Courbes : pompe et installation"><section className="card"><InstCurve i={inst} ev={ev} /></section></Part>

@@ -27,7 +27,7 @@ export function termLines(i: Installation, ev: Evaluation, live?: TermLive): Ter
     L.push({ tag: tag(live.r.amps > e.inom * 1.05), text: `${pad('MOTEUR', 8)}${f(live.r.amps)} A / In ${f(e.inom)} A  ${f(live.r.kw, 2)} kW` });
     if (live.kind === 'pit') L.push({ tag: tag(live.x > 0.8, live.x > 1.1), text: `${pad('FOSSE', 8)}niveau ${f(live.x * 100, 0)} cm (marche 50 · arrêt 0)` });
     if (live.kind === 'tank') L.push({ tag: tag(live.x > 1), text: `${pad('RÉSERV.', 8)}${f(Math.min(100, live.x * 100), 0)} % plein` });
-    L.push({ tag: tag(h.margin < 1, h.margin < 0.5), text: `${pad('NPSH', 8)}marge ${f(h.margin)} m` });
+    if (i.mode !== 'immergee') L.push({ tag: tag(h.margin < 1, h.margin < 0.5), text: `${pad('NPSH', 8)}marge ${f(h.margin)} m` });
     if (live.ac && live.on) L.push({ tag: tag(live.ac.zone === 'C', live.ac.zone === 'D'), text: `${pad('VIBR.', 8)}${live.ac.measurable ? `${f(live.ac.vib)} mm/s zone ${live.ac.zone}` : 'pompe immergée'}${live.ac.main ? `  ${live.ac.main.label.toLowerCase()}` : ''}` });
     if (live.phys) {
       const P = live.phys;
@@ -42,7 +42,8 @@ export function termLines(i: Installation, ev: Evaluation, live?: TermLive): Ter
       ? { tag: tag(h.x < 0.7 || h.x > 1.2, h.x < 0.5 || h.x > 1.3), text: `${pad('POINT', 8)}Q=${f(h.q)} m³/h  HMT=${f(h.h)} m  (${f(h.x * 100, 0)} % BEP)` }
       : { tag: 'crit', text: `${pad('POINT', 8)}AUCUN DÉBIT — hauteur inatteignable` });
     L.push({ tag: tag(h.q < i.duty.qReq * 0.97, h.q < i.duty.qReq * 0.9), text: `${pad('BESOIN', 8)}${f(i.duty.qReq)} m³/h à ${f(i.duty.pRes)} bar → ${f((h.q / i.duty.qReq) * 100, 0)} %` });
-    L.push({ tag: tag(h.margin < Math.max(1, 0.2 * h.npshr), h.margin < 0.5), text: `${pad('NPSH', 8)}dispo ${f(h.npsha)} / requis ${f(h.npshr)} → marge ${f(h.margin)} m` });
+    if (i.mode !== 'immergee') L.push({ tag: tag(h.margin < Math.max(1, 0.2 * h.npshr), h.margin < 0.5), text: `${pad('NPSH', 8)}dispo ${f(h.npsha)} / requis ${f(h.npshr)} → marge ${f(h.margin)} m` });
+    else { const im = i.pumpType === 'immergee_forage' ? i.geo.pumpDepth - i.geo.dynamicLevel : i.geo.wetLevel; L.push({ tag: tag(im < 3, im < 1), text: `${pad('IMMERS.', 8)}${f(Math.max(0, im))} m d'eau au-dessus de la pompe` }); }
     if (h.ok) L.push({ tag: tag(h.vAsp > 1.5 || h.vRef > 2.5, h.vAsp > 2.2 || h.vRef > 3.5), text: `${pad('VITESSE', 8)}${i.mode === 'immergee' ? '' : `aspi ${f(h.vAsp, 2)} · `}refoul ${f(h.vRef, 2)} m/s` });
     if (h.ok) L.push({ tag: tag(h.hLoss / Math.max(1, h.h) > 0.3), text: `${pad('PERTES', 8)}${f(h.hLoss, 2)} m (${f((h.hLoss / Math.max(1, h.h)) * 100, 0)} % de la HMT)` });
     L.push({ tag: tag(h.pMaxBar > i.ref.pn * 0.9, h.pMaxBar > i.ref.pn), text: `${pad('PRESS.', 8)}maxi ${f(h.pMaxBar)} bar / PN${i.ref.pn}  bélier ${f(h.surge, 0)} m` });

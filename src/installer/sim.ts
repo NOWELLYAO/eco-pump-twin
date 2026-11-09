@@ -335,7 +335,7 @@ function startEvent(ctx: SimCtx, st: SimState): SimEvent[] {
   const cnt = Math.max(1, i.pump.count ?? 1);
   const who = cnt > 1 ? (i.pump.alternate ? ` P-${101 + ((st.starts - 1) % cnt)} (permutation)` : ` (${h.n} pompe${h.n > 1 ? 's' : ''})`) : '';
   const ev: SimEvent[] = [{ t: st.t, sev: er.dropStart > 15 ? 'warning' : 'ok', text: `Démarrage${who} — pointe ${f1(er.istart, 0)} A, chute de tension ${f1(er.dropStart)} %`, target: 'cable' }];
-  if (h.ok && h.margin < 0.5) ev.push({ t: st.t, sev: 'critical', text: `Cavitation : marge NPSH ${f1(h.margin)} m — bruit de gravier, érosion de la roue`, target: 'pump' });
+  if (h.ok && h.margin < 0.5 && i.mode !== 'immergee') ev.push({ t: st.t, sev: 'critical', text: `Cavitation : marge NPSH ${f1(h.margin)} m — bruit de gravier, érosion de la roue`, target: 'pump' });
   if (!h.ok) ev.push({ t: st.t, sev: 'critical', text: 'Pompe en marche sans débit : elle n\'atteint pas la hauteur demandée', target: 'pump' });
   return ev;
 }

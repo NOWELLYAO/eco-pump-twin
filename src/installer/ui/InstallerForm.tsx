@@ -10,6 +10,8 @@ import { aquiferOf, withAquifer } from '../aquifer';
 import { fireCfg } from '../fire';
 import { FORMATIONS, SLOTS, screenCalc, screenProposal, type FormationId } from '../borehole';
 import { PRESETS, autoEquip, blank, fluidForPump, makeFluid } from '../presets';
+import { BORE_SIZES, sizeLabel, sizeOf } from '../borepump';
+import { fitBore } from '../sizing';
 import type { FireCfg, AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
 import { PumpCurveEditor } from './PumpCurveEditor';
@@ -118,12 +120,12 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
       </Section>
 
       <Section n={3} title="Pompe" summary={`${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${i.pump.qn} m³/h à ${i.pump.hn} m · ${i.pump.motorKw} kW${(i.pump.standby ?? 0) > 0 ? ` · ${(i.pump.count ?? 1) - (i.pump.standby ?? 0)} en service + ${i.pump.standby} secours` : ''}`}>
-        <p className="ihint">{i.pump.usePts ? 'Courbe du fabricant active (plus bas) : débit, hauteur, rendement et NPSH nominaux sont recalculés à partir des points.' : 'Valeurs de la fiche constructeur, au point de meilleur rendement (BEP). Pour plus de précision, saisissez la courbe du fabricant plus bas.'}</p>
+        <p className="ihint">{i.pump.usePts ? `Courbe du fabricant active (plus bas) : débit, hauteur, rendement${imm ? '' : ' et NPSH'} nominaux sont recalculés à partir des points.` : 'Valeurs de la fiche constructeur, au point de meilleur rendement (BEP). Pour plus de précision, saisissez la courbe du fabricant plus bas.'}</p>
         <div className="igrid">
           <NumField label="Débit nominal" unit="m³/h" value={i.pump.qn} onChange={(v) => v > 0 && pump({ qn: v })} />
           <NumField label="Hauteur nominale" unit="m" value={i.pump.hn} onChange={(v) => v > 0 && pump({ hn: v })} />
           <NumField label="Rendement" unit="%" value={Math.round(i.pump.eta * 100)} onChange={(v) => v > 0 && pump({ eta: Math.min(0.92, v / 100) })} />
-          <NumField label="NPSH requis" unit="m" value={i.pump.npshr} onChange={(v) => pump({ npshr: v })} />
+          {!imm && <NumField label="NPSH requis" unit="m" value={i.pump.npshr} onChange={(v) => pump({ npshr: v })} />}
           <SelField label="Vitesse" value={i.pump.nn} options={[960, 1450, 2900, 3500].map((n) => ({ v: n, l: `${n} tr/min` }))} onChange={(v) => pump({ nn: v })} />
           <NumField label="Puissance moteur" unit="kW" value={i.pump.motorKw} onChange={(v) => v > 0 && pump({ motorKw: v })} />
           {!imm && <SelField label="Bride d'aspiration" value={i.pump.dnAsp} options={dnOpts} onChange={(v) => pump({ dnAsp: v })} />}
@@ -141,9 +143,14 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
               {(i.pump.count ?? 1) > 1 && <Toggle label="Permutation automatique des pompes" checked={!!i.pump.alternate} onChange={(v) => pump({ alternate: v })} />}
             </>
           )}
-          {forage && <NumField label="Diamètre de la pompe" unit="mm" value={i.pump.diameterMm} onChange={(v) => pump({ diameterMm: v })} hint="4 pouces ≈ 98 mm, 6 pouces ≈ 142 mm" />}
+          {forage && (
+            <SelField label="Taille de la pompe" value={i.pump.boreIn ?? 0} wide
+              options={[{ v: 0, l: `Auto (${sizeOf(i).inch}" ${sizeOf(i).phase})` }, ...BORE_SIZES.map((z) => ({ v: z.inch, l: `${z.inch}" ${z.phase === 'mono' ? 'mono' : 'tri'} · Ø${z.mm} mm · ≤ ${z.qMax} m³/h` }))]}
+              onChange={(v: number) => set((x) => fitBore({ ...x, pump: { ...x.pump, boreIn: v || undefined } }))}
+              hint={`Sortie DN${i.pump.dnRef} · forage Ø${i.geo.boreDia} mm${sizeOf(i).mm + 10 > i.geo.boreDia ? ' : trop étroit pour cette pompe' : ''}`} />
+          )}
         </div>
-        <PumpCurveEditor pump={i.pump} onChange={(p) => set((x) => ({ ...x, pump: p }))} />
+        <PumpCurveEditor pump={i.pump} npsh={!imm} onChange={(p) => set((x) => ({ ...x, pump: p }))} />
       </Section>
 
       <Section n={4} title="Site, niveaux et distances" summary={forage ? `Pompe à ${i.geo.pumpDepth} m` : imm ? `Fosse ${i.geo.tankVolume} L` : i.mode === 'aspiration' ? `Aspiration ${i.geo.suctionLift} m` : `En charge ${i.geo.chargeHead} m`}>

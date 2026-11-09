@@ -35,6 +35,7 @@ export interface InstPump {
   sandMax: number; // g/m³ admissible
   maxStarts: number; // démarrages / h
   diameterMm: number; // diamètre hors-tout (pompes de forage)
+  boreIn?: number; // pompe de forage : taille imposée (3, 4, 6, 8, 10, 12 pouces) ; sinon choisie d'après le débit
   shutoff: number; // H0 / Hn
   count?: number; // pompes installées en parallèle
   standby?: number; // dont pompes de secours
