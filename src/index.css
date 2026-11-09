@@ -1446,3 +1446,7 @@ html, body { overflow-x: clip; }
 .r-slot{stroke:#2f3a44;stroke-width:2}
 .r-pack{fill:#c9b48a;opacity:.75;stroke:none}
 .r-scr-lim{stroke:#6b5a3a;stroke-width:1;stroke-dasharray:3 3;fill:none}
+.live-bar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 .5rem;font-size:.85rem;color:#1d3b5c}
+.live-bar .btn{margin-left:auto}.live-bar .btn + .btn{margin-left:0}
+.live-dot{width:9px;height:9px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.6);animation:livepulse 1.6s infinite}
+@keyframes livepulse{70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}

@@ -13,6 +13,7 @@ import { ProjectsButton } from './ui/ProjectsButton';
 import { createProject, currentId, fromLink, listProjects, loadProject, saveProject, setCurrent } from './projects';
 import { buildReportPdf, shareOrDownload } from './ui/pdf';
 import { DesignPage, DiagPage, type Shared } from './installer/ui/Pages';
+import type { LiveShare } from './installer/ui/SimPage';
 // Pages et fenêtres chargées à la demande : démarrage plus rapide sur réseau mobile
 const SimPage = lazy(() => import('./installer/ui/SimPage').then((m) => ({ default: m.SimPage })));
 const MaterialPage = lazy(() => import('./installer/ui/Pages').then((m) => ({ default: m.MaterialPage })));
@@ -104,6 +105,7 @@ export default function App() {
   const [resetEquip, setResetEquip] = useState(false);
   const [resetName, setResetName] = useState('');
   const ev = useMemo(() => evaluate(inst), [inst]);
+  const [simLive, setSimLive] = useState<LiveShare | null>(null);
 
   // Enregistrement automatique du projet ouvert
   useEffect(() => { if (projId && !saveProject(projId, inst)) say('Mémoire de l\'appareil pleine : exportez puis supprimez d\'anciens projets.'); }, [inst, projId]);
@@ -190,8 +192,9 @@ export default function App() {
           <p className="muted">{inst.name}</p>
         </div>
         <Suspense fallback={<div className="chart-wait">Chargement…</div>}>
-        {page === 'design' && <DesignPage s={s} goDiag={() => setPage('diag')} />}
-        {page === 'sim' && <SimPage s={s} />}
+        {page === 'design' && <DesignPage s={s} goDiag={() => setPage('diag')} sim={simLive} goSim={() => setPage('sim')} />}
+        {/* La simulation tourne aussi sur la page Conception : sa vue réelle est celle de la simulation, en direct */}
+        {(page === 'sim' || page === 'design') && <SimPage s={s} visible={page === 'sim'} onLive={setSimLive} />}
         {page === 'diag' && <DiagPage s={s} />}
         {page === 'com' && <CommissionPage i={inst} ev={ev} set={s.set} />}
         {page === 'mat' && <MaterialPage s={s} />}

@@ -9,7 +9,8 @@ import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
 import { DiagramPanel } from './DiagramPanel';
 import type { Shared } from './Pages';
-import type { AccState } from '../types';
+import type { AccState, Installation } from '../types';
+import type { Evaluation } from '../evaluate';
 
 /* ============================ Simulation ============================ */
 function Slider({ label, value, min, max, step = 1, unit, onChange, disabled, hint }: { label: string; value: number; min: number; max: number; step?: number; unit: string; onChange: (v: number) => void; disabled?: boolean; hint?: string }) {
@@ -22,7 +23,10 @@ function Slider({ label, value, min, max, step = 1, unit, onChange, disabled, hi
   );
 }
 
-export function SimPage({ s }: { s: Shared }) {
+/** Ce que la simulation partage avec la page Conception (vue réelle en direct). */
+export interface LiveShare { live: NonNullable<Parameters<typeof DiagramPanel>[0]['live']>; i: Installation; ev: Evaluation; playing: boolean; setPlaying: (b: boolean) => void; clock: string; rate: number }
+
+export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: boolean; onLive?: (x: LiveShare) => void }) {
   const c = useChartColors();
   // Variateur à fréquence fixe : la simulation démarre à la consigne calculée. En régulation automatique
   // (capteur de pression, solaire), c'est la régulation qui fixe la vitesse : on part de 100 %.
@@ -123,6 +127,8 @@ export function SimPage({ s }: { s: Shared }) {
   const phys = { tmCause: sim.tmCause, relaySet: relaySetting(ctx), tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
   const why = sim.master ? pumpReason(ctx, sim) : null;
   const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  // Vue réelle de la page Conception : la même simulation, en direct
+  useEffect(() => { onLive?.({ live, i: iView, ev: evSim, playing, setPlaying, clock: clock(sim.t), rate }); }, [sim, iView, evSim, playing, rate]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
   const reset = () => { setFaultT({}); setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
@@ -140,6 +146,7 @@ export function SimPage({ s }: { s: Shared }) {
     { l: 'Pompe usée', m: { wear: 70 } },
   ];
 
+  if (!visible) return null; // la simulation continue de tourner pour la vue réelle de la page Conception
   return (
     <div className="page-sim">
       <aside className="sim-side">

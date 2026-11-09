@@ -1,3 +1,4 @@
+import type { LiveShare } from './SimPage';
 import { AlertOctagon } from 'lucide-react';
 import type { Evaluation } from '../evaluate';
 import { QuoteRequest } from './Quote';
@@ -29,7 +30,7 @@ function Diagram({ s, live }: { s: Shared; live?: Parameters<typeof DiagramPanel
 }
 
 /* ============================ Conception ============================ */
-export function DesignPage({ s, goDiag }: { s: Shared; goDiag: (x?: Issue) => void }) {
+export function DesignPage({ s, goDiag, sim, goSim }: { s: Shared; goDiag: (x?: Issue) => void; sim?: LiveShare | null; goSim?: () => void }) {
   const crit = s.ev.issues.filter((x) => x.sev !== 'info');
   return (
     <div className="page-design">
@@ -45,7 +46,16 @@ export function DesignPage({ s, goDiag }: { s: Shared; goDiag: (x?: Issue) => vo
             <small>Elles sont marquées « par défaut · à vérifier » dans le formulaire. Remplacez-les par les mesures du site.</small>
           </div>
         )}
-        <Diagram s={s} />
+        {sim ? (
+          <>
+            <div className="live-bar">
+              <span className="live-dot" aria-hidden /> Simulation en direct · {sim.clock}
+              <button className="btn sm" onClick={() => sim.setPlaying(!sim.playing)}>{sim.playing ? 'Pause' : 'Lecture'}</button>
+              {goSim && <button className="btn sm" onClick={goSim}>Réglages et pannes →</button>}
+            </div>
+            <DiagramPanel i={sim.i} ev={sim.ev} highlight={s.highlight} selected={s.selected} onPick={s.pick} onIssue={s.selectIssue} onSet={s.set} live={sim.live} banner={s.activeIssue} onCloseBanner={s.clearIssue} />
+          </>
+        ) : <Diagram s={s} />}
         <KeyFigures i={s.inst} ev={s.ev} />
         <section className="card">
           <h3><AlertOctagon size={16} aria-hidden /> Alertes principales <small>cliquez pour les voir sur le schéma</small></h3>
