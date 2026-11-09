@@ -11,7 +11,8 @@ let registration: ServiceWorkerRegistration | null = null;
 if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
   doUpdate = registerSW({
     immediate: true,
-    onNeedRefresh() { pending = true; listeners.forEach((f) => f()); },
+    // Nouvelle version trouvée : on l'applique tout de suite (le projet est enregistré en continu sur l'appareil)
+    onNeedRefresh() { pending = true; listeners.forEach((f) => f()); window.setTimeout(() => doUpdate?.(true), 800); },
     onRegisteredSW(_url, reg) {
       if (!reg) return;
       registration = reg;
