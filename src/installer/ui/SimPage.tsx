@@ -237,7 +237,10 @@ export function SimPage({ s }: { s: Shared }) {
           {(kind === 'solar' || kind === 'vfd' || mods.speed !== 100) && <div><small>Vitesse</small><b>{fmt((kind === 'solar' || kind === 'vfd' ? sim.s : mods.speed / 100) * 50, 1)}<span>Hz</span></b></div>}
         </div>
 
-        <DiagramPanel i={iView} ev={evSim} highlight={s.highlight} selected={s.selected} onPick={s.pick} onIssue={s.selectIssue} onSet={s.set} live={live} banner={s.activeIssue} onCloseBanner={s.clearIssue} />
+        {/* Durée d'animation des niveaux d'eau selon la vitesse de simulation : fluide à 1 min/s, sans retard à 1 h/s */}
+        <div style={{ ['--lvl-t' as string]: rate <= 60 ? '1.4s' : rate <= 600 ? '0.8s' : '0.45s' }}>
+          <DiagramPanel i={iView} ev={evSim} highlight={s.highlight} selected={s.selected} onPick={s.pick} onIssue={s.selectIssue} onSet={s.set} live={live} banner={s.activeIssue} onCloseBanner={s.clearIssue} />
+        </div>
 
         {kind === 'pit' && (!s.inst.acc.flotteur_marche?.on || !s.inst.acc.flotteur_arret?.on) && (
           <div className="cfg-block">
