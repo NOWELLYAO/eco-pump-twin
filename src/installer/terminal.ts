@@ -4,7 +4,7 @@ import type { Readings, SimKind } from './sim';
 
 export type TermTag = 'ok' | 'warn' | 'crit' | 'info' | 'cmd';
 export interface TermLine { tag: TermTag; text: string }
-export interface TermLive { phys?: { tm: number; tl: number; relay: number; pPeak?: number; burst: string | null; burnt: boolean; sealGone: boolean }; on: boolean; r: Readings; kind: SimKind; x: number; clock?: string; events?: { sev: string; text: string }[]; starts?: number; vol?: number; kwh?: number; hz?: number; why?: string | null }
+export interface TermLive { phys?: { tm: number; tl: number; relay: number; pPeak?: number; burst: string | null; burnt: boolean; sealGone: boolean }; on: boolean; r: Readings; kind: SimKind; x: number; clock?: string; events?: { sev: string; text: string }[]; starts?: number; vol?: number; kwh?: number; hz?: number; why?: string | null; ac?: { vib: number; zone: string; measurable: boolean; main: { label: string } | null } }
 
 const f = (v: number, d = 1) => (Number.isFinite(v) ? v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
 const pad = (s: string, n: number) => (s.length >= n ? s : s + ' '.repeat(n - s.length));
@@ -28,6 +28,7 @@ export function termLines(i: Installation, ev: Evaluation, live?: TermLive): Ter
     if (live.kind === 'pit') L.push({ tag: tag(live.x > 0.8, live.x > 1.1), text: `${pad('FOSSE', 8)}niveau ${f(live.x * 100, 0)} cm (marche 50 · arrêt 0)` });
     if (live.kind === 'tank') L.push({ tag: tag(live.x > 1), text: `${pad('RÉSERV.', 8)}${f(Math.min(100, live.x * 100), 0)} % plein` });
     L.push({ tag: tag(h.margin < 1, h.margin < 0.5), text: `${pad('NPSH', 8)}marge ${f(h.margin)} m` });
+    if (live.ac && live.on) L.push({ tag: tag(live.ac.zone === 'C', live.ac.zone === 'D'), text: `${pad('VIBR.', 8)}${live.ac.measurable ? `${f(live.ac.vib)} mm/s zone ${live.ac.zone}` : 'pompe immergée'}${live.ac.main ? `  ${live.ac.main.label.toLowerCase()}` : ''}` });
     if (live.phys) {
       const P = live.phys;
       L.push({ tag: tag(P.tm > 120 || P.tl > 60, P.tm > 140 || P.burnt || P.sealGone), text: `${pad('THERM.', 8)}moteur ${f(P.tm, 0)} °C${P.burnt ? ' GRILLÉ' : ''}  liquide ${f(P.tl, 0)} °C${P.sealGone ? ' garniture HS' : ''}` });

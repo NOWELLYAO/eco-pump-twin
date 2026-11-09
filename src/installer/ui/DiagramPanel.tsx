@@ -166,7 +166,7 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
   onPick: (t: string | null) => void; onIssue: (x: Issue) => void; onSet: (fn: (x: Installation) => Installation) => void;
   live?: Live & Partial<TermLive>; banner?: Issue | null; onCloseBanner?: () => void;
 }) {
-  const term = termLines(i, ev, live ? { phys: live.phys, on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz, why: live.why } : undefined);
+  const term = termLines(i, ev, live ? { phys: live.phys, on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz, why: live.why, ac: live.ac } : undefined);
   const [view, setView] = useState<View>('real');
   // Téléphone : schéma en entier (tout visible, petit) ou agrandi (lisible, à faire glisser) — choix mémorisé
   const [fit, setFit] = useState<boolean>(() => { try { return localStorage.getItem('ecopump-fit') !== '0'; } catch { return true; } });

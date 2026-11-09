@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
-import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
+import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
 import { LevelIcon } from '../../ui/Status';
@@ -10,6 +10,7 @@ import { fmt, money, useChartColors } from '../../ui/util';
 import { DiagramPanel } from './DiagramPanel';
 import type { Shared } from './Pages';
 import type { AccState, Installation } from '../types';
+import { soundOff, soundOn, soundUpdate } from '../../ui/sound';
 import type { Evaluation } from '../evaluate';
 
 /* ============================ Simulation ============================ */
@@ -126,7 +127,12 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   const useRel = kind === 'vessel' || kind === 'vfd' ? cNow / Math.max(0.1, s.inst.duty.qReq) : kind === 'tank' ? cNow / Math.max(0.1, s.inst.duty.qReq * 0.55) : sim.on ? 0.6 : 0;
   const phys = { tmCause: sim.tmCause, relaySet: relaySetting(ctx), tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
   const why = sim.master ? pumpReason(ctx, sim) : null;
-  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, leakQ: sim.leakQ ?? 0, leakVol: sim.leakVol ?? 0, circOnly: !!sim.circOnly, jk: !!sim.jk, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const acou = acoustics(ctx, sim);
+  const [snd, setSnd] = useState(false);
+  useEffect(() => { if (snd) soundUpdate(acou, sim.on, kind === 'vfd' || kind === 'solar' ? sim.s * 50 : 50); }); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => soundOff(), []);
+  const toggleSnd = () => { if (snd) { soundOff(); setSnd(false); } else { soundOn(); setSnd(true); } };
+  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, ac: acou, leakQ: sim.leakQ ?? 0, leakVol: sim.leakVol ?? 0, circOnly: !!sim.circOnly, jk: !!sim.jk, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   // Vue réelle de la page Conception : la même simulation, en direct
   useEffect(() => { onLive?.({ live, i: iView, ev: evSim, playing, setPlaying, clock: clock(sim.t), rate }); }, [sim, iView, evSim, playing, rate]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
@@ -156,6 +162,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
             <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'la pompe tourne') : 'arrêtée par l\'automatisme') : 'cliquez pour démarrer'}</small></span>
           </button>
           {why && <p className={`why-run${/ANORMALE/.test(why) ? ' bad' : ''}`}><b>Pourquoi ?</b> {why.charAt(0).toUpperCase() + why.slice(1)}</p>}
+          <button type="button" className={`btn full sndbtn${snd ? ' on' : ''}`} onClick={toggleSnd}>{snd ? '🔇 Couper le son' : '🔊 Écouter la pompe'}</button>
           {fire && (
             <button type="button" className={`btn full firebtn ${mods.draw > 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: mods.draw > 0 ? 0 : 100 })}>
               {mods.draw > 0 ? '🧯 Fermer la lance (fin de l\'incendie)' : '🔥 Déclencher un incendie (ouvrir la lance)'}
@@ -225,6 +232,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
         {/* Téléphone : pourquoi la pompe tourne / attend, et déclenchement d'un incendie, sous le bouton marche */}
         <div className="mwhy">
           {why && <p className={`why-run${/ANORMALE/.test(why) ? ' bad' : ''}`}><b>Pourquoi ?</b> {why.charAt(0).toUpperCase() + why.slice(1)}</p>}
+          <button type="button" className={`btn full sndbtn${snd ? ' on' : ''}`} onClick={toggleSnd}>{snd ? '🔇 Couper le son' : '🔊 Écouter la pompe'}</button>
           {fire && <button type="button" className={`btn full firebtn ${mods.draw > 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: mods.draw > 0 ? 0 : 100 })}>{mods.draw > 0 ? '🧯 Fermer la lance (fin de l\'incendie)' : '🔥 Déclencher un incendie (ouvrir la lance)'}</button>}
         </div>
         <div className={`livescore lv-${liveLvl}`}>
@@ -244,6 +252,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
           <div><small>Énergie</small><b>{fmt(sim.kwh, 1)}<span>kWh</span></b><em>{money(sim.kwh * s.inst.duty.pricePerKwh, s.inst.duty.currency)}</em></div>
           <div className={sim.starts / hours > s.inst.pump.maxStarts ? 'bad' : ''}><small>Démarrages</small><b>{sim.starts}</b><em>{fmt(sim.starts / hours, 1)} /h (maxi {s.inst.pump.maxStarts})</em></div>
           <div className={phys.tm > 140 ? 'bad' : phys.tm > 120 ? 'warn' : ''} title={phys.tmCause ? `Cause : ${phys.tmCause}` : 'Température du bobinage (normale en charge : 70 à 110 °C)'}><small><Thermometer size={13} aria-hidden /> Moteur</small><b>{fmt(phys.tm, 0)}<span>°C</span></b><em>{phys.burnt ? 'GRILLÉ' : phys.tm > 120 && phys.tmCause ? phys.tmCause.split(' : ')[0] : `bobinage · relais ${fmt(Math.min(100, (phys.relay / 1.44) * 100), 0)} %`}</em></div>
+          <div className={acou.zone === 'D' ? 'bad' : acou.zone === 'C' ? 'warn' : ''} title="Vitesse vibratoire efficace sur le palier, zones ISO 10816-3 (A neuf, B acceptable, C limite, D dommages)"><small>〰 Vibrations</small><b>{acou.measurable ? fmt(acou.vib, 1) : '—'}<span>{acou.measurable ? 'mm/s' : ''}</span></b><em>{acou.measurable ? `zone ${acou.zone} · ${acou.zone === 'A' ? 'bon' : acou.zone === 'B' ? 'acceptable' : acou.zone === 'C' ? 'à surveiller' : 'dommages'}` : 'pompe immergée'}{acou.main ? ` · ${acou.main.label.toLowerCase()}` : ''}</em></div>
           {(phys.tl > s.inst.fluid.temp + 4 || phys.sealGone) && <div className={phys.sealGone ? 'bad' : phys.tl > 60 ? 'warn' : ''}><small><Thermometer size={13} aria-hidden /> Liquide dans la pompe</small><b>{fmt(phys.tl, 0)}<span>°C</span></b><em>{phys.sealGone ? 'garniture détruite' : 'débit nul : il chauffe'}</em></div>}
           {phys.pPeak != null && <div className={phys.pPeak > s.inst.ref.pn ? 'bad' : phys.pPeak > s.inst.ref.pn * 0.8 ? 'warn' : ''}><small>Pointe de pression</small><b>{fmt(phys.pPeak, 1)}<span>bar</span></b><em>PN{s.inst.ref.pn}{phys.burst ? ` · ${phys.burst === 'rupture' ? 'CONDUITE ROMPUE' : 'fuite à un raccord'}` : ''}</em></div>}
           {(kind === 'solar' || kind === 'vfd' || mods.speed !== 100) && <div><small>Vitesse</small><b>{fmt((kind === 'solar' || kind === 'vfd' ? sim.s : mods.speed / 100) * 50, 1)}<span>Hz</span></b></div>}

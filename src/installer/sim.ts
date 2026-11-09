@@ -5,7 +5,7 @@ import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup'
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
 import { isForage, losses, nRun, pressZ, pumpHead, shaftPower, solve, speedFor, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
 import type { Installation } from './types';
-import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
+import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type NoiseKind, type Sym } from './faults';
 
 const G = 9.81;
 const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -991,6 +991,13 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   for (const [k, t] of Object.entries(st.recent)) if (t != null && t > ref - 3 * 3600) o.add(k as Sym);
   if (fx.ids.includes('sous_tension') && st.t >= st.outageUntil) o.add('tension_basse');
   if (fx.heatK && st.on) o.add('courants_desequilibres');
+  { const ac = acoustics(ctx, st); if (ac.measurable && (ac.zone === 'C' || ac.zone === 'D')) o.add('vibrations'); if (ac.main && st.on && ['cavitation', 'roulements', 'cognement', 'claquement', 'balourd', 'gargouillement', 'sifflement', 'magnetique', 'sable'].includes(ac.main.kind)) o.add('bruit');
+    // On écoute : la nature du bruit oriente le diagnostic
+    for (const s of ac.sources) { if (!st.on || s.level < 0.5) continue;
+      if (s.kind === 'cavitation' || s.kind === 'gargouillement') o.add('bruit_gravier');
+      if (s.kind === 'roulements') o.add('bruit_roulement');
+      if (s.kind === 'claquement' && fx.vib) o.add('claquements');
+      if (s.kind === 'cognement' || s.kind === 'balourd') o.add('cognements'); } }
   // Forage : niveau mesuré à la sonde, comparé à celui qu'on attend à ce débit
   if (isForage(i) && running && st.runT > 60) {
     const aqN = aquiferOf(normal.i, normal.h.q);
@@ -1039,3 +1046,42 @@ export const SERIES_LABEL: Record<SimKind, { a: string; unit: string; c?: string
   tank: { a: 'Remplissage du réservoir', unit: '%', c: 'Consommation' },
   continuous: { a: 'Pression au refoulement', unit: 'bar' },
 };
+
+/* ===================== Bruit et vibrations ===================== */
+export interface NoiseSrc { kind: NoiseKind | 'moteur' | 'ecoulement'; label: string; level: number }
+export interface Acoustic { vib: number; zone: 'A' | 'B' | 'C' | 'D'; sources: NoiseSrc[]; main: NoiseSrc | null; measurable: boolean }
+const NOISE_LABEL: Record<NoiseSrc['kind'], string> = {
+  moteur: 'Ronronnement du moteur', ecoulement: 'Bruit d\'écoulement', cavitation: 'Bruit de gravier (cavitation)', roulements: 'Grondement / sifflement de roulements',
+  magnetique: 'Ronflement magnétique (déséquilibre de phases)', ronflement: 'Ronflement fort, rotor bloqué', sifflement: 'Sifflement aigu', gargouillement: 'Gargouillement (air aspiré)',
+  barattage: 'Barattage de l\'eau (pompe sans débit)', claquement: 'Claquements', cognement: 'Cognements réguliers à chaque tour', sable: 'Crissement de sable', recirculation: 'Grondement de recirculation (débit trop faible)', balourd: 'Vibrations de balourd (roue déséquilibrée)',
+};
+/** Vibrations (mm/s eff., zones ISO 10816-3) et bruits du groupe, d'après l'état simulé et les pannes en cours. */
+export function acoustics(ctx: SimCtx, st: SimState): Acoustic {
+  const { i, h, fx } = ctx;
+  const running = st.on && !st.hum;
+  const src: NoiseSrc[] = [];
+  const add = (kind: NoiseSrc['kind'], level: number) => { if (level > 0.02) src.push({ kind, label: NOISE_LABEL[kind], level: Math.min(1, level) }); };
+  let vib = 0;
+  if (st.on && st.hum) { vib = 7; add('ronflement', 1); }
+  if (running) {
+    const n = Math.max(1, h.n || 1);
+    vib = 0.9 + (i.pump.motorKw > 7.5 ? 0.3 : 0);
+    add('moteur', 0.35 + Math.min(0.3, i.pump.motorKw / 40));
+    const qr = st.q / n / Math.max(0.1, i.pump.qn);
+    add('ecoulement', Math.min(0.6, qr * 0.45));
+    const closed = st.q < 0.05;
+    if (closed && !st.noFlow && !fx.decoupled) { vib += 1.2; add('barattage', 0.6); }
+    else if (qr < 0.3 && !closed) { vib += 0.4 + 0.8 * (0.3 - qr) / 0.3; add('recirculation', 0.45); }
+    else if (qr > 1.35) { vib += 1.2; add('ecoulement', 0.7); }
+    if (st.noFlow) { vib += 0.8; add('sifflement', 0.6); }
+    if (h.ok && h.margin < 0.5 && !closed) { vib += 2.6; add('cavitation', 0.9); }
+    if (fx.vib) { vib += fx.vib * (fx.ids.includes('roulements') ? Math.min(1.4, 0.6 + (st.runTot ?? 0) / 36000) : 1); }
+    if (fx.noise) add(fx.noise, 0.85);
+    if (fx.decoupled) { vib = Math.max(0.6, vib - 0.5); add('sifflement', 0.5); }
+  }
+  // Coup de bélier récent : claquement sec dans la tuyauterie
+  if (st.pPeak != null && st.pPeakT != null && st.t - st.pPeakT < 20 && st.pPeak > i.ref.pn * 0.6) add('claquement', 1);
+  const zone = vib < 1.4 ? 'A' : vib < 2.8 ? 'B' : vib < 4.5 ? 'C' : 'D';
+  const main = src.filter((s) => s.kind !== 'moteur' && s.kind !== 'ecoulement').sort((a, b) => b.level - a.level)[0] ?? null;
+  return { vib, zone, sources: src, main, measurable: i.mode !== 'immergee' };
+}

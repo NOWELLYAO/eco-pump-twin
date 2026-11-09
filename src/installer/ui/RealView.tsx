@@ -104,7 +104,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; jk?: boolean; circOnly?: boolean; leakQ?: number; leakVol?: number; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; ac?: import('../sim').Acoustic; jk?: boolean; circOnly?: boolean; leakQ?: number; leakVol?: number; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -137,6 +137,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   const on = (id: string) => !!i.acc[id]?.on;
   // Vitesse de l'écoulement dessiné : plus le débit est fort, plus l'eau file (0,35 s à 2,6 s par motif)
   const flowT = live ? Math.max(0.35, Math.min(2.6, 0.9 / Math.max(0.15, (live.r.q || 0) / Math.max(0.1, h.q || i.duty.qReq)))) : 1;
+  // Vibrations visibles du groupe (px) : rien en zone A, léger en B, net en C, fort en D
+  const vibA = live?.ac && live.on ? (live.ac.vib < 1.4 ? 0 : live.ac.vib < 2.8 ? 0.5 : live.ac.vib < 4.5 ? 1.1 : 2) : 0;
   // Seule la soupape de circulation débite (vanne fermée, lances fermées) : pas d'écoulement dans le réseau
   const flow = live ? live.on && live.r.q > 0.05 && !live.circOnly : h.ok && h.q > 0.05;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
@@ -357,7 +359,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       asp = [[230, axisY], [inX, axisY]];
       dims.push(<Dim key="d1" x={58} y1={wl} y2={axisY} label={`En charge ${fm(i.geo.chargeHead)}`} />);
     }
-    front.push(vertical ? <VerticalPump key="vp" x={px} y={axisY} atex={on('atex')} /> : <SurfacePump key="sp" x={px} y={axisY} atex={on('atex')} />);
+    front.push(<g key="pv" className={`r-pumpvib${vibA > 0.2 ? ' vib' : ''}`} style={{ ['--va' as string]: `${vibA}px` }}>{vertical ? <VerticalPump x={px} y={axisY} atex={on('atex')} /> : <SurfacePump x={px} y={axisY} atex={on('atex')} />}</g>);
     if (vertical) { motorBox = { x: px - 22, y: axisY - 180, w: 44, h: 70 }; impXY = [px, axisY]; fanXY = [px, axisY - 192]; }
     else { motorBox = { x: px + 26, y: axisY - 20, w: 98, h: 40 }; impXY = [px, axisY]; fanXY = [px + 140, axisY]; }
     ref = vertical ? [[px + 30, axisY], [px + 80, axisY], [px + 80, 150], [REF_END, 150]] : [[px, axisY - 38], [px, 150], [REF_END, 150]];
@@ -912,6 +914,16 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
         </g>
       );
       lcd.push(rotor('imp', impXY, forage ? 8 : 12, impTurn, 5, 'imp'));
+      // Bruit perçu : ondes autour de la pompe + nature du bruit
+      const nm = live.ac?.main;
+      if (nm && (live.on || nm.kind === 'claquement')) {
+        const [nx, ny] = forage ? [impXY[0] + 30, impXY[1] - 10] : [impXY[0] - 40, impXY[1] - 46];
+        const soft = nm.level < 0.55;
+        lcd.push(<g key="noise" className={`r-noise${soft ? ' soft' : ''}`}>
+          {[0, 1, 2].map((k) => <path key={k} d={`M${nx} ${ny} a ${8 + k * 7} ${8 + k * 7} 0 0 0 0 ${-(16 + k * 14)}`} transform={`translate(${-(k * 6)},${8 + k * 7})`} style={{ animationDelay: `${k * 0.25}s` }} />)}
+          <text x={nx - 34} y={ny - 30} textAnchor="end">🔊 {nm.label}</text>
+        </g>);
+      }
       if (fanXY) lcd.push(rotor('fan', fanXY, 13, turning, 4, 'fan'));
     }
     const stTxt = live.trip ? 'DÉFAUT' : live.hum ? 'BLOQUÉ' : live.noFlow ? 'À SEC' : live.on ? 'EN MARCHE' : live.lowLevel ? 'ARRÊT · MANQUE D\'EAU' : 'ARRÊT';

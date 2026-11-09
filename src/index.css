@@ -753,7 +753,7 @@ figcaption span { color: var(--muted); font-weight: 500; }
 @media (max-width: 1100px) {
   .mpower { display: flex; }
   .mwhy { display: block; }
-  .simctl .power, .simctl .why-run, .simctl .firebtn { display: none; }
+  .simctl .power, .simctl .why-run, .simctl .firebtn, .simctl .sndbtn { display: none; }
 }
 @media (max-width: 760px) {
   .livekpis { grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -1465,3 +1465,14 @@ html, body { overflow-x: clip; }
 .r-jk-on .r-pump-small{fill:#16a34a;stroke:#0f6b30;animation:bkpulse 1s infinite}
 .r-wetsoil{fill:rgba(70,55,35,.18)}
 .r-leakbadge rect{fill:#d03b3b}.r-leakbadge text{fill:#fff;font-size:11px;font-weight:700}
+
+.sndbtn{margin-top:6px;justify-content:center}.sndbtn.on{background:#e8f3ff;border-color:#2b7fd6;color:#1d5fa8}
+/* Vibrations du groupe : amplitude selon la zone ISO */
+@keyframes grpvib{0%{transform:translate(0,0)}25%{transform:translate(var(--va),calc(var(--va)*-.6))}50%{transform:translate(calc(var(--va)*-1),calc(var(--va)*.5))}75%{transform:translate(calc(var(--va)*.6),var(--va))}100%{transform:translate(0,0)}}
+.r-pumpvib.vib{animation:grpvib .09s linear infinite}
+@media (prefers-reduced-motion: reduce){.r-pumpvib.vib{animation-duration:.3s}}
+.r-noise path{fill:none;stroke:#e46a2c;stroke-width:2;stroke-linecap:round;animation:noisewave 1s ease-out infinite;transform-box:fill-box;transform-origin:left center}
+.r-noise.soft path{stroke:#8a96a3}
+@keyframes noisewave{from{opacity:.95;transform:scale(.6)}to{opacity:0;transform:scale(1.35)}}
+.r-noise text{fill:#b4461a;font-size:11px;font-weight:700}
+.r-noise.soft text{fill:#5b6772}
