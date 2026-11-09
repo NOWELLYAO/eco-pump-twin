@@ -13,13 +13,13 @@ export type Sym =
   | 'depression_forte' | 'cycles_courts' | 'ronfle' | 'ne_demarre_pas' | 'ne_s_arrete_pas'
   | 'debordement' | 'pas_de_tension' | 'marche_a_sec' | 'pression_tombe_arret' | 'bruit' | 'fuite_visible'
   | 'decl_thermique' | 'decl_diff' | 'decl_manque_eau' | 'decl_sous_charge' | 'decl_variateur' | 'tension_basse' | 'marche_sans_commande'
-  | 'rabattement_fort' | 'moteur_chaud' | 'courants_desequilibres' | 'coups_belier' | 'eau_sableuse';
+  | 'rabattement_fort' | 'niveau_bas' | 'statique_bas' | 'moteur_chaud' | 'courants_desequilibres' | 'coups_belier' | 'eau_sableuse';
 
 export const SYM_LABEL: Record<Sym, string> = {
   debit_bas: 'Débit plus faible que prévu', debit_nul: 'Pompe en marche sans débit', pression_basse: 'Pression basse',
   pression_haute: 'Pression trop haute', courant_haut: 'Courant moteur élevé', courant_bas: 'Courant moteur faible',
   depression_forte: 'Forte dépression à l\'aspiration', cycles_courts: 'Démarrages trop fréquents',
-  decl_thermique: 'Disjoncteur moteur déclenché', decl_diff: 'Différentiel déclenché', decl_manque_eau: 'Relais manque d\'eau déclenché', decl_sous_charge: 'Relais de sous-charge déclenché (pompe qui tourne sans débiter)', rabattement_fort: 'Niveau d\'eau bien plus bas que d\'habitude dans le forage (à la sonde)', decl_variateur: 'Variateur en défaut',
+  decl_thermique: 'Disjoncteur moteur déclenché', decl_diff: 'Différentiel déclenché', decl_manque_eau: 'Relais manque d\'eau déclenché', decl_sous_charge: 'Relais de sous-charge déclenché (pompe qui tourne sans débiter)', rabattement_fort: 'Niveau d\'eau bien plus bas que d\'habitude dans le forage (à la sonde)', niveau_bas: 'Niveau d\'eau très bas dans la réserve / la bâche / la source', statique_bas: 'Niveau au repos (statique) plus bas que d\'habitude : la nappe ne remonte plus', decl_variateur: 'Variateur en défaut',
   tension_basse: 'Tension mesurée trop basse', marche_sans_commande: 'Moteur en marche, voyant de commande éteint',
   ronfle: 'Moteur qui ronfle sans tourner', ne_demarre_pas: 'La pompe ne démarre pas', ne_s_arrete_pas: 'La pompe ne s\'arrête pas',
   debordement: 'Débordement', pas_de_tension: 'Pas de tension au coffret', marche_a_sec: 'Marche à sec',
@@ -153,7 +153,7 @@ export const FAULTS: FaultDef[] = [
     id: 'source_tarie', cat: 'eau', label: 'La source se tarit', target: 'source',
     what: 'Le niveau d\'eau baisse plus vite qu\'il ne se recharge (forage surexploité, bâche non alimentée, saison sèche).',
     applies: (_i, k) => k !== 'pit', effect: { drawdown: 6 },
-    sig: ['debit_bas', 'debit_nul', 'marche_a_sec', 'courant_bas', 'decl_manque_eau', 'depression_forte', 'rabattement_fort'], field: ['Le débit baisse au fil de la journée puis s\'arrête', 'Eau trouble ou sableuse', 'Bruit de cavitation'],
+    sig: ['debit_bas', 'debit_nul', 'marche_a_sec', 'courant_bas', 'decl_manque_eau', 'depression_forte', 'rabattement_fort', 'niveau_bas', 'statique_bas'], field: ['Le débit baisse au fil de la journée puis s\'arrête', 'Eau trouble ou sableuse', 'Bruit de cavitation'],
     checks: ['Mesurer le niveau (sonde lumineuse) pompe en marche', 'Comparer avec le niveau dynamique de l\'essai de pompage', 'Vérifier l\'alimentation de la bâche'],
     fix: ['Réduire le débit (vanne, variateur) ou la durée de pompage', 'Descendre la pompe si le forage le permet', 'Protection manque d\'eau obligatoire'], parts: ['garniture', 'roue', 'moteur', 'diffuseurs'],
   },
@@ -456,7 +456,7 @@ export function combined(ids: string[]): FaultEffect & { ids: string[] } {
 /** Classe les pannes possibles selon les symptômes observés. */
 /** Poids des symptômes très spécifiques d'une panne. */
 const SPECIFIC: Partial<Record<Sym, number>> = {
-  courants_desequilibres: 3, eau_sableuse: 3, coups_belier: 2.5, decl_diff: 2.5, decl_variateur: 2.5, decl_manque_eau: 2, decl_sous_charge: 2.5, rabattement_fort: 2,
+  courants_desequilibres: 3, eau_sableuse: 3, coups_belier: 2.5, decl_diff: 2.5, decl_variateur: 2.5, decl_manque_eau: 2, decl_sous_charge: 2.5, rabattement_fort: 2, niveau_bas: 3, statique_bas: 3,
   pression_tombe_arret: 2, marche_sans_commande: 2.5, tension_basse: 2, pas_de_tension: 2.5, moteur_chaud: 1.5, cycles_courts: 1.5,
   fuite_visible: 2, debordement: 1.5, ronfle: 1.5, bruit: 0.6, debit_bas: 0.8,
 };
@@ -479,7 +479,7 @@ export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; sco
 
 /** Gravité des symptômes, pour la note en service. */
 export const SYM_WEIGHT: Record<Sym, number> = {
-  decl_thermique: 25, decl_diff: 30, decl_manque_eau: 25, decl_sous_charge: 25, rabattement_fort: 10, decl_variateur: 25, pas_de_tension: 25, marche_a_sec: 25, debit_nul: 20,
+  decl_thermique: 25, decl_diff: 30, decl_manque_eau: 25, decl_sous_charge: 25, rabattement_fort: 10, niveau_bas: 12, statique_bas: 10, decl_variateur: 25, pas_de_tension: 25, marche_a_sec: 25, debit_nul: 20,
   debordement: 20, ne_s_arrete_pas: 18, ronfle: 18, ne_demarre_pas: 12, pression_haute: 10, cycles_courts: 10, depression_forte: 8,
   courant_haut: 8, pression_basse: 8, debit_bas: 8, pression_tombe_arret: 6, courant_bas: 4, bruit: 5, fuite_visible: 5,
   tension_basse: 8, marche_sans_commande: 15, moteur_chaud: 12, courants_desequilibres: 8, coups_belier: 8, eau_sableuse: 6,

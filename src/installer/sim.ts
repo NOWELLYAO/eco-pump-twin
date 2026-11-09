@@ -248,6 +248,7 @@ export interface SimState {
   tripT?: number; // instant du dernier déclenchement
   dryTrips?: number[]; // déclenchements manque d'eau / sous-charge des dernières 24 h
   ulT?: number; // durée de marche sans débit vue par le relais de sous-charge (s)
+  offT?: number; // durée depuis l'arrêt de la pompe (s)
   aqN?: number; // rabattement qu'aurait un forage sain au même débit (référence de la sonde)
   aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
   aqDry?: boolean; // forage : l'eau est descendue sous l'entrée de la pompe (le forage ne suit pas)
@@ -735,6 +736,9 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       } else st.clog = 0;
       const cEff = aq.c * (1 - (st.clog ?? 0));
       // Sonde de niveau / mesure au sondeur : niveau plus bas que ce qu'on attend à ce débit (forage sain)
+      // Pompe arrêtée depuis 20 min : la nappe devrait être revenue au niveau statique ; si elle reste basse, c'est la ressource qui baisse
+      st.offT = st.on ? 0 : (st.offT ?? 0) + sub;
+      if (st.offT > 600 && st.dd > 1.5) seen('statique_bas');
       st.aqN = (st.aqN ?? 0) + ((st.on && st.q > 0 && !st.noFlow ? st.q / aq.c : 0) - (st.aqN ?? 0)) * (1 - Math.exp(-sub / AQ_TAU));
       if (st.on && st.q > 0 && st.runT > 60 && (st.aqS ?? 0) + st.dd > (st.aqN ?? 0) * 1.15 + 0.3) seen('rabattement_fort');
       const target = st.on && st.q > 0 && !st.noFlow ? st.q / cEff : 0;
@@ -750,6 +754,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     }
     if (fx.drawdown) {
       st.dd = st.on && st.q > 0 ? st.dd + (fx.drawdown * sub) / 3600 : Math.max(0, st.dd - (fx.drawdown * 0.4 * sub) / 3600);
+      // Bâche, réserve, rivière : l'opérateur VOIT le niveau baisser
+      if (!isForage(i) && st.dd > Math.min(0.5, 0.3 * avail)) seen('niveau_bas');
       // Forage : le niveau réel (nappe + baisse de la source) est suivi plus haut (électrodes, dénoyage, débit)
       if (st.on && !st.hum && !isForage(i)) {
         if (st.dd >= avail) {
