@@ -38,12 +38,10 @@ export function FaultPanel({ inst, kind, active, obs, trip, isolated, spare, out
   onRepair: (id: string) => void; onRepairAll: () => void; onRearm: () => void; onShow: (t: string) => void;
 }) {
   const cands = useMemo(() => FAULTS.filter((f) => f.applies(inst, kind)), [inst, kind]);
-  const [cat, setCat] = useState<FaultCat | 'all'>('all');
   const [open, setOpen] = useState<string | null>(null);
   const ranked = useMemo(() => diagnose(obs, cands), [obs, cands]);
   const hidden = !!mystery && mystery.answer == null;
   const cats = (Object.keys(FAULT_CAT) as FaultCat[]).filter((c) => cands.some((f) => f.cat === c));
-  const list = cands.filter((f) => cat === 'all' || f.cat === cat);
   const shownActive = active.filter((id) => !(hidden && id === mystery?.id));
 
   return (
@@ -117,17 +115,32 @@ export function FaultPanel({ inst, kind, active, obs, trip, isolated, spare, out
       {/* Injection de pannes */}
       <h4 className="fh">Provoquer une panne</h4>
       <button type="button" className="btn primary full" onClick={onMystery}><Shuffle size={16} aria-hidden /> Panne mystère (entraînement au diagnostic)</button>
-      <div className="fcats">
-        <button type="button" className={`chip ${cat === 'all' ? 'on' : ''}`} onClick={() => setCat('all')}>Toutes</button>
-        {cats.map((c) => <button key={c} type="button" className={`chip ${cat === c ? 'on' : ''}`} onClick={() => setCat(c)}>{FAULT_CAT[c]}</button>)}
-      </div>
-      <div className="flist">
-        {list.map((f) => {
-          const isOn = active.includes(f.id) && !(hidden && f.id === mystery?.id);
+      {/* Pannes en cours : visibles même listes repliées, un clic pour réparer */}
+      {shownActive.length > 0 && (
+        <div className="factive">
+          <small>En cours :</small>
+          {shownActive.map((id) => { const f = cands.find((x) => x.id === id); return f ? <button key={id} type="button" className="chip on" onClick={() => onToggle(id)} title="Réparer cette panne">{f.label} ✕</button> : null; })}
+        </div>
+      )}
+      {/* Types de pannes repliés : on déroule le type, puis on choisit la panne */}
+      <div className="fgroups">
+        {cats.map((c) => {
+          const fs = cands.filter((f) => f.cat === c);
+          const nOn = fs.filter((f) => active.includes(f.id) && !(hidden && f.id === mystery?.id)).length;
           return (
-            <button key={f.id} type="button" className={`fbtn ${isOn ? 'on' : ''}`} aria-pressed={isOn} onClick={() => onToggle(f.id)}>
-              <b>{f.label}</b><small>{FAULT_CAT[f.cat]}</small>
-            </button>
+            <details key={c} className="fgroup">
+              <summary><span>{FAULT_CAT[c]}</span><small>{fs.length} panne{fs.length > 1 ? 's' : ''}{nOn ? ` · ${nOn} en cours` : ''}</small><ChevronDown size={16} aria-hidden className="chev" /></summary>
+              <div className="flist">
+                {fs.map((f) => {
+                  const isOn = active.includes(f.id) && !(hidden && f.id === mystery?.id);
+                  return (
+                    <button key={f.id} type="button" className={`fbtn ${isOn ? 'on' : ''}`} aria-pressed={isOn} onClick={() => onToggle(f.id)}>
+                      <b>{f.label}</b><small>{isOn ? 'en cours — cliquer pour réparer' : 'cliquer pour provoquer'}</small>
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
           );
         })}
       </div>

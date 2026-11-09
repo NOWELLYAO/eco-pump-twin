@@ -340,7 +340,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       const inletY = Math.min(bottomY - 14 - i.geo.bottom * 30, wl + 20 + i.geo.immersion * 40);
       const inX = vertical ? px - 30 : px - 28;
       asp = [[170, inletY], [170, axisY], [inX, axisY]];
-      dims.push(<Dim key="d1" x={120} y1={wl} y2={axisY} label={`Aspiration ${fm(i.geo.suctionLift)}`} side={-1} />);
+      dims.push(<Dim key="d1" x={120} y1={wl} y2={axisY} label={`Asp ${fm(i.geo.suctionLift)}`} side={-1} />);
     } else {
       const tankTop = 110;
       const wl = Math.max(tankTop + 12, axisY - 20 - i.geo.chargeHead * 40);
@@ -385,16 +385,18 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
         );
       }
       if (on('essai')) {
-        const xT = REF_END - 40;
-        const d = i.mode === 'aspiration' ? `M${xT} 150 V${G + 14} H285 V${G + 30}` : `M${xT} 150 V${G + 14} H240 V${G - 24} H228`;
+        // Circuit d'essai : piquage en fin de collecteur, débitmètre, puis retour à la réserve (indiqué par une flèche, sans tracer
+        // tout le retour qui traverserait le schéma)
+        const xT = REF_END - 58;
         els.push(
-          <path key="te-p" d={d} stroke="#8a96a3" strokeWidth={4} fill="none" strokeDasharray="1 0" className="r-pipe" />,
-          <g key="te-f" className="r-obst" transform={`translate(${xT},${(150 + G) / 2 + 10}) rotate(90)`}><RealGlyph kind="flowmeter" /></g>,
-          <text key="te-l" x={xT - 14} y={G + 30} textAnchor="end" className="r-label small">Circuit d'essai (retour à la réserve)</text>,
+          <path key="te-p" d={`M${xT} 150 V238 H${xT - 26}`} stroke="#8a96a3" strokeWidth={4} fill="none" className="r-pipe" />,
+          <path key="te-a" d={`M${xT - 26} 238 h-12 m6 -5 l-6 5 l6 5`} stroke="#5b6772" strokeWidth={2} fill="none" />,
+          <g key="te-f" className="r-obst" transform={`translate(${xT},${190}) rotate(90)`}><RealGlyph kind="flowmeter" /></g>,
+          <text key="te-l" x={xT - 44} y={242} textAnchor="end" className="r-label small">Essai → réserve</text>,
         );
       }
       if (on('jockey')) {
-        const jx = REF_END - 105, jy = 196;
+        const jx = REF_END - 235, jy = 204;
         els.push(
           <path key="jk-p" d={`M${jx} ${jy - 10} V150`} stroke="#8a96a3" strokeWidth={3} className="r-pipe" />,
           live?.jk ? <path key="jk-f" d={`M${jx} ${jy - 10} V150`} className="r-flow" strokeWidth={1.8} /> : null,
@@ -921,7 +923,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
         const soft = nm.level < 0.55;
         lcd.push(<g key="noise" className={`r-noise${soft ? ' soft' : ''}`}>
           {[0, 1, 2].map((k) => <path key={k} d={`M${nx} ${ny} a ${8 + k * 7} ${8 + k * 7} 0 0 0 0 ${-(16 + k * 14)}`} transform={`translate(${-(k * 6)},${8 + k * 7})`} style={{ animationDelay: `${k * 0.25}s` }} />)}
-          <text x={nx - 34} y={ny - 30} textAnchor="end">🔊 {nm.label}</text>
+          <text x={nx - 34} y={ny - 30} textAnchor="end" className="r-label small">🔊 {nm.label}</text>
         </g>);
       }
       if (fanXY) lcd.push(rotor('fan', fanXY, 13, turning, 4, 'fan'));
@@ -986,7 +988,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
 
   // Cotes
   const refEndY = ref[ref.length - 1][1];
-  dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Refoulement ${fm(i.geo.hRef)}`} side={-1} />);
+  dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Ref ${fm(i.geo.hRef)}`} side={-1} />);
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68, ['--flow-t' as string]: `${flowT}s` }} className={`realview${live?.faults?.includes('ensablement') ? ' sandy' : ''}`} role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
@@ -1003,7 +1005,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       {hl}
       <g className="r-legend">
         <text x={16} y={26} className="r-title">{APPS[i.app].label} · {fluid.label} · {i.fluid.temp} °C</text>
-        <text x={16} y={47}>{asp ? `Aspiration DN${i.asp.dn} ${PIPE_MATS[i.asp.material].label} ${i.asp.length} m · ` : ''}Refoulement DN{i.ref.dn} {PIPE_MATS[i.ref.material].label} {i.ref.length} m</text>
+        <text x={16} y={47}>{asp ? `Asp DN${i.asp.dn} ${PIPE_MATS[i.asp.material].label} ${i.asp.length} m · ` : ''}Ref DN{i.ref.dn} {PIPE_MATS[i.ref.material].label} {i.ref.length} m</text>
         {h.ok && <text x={16} y={66}>Point de fonctionnement : {h.q.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h à {h.h.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m</text>}
       </g>
     </svg>

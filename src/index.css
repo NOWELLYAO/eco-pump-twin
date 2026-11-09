@@ -1476,3 +1476,14 @@ html, body { overflow-x: clip; }
 @keyframes noisewave{from{opacity:.95;transform:scale(.6)}to{opacity:0;transform:scale(1.35)}}
 .r-noise text{fill:#b4461a;font-size:11px;font-weight:700}
 .r-noise.soft text{fill:#5b6772}
+
+.fgroups{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.fgroup{border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.fgroup summary{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;list-style:none;font-weight:700}
+.fgroup summary::-webkit-details-marker{display:none}
+.fgroup summary small{color:var(--muted);font-weight:500;margin-left:auto}
+.fgroup summary .chev{transition:transform .2s}
+.fgroup[open] summary .chev{transform:rotate(180deg)}
+.fgroup .flist{padding:0 10px 10px;margin:0}
+.factive{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.factive small{color:var(--muted)}
