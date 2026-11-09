@@ -7,6 +7,7 @@ import { defaultDn, withPipe } from '../evaluate';
 import { SECTIONS, START_LABEL, SUPPLY_LABEL, TANK_SIZES, type ElecResult } from '../electrical';
 import { fluidAt, solve } from '../hydraulics';
 import { aquiferOf, withAquifer } from '../aquifer';
+import { FORMATIONS, SLOTS, screenCalc, screenProposal, type FormationId } from '../borehole';
 import { PRESETS, autoEquip, blank, makeFluid } from '../presets';
 import type { AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
@@ -166,6 +167,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
               <NumField label="Profondeur de la pompe" unit="m" value={i.geo.pumpDepth} onChange={(v) => geo({ pumpDepth: v })} dflt={D('geo.pumpDepth')} />
               <NumField label="Profondeur du forage" unit="m" value={i.geo.boreDepth} onChange={(v) => geo({ boreDepth: v })} dflt={D('geo.boreDepth')} />
               <NumField label="Diamètre intérieur du forage" unit="mm" value={i.geo.boreDia} onChange={(v) => geo({ boreDia: v })} wide />
+              <ScreenFields i={i} geo={geo} />
             </>
           )}
           {imm && !forage && (
@@ -355,5 +357,37 @@ function AquiferBox({ i }: { i: Installation }) {
       <span>Capacité spécifique {f1(a.c, 2)} m³/h par mètre · débit maxi ≈ {f1(a.qMax)} m³/h · exploitation conseillée {f1(a.qExp)} m³/h</span>
       <small>À {f1(h.q)} m³/h (débit de la pompe), l'eau se stabilise à {f1(ie.geo.dynamicLevel)} m, {above > 0 ? `${f1(above)} m au-dessus de la pompe` : 'sous l\'entrée de la pompe'}{bad ? ' : trop peu, la pompe va se dénoyer.' : '.'}</small>
     </div>
+  );
+}
+
+/** Crépine du forage (rapport de forage) : position, fentes, terrain, massif filtrant. */
+function ScreenFields({ i, geo }: { i: Installation; geo: (p: Partial<Installation['geo']>) => void }) {
+  const sc = i.geo.screen;
+  const f1 = (v: number, d = 1) => v.toLocaleString('fr-FR', { maximumFractionDigits: d });
+  const up = (p: Partial<NonNullable<Installation['geo']['screen']>>) => geo({ screen: { ...(sc ?? screenProposal(i)), ...p } });
+  const ie = withAquifer(i);
+  const h = solve(ie);
+  const c = sc && sc.bottom > sc.top ? screenCalc(ie, sc, h.q) : null;
+  return (
+    <>
+      <div className="ifld wide"><Toggle label="Je connais la crépine du forage (rapport de forage)" checked={!!sc} onChange={(v) => geo({ screen: v ? screenProposal(i) : undefined })} /></div>
+      {sc && (
+        <>
+          <NumField label="Haut de la crépine" unit="m" value={sc.top} onChange={(v) => up({ top: v })} />
+          <NumField label="Bas de la crépine" unit="m" value={sc.bottom} onChange={(v) => up({ bottom: v })} />
+          <SelField label="Ouverture des fentes" value={sc.slot} options={[...new Set([...SLOTS, sc.slot])].sort((a, b) => a - b).map((v) => ({ v, l: `${f1(v, 2)} mm` }))} onChange={(v) => up({ slot: v })} />
+          <SelField label="Type de crépine" value={sc.type} options={[{ v: 'pvc', l: 'PVC fendue' }, { v: 'inox', l: 'Inox à fil enroulé (Johnson)' }]} onChange={(v) => up({ type: v as 'pvc' | 'inox' })} />
+          <SelField label="Terrain capté (granulométrie)" value={sc.formation} options={(Object.keys(FORMATIONS) as FormationId[]).map((k) => ({ v: k, l: FORMATIONS[k].label }))} onChange={(v) => up({ formation: v as FormationId })} wide />
+          <div className="ifld wide"><Toggle label="Massif filtrant (gravier calibré autour de la crépine)" checked={sc.pack} onChange={(v) => up({ pack: v })} /></div>
+          {c && (
+            <div className={`vrec wide2${c.pos !== 'above' || c.dewater > 0.5 || c.vIn > 0.03 || c.slotK > 1.5 ? ' bad' : ''}`}>
+              <b>Crépine</b>
+              <span>Pompe {c.pos === 'above' ? `${f1(c.gap)} m au-dessus de la crépine` : c.pos === 'inside' ? 'DANS la zone crépinée' : 'SOUS la crépine (décanteur)'} · {c.dewater > 0.5 ? `${f1(c.dewater)} m de crépine dénoyés en pompage` : 'crépine noyée en pompage'} · vitesse d'entrée {f1(c.vIn * 100, 1)} cm/s (maxi 3)</span>
+              <small>Fentes conseillées {f1(c.slotRec, 2)} mm pour ce terrain{sc.pack ? ' avec massif' : ' sans massif'} ({c.slotK > 1.5 ? 'les vôtres laissent passer le sable' : c.slotK < 0.6 ? 'les vôtres sont fines : colmatage plus rapide' : 'les vôtres conviennent'}) · débit maxi pour 3 cm/s : {f1(c.qVmax)} m³/h · {f1(c.sump)} m sous la pompe</small>
+            </div>
+          )}
+        </>
+      )}
+    </>
   );
 }

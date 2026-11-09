@@ -3,6 +3,7 @@ import { useDeclutter } from '../../ui/declutter';
 import { electrodeDepth, type Readings, type SimKind } from '../sim';
 import { backupCalc, backupMode, backupOf, floatKind } from '../backup';
 import { withAquifer } from '../aquifer';
+import { screenOf } from '../borehole';
 import { ACC, APPS, FLUIDS, PIPE_MATS } from '../catalog';
 import type { Hydro } from '../hydraulics';
 import { effectiveStart, solar } from '../electrical';
@@ -103,7 +104,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; lvl?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -176,6 +177,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
 
   if (forage) {
     G = 200;
+    const scrn = screenOf(i);
     const bottomY = 540;
     const k = (bottomY - G - 10) / Math.max(10, i.geo.boreDepth);
     const yS = G + i.geo.staticLevel * k, yD = G + i.geo.dynamicLevel * k, yP = G + i.geo.pumpDepth * k;
@@ -195,6 +197,18 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       <path key="st" d={`M140 ${yS} H250`} className="r-level dashed" />,
       <path key="dy" d={`M140 ${yD} H250`} className="r-level" />,
       <path key="c1" d={`M150 ${G - 12} V${bottomY}`} className="r-casing" />, <path key="c2" d={`M240 ${G - 12} V${bottomY}`} className="r-casing" />,
+      ...(scrn ? (() => {
+        // Crépine : fentes sur le tubage, massif filtrant (gravier) autour ; brunit quand elle se colmate
+        const y1 = G + scrn.top * k, y2 = Math.min(bottomY - 2, G + scrn.bottom * k), clog = live?.clog ?? 0;
+        const slots: ReactNode[] = [];
+        for (let y = y1 + 3; y < y2 - 2; y += 6) slots.push(<path key={`s${y}`} d={`M147 ${y} h6 M237 ${y} h6`} className="r-slot" style={clog > 0.05 ? { stroke: `rgb(${120 + 60 * clog},${90 - 30 * clog},${40})` } : undefined} />);
+        return [
+          scrn.pack ? <rect key="pk1" x={134} y={y1} width={14} height={y2 - y1} className="r-pack" /> : null,
+          scrn.pack ? <rect key="pk2" x={242} y={y1} width={14} height={y2 - y1} className="r-pack" /> : null,
+          <g key="slots">{slots}</g>,
+          <path key="sct" d={`M128 ${y1} H262 M128 ${y2} H262`} className="r-scr-lim" />,
+        ];
+      })() : []),
       <rect key="head" x={140} y={G - 26} width={110} height={14} rx={2} className="r-plinth" />,
     );
     // L'entrée de la pompe (crépine entre pompe et moteur) est dessinée à la profondeur réelle de la pompe
@@ -224,6 +238,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
         {live?.lvl != null && Math.abs(live.lvl - i.geo.dynamicLevel) > 0.6 && Math.abs(live.lvl - i.geo.staticLevel) > 0.6 && <text x={258} y={G + live.lvl * k + 4} className="r-now">Eau à {fm(live.lvl)} {live.on ? '↓' : '↑'}</text>}
         <text x={258} y={pTop + 34}>Pompe à {fm(i.geo.pumpDepth)} · immersion {fm(i.geo.pumpDepth - i.geo.dynamicLevel)}</text>
         <text x={258} y={bottomY - 6}>Fond {fm(i.geo.boreDepth)} · Ø {i.geo.boreDia} mm</text>
+        {scrn && <text x={126} y={G + ((scrn.top + scrn.bottom) / 2) * k} textAnchor="end">Crépine {scrn.slot.toLocaleString('fr-FR')} mm</text>}
+        {scrn && <text x={126} y={G + ((scrn.top + scrn.bottom) / 2) * k + 14} textAnchor="end">{fm(scrn.top)} → {fm(scrn.bottom)}{(live?.clog ?? 0) > 0.05 ? ` · colmatée ${Math.round((live?.clog ?? 0) * 100)} %` : ''}</text>}
       </g>,
     );
   } else if (pit) {

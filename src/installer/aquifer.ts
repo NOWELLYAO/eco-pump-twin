@@ -19,8 +19,8 @@ export function aquiferOf(i: Installation, qRef?: number): Aquifer | null {
   if (!isForage(i)) return null;
   const g = i.geo;
   const dynTest = g.dynTest ?? g.dynamicLevel;
-  const known = (g.boreQ ?? 0) > 0;
-  const qTest = known ? g.boreQ! : Math.max(0.1, qRef ?? 0);
+  const known = (g.boreQ ?? 0) > 0 && !g.boreQAuto;
+  const qTest = (g.boreQ ?? 0) > 0 ? g.boreQ! : Math.max(0.1, qRef ?? 0);
   const s = Math.max(0.2, dynTest - g.staticLevel);
   const c = qTest / s;
   const qMax = Math.max(0, c * (g.pumpDepth - 2 - g.staticLevel));

@@ -53,6 +53,8 @@ export interface Geometry {
   // forage
   staticLevel: number; dynamicLevel: number; pumpDepth: number; boreDepth: number; boreDia: number;
   boreQ?: number; // débit de l'essai de pompage auquel le niveau dynamique a été mesuré (m³/h)
+  screen?: { top: number; bottom: number; slot: number; type: 'pvc' | 'inox'; formation: 'sable_fin' | 'sable_moyen' | 'sable_grossier' | 'socle'; pack: boolean }; // crépine du forage
+  boreQAuto?: boolean; // (calculé) débit d'essai pris égal au débit de la pompe saine (essai inconnu)
   dynTest?: number; // (calculé) niveau dynamique de l'essai, quand dynamicLevel a été recalculé au débit de la pompe
   // bâche / fosse
   tankVolume: number; // volume utile (L)

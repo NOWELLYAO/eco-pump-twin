@@ -1,8 +1,9 @@
 import { PIPE_MATS, refStatic } from './catalog';
 import { aquiferOf, withAquifer } from './aquifer';
+import { screenCalc, screenOf } from './borehole';
 import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { effectiveStart, electrical, solar as solarCalc, type ElecResult } from './electrical';
-import { isForage, losses, pressZ, pumpHead, solve, speedFor, suctionZ, type Hydro } from './hydraulics';
+import { isForage, losses, pressZ, pumpHead, solve, speedFor, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
 import type { Installation } from './types';
 import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type Sym } from './faults';
 
@@ -15,7 +16,10 @@ export const NO_MODS: Mods = { valve: 100, speed: 100, level: 0, clog: 0, wear: 
 
 /** Installation telle qu'elle fonctionne avec les réglages de simulation. */
 export function applyMods(i0: Installation, m: Mods): Installation {
-  const i = withAquifer(i0);
+  // Essai de pompage inconnu : la nappe est calée sur la pompe SAINE (le niveau dynamique saisi est celui de son débit),
+  // pour qu'une pompe usée ou en panne fasse moins descendre l'eau, et non autant
+  const auto = isForage(i0) && !((i0.geo.boreQ ?? 0) > 0);
+  const i = withAquifer(auto ? { ...i0, geo: { ...i0.geo, boreQ: Math.max(0.1, solve(i0).q), boreQAuto: true } } : i0);
   const x: Installation = { ...i, pump: { ...i.pump }, geo: { ...i.geo }, acc: { ...i.acc } };
   // Les réglages du pressostat / de la vessie sont ceux posés à l'installation : une panne ou un réglage en direct ne les change pas
   const ves = i.acc.vessie;
@@ -220,7 +224,9 @@ export interface SimState {
   bkFill?: boolean; // le réservoir de secours se remplit par le robinet à flotteur
   wd?: { on: number; house: number; q: number }; // moyennes glissantes (1 h) : part du temps en marche, consommation de la maison, débit pompé
   bkOver?: boolean; // réservoir de secours qui déborde par le trop-plein (robinet à flotteur bloqué ouvert)
+  clog?: number; // colmatage de la crépine du forage (0 à 0,75)
   ulT?: number; // durée de marche sans débit vue par le relais de sous-charge (s)
+  aqN?: number; // rabattement qu'aurait un forage sain au même débit (référence de la sonde)
   aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
   aqDry?: boolean; // forage : l'eau est descendue sous l'entrée de la pompe (le forage ne suit pas)
   bkQ?: number; // débit qui entre dans le réservoir par le robinet à flotteur (m³/h)
@@ -458,6 +464,14 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
 
   for (let k = 0; k < n; k++) {
     const hr = hourOf(st.t);
+    // Forage : niveau réel de l'eau maintenant (nappe qui descend en pompage, remonte à l'arrêt) ; dL = écart au niveau de calcul
+    const dL = isForage(i) ? i.geo.staticLevel + (st.aqS ?? 0) - i.geo.dynamicLevel : 0;
+    const qAtLevel = (q0: number) => {
+      if (!isForage(i) || q0 <= 0 || Math.abs(dL) < 0.05) return q0;
+      let lo = 0, hi = Math.max(q0 * 2, i.pump.qn * 2.5);
+      for (let it = 0; it < 24; it++) { const m = (lo + hi) / 2; if (pumpHead(i, m) - systemHeadAt(i, m) - dL > 0) lo = m; else hi = m; }
+      return lo;
+    };
     const power = st.t >= st.outageUntil;
     if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: 'Coupure secteur : plus de tension, la pompe s\'arrête', target: 'cable' }); }
     if (power && prev.outageUntil > 0 && st.t - sub < st.outageUntil && st.t >= st.outageUntil) newEv.push({ t: st.t, sev: 'ok', text: 'Retour du courant : redémarrage automatique possible', target: 'cable' });
@@ -484,7 +498,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (fx.pswitch === 'stuck') { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte mais le pressostat ne coupe pas`, target: 'acc:pressostat' }); st.runaway = true; }
         else stop(`pressostat (${f1(v.pOff)} bar)`);
       }
-      const hNeed = (st.x * 1e5) / rhoG - pressZ(i);
+      const hNeed = (st.x * 1e5) / rhoG - pressZ(i) + dL;
       const h0 = pumpHead(i, 0);
       // Débit de la pompe face à la pression du réservoir + pertes (vannes, filtres…) : bissection
       let qq = 0;
@@ -520,7 +534,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       } else {
         if (qd > 0.06 * i.duty.qReq) start();
         if (st.on && qd < 0.04 * i.duty.qReq) stop('mise en veille (très faible consommation)');
-        const hs = (set * 1e5) / rhoG - pressZ(i);
+        const hs = (set * 1e5) / rhoG - pressZ(i) + dL;
         const sNeed = speedFor(i, qd, hs);
         if (st.on && (st.hum || st.noFlow)) { st.q = 0; st.s = 1; st.x = Math.max(0, st.x - 0.05); }
         else if (st.on && sNeed > 1) {
@@ -553,7 +567,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (hasStop) stop('flotteur bas');
         else if ((fx.floatPit === 'high' || fx.floatPit === 'tangle') && !st.runaway) { st.runaway = true; newEv.push({ t: st.t, sev: 'critical', text: 'Fosse vide mais le flotteur d\'arrêt ne coupe pas', target: 'acc:flotteur_arret' }); }
       }
-      st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
+      st.q = st.on && h.ok && !st.hum && !st.noFlow ? qAtLevel(h.q) : 0;
       st.x += ((qin - st.q) / 3600 / area) * sub;
       if (st.x < -0.1) {
         st.x = -0.1;
@@ -588,7 +602,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (fx.floatRes) { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: 'Réservoir plein mais le flotteur ne commande pas l\'arrêt', target: 'acc:flotteur_res' }); st.runaway = true; }
         else stop('réservoir plein (flotteur)');
       }
-      st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
+      st.q = st.on && h.ok && !st.hum && !st.noFlow ? qAtLevel(h.q) : 0;
       const back = !st.on && fx.backflow ? 0.3 * i.duty.qReq : 0;
       if (back) st.backDrop = true;
       st.x += ((st.q - out - back) / 3600 / cap) * sub;
@@ -597,7 +611,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       st.x = Math.max(0, Math.min(1.05, st.x));
     } else {
       start();
-      st.q = st.on && h.ok && !st.hum && !st.noFlow ? h.q : 0;
+      st.q = st.on && h.ok && !st.hum && !st.noFlow ? qAtLevel(h.q) : 0;
     }
 
     // ----- Réservoir de secours : remplissage, puis alimentation de la maison si la pompe ne suit plus -----
@@ -652,7 +666,20 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     // ----- Nappe : le niveau descend quand la pompe débite (rabattement Q / C), remonte à l'arrêt -----
     if (isForage(i)) {
       const aq = aquiferOf(i, ctx.h.q)!;
-      const target = st.on && st.q > 0 && !st.noFlow ? st.q / aq.c : 0;
+      // Crépine qui se colmate : le débit spécifique baisse, d'autant plus vite que la crépine est mal conçue ou mal exploitée
+      if (fx.screenClog) {
+        const sc = screenOf(i);
+        const k = sc ? screenCalc(i, sc, Math.max(st.q, ctx.h.q)).clogRate : 1;
+        if (st.faultT?.crepine_forage == null) st.faultT = { ...(st.faultT ?? {}), crepine_forage: st.t };
+        const t0 = st.faultT.crepine_forage;
+        st.clog = Math.min(0.75, ((st.t - t0) / 3600) * fx.screenClog * k / 100);
+        if (st.clog > 0.3) once('clog30', { t: st.t, sev: 'warning', text: `Le niveau descend plus bas qu'à la mise en service au même débit : débit spécifique du forage ${f1(aq.c * (1 - st.clog), 2)} m³/h/m au lieu de ${f1(aq.c, 2)} (crépine qui se colmate ?)`, target: 'source' });
+      } else st.clog = 0;
+      const cEff = aq.c * (1 - (st.clog ?? 0));
+      // Sonde de niveau / mesure au sondeur : niveau plus bas que ce qu'on attend à ce débit (forage sain)
+      st.aqN = (st.aqN ?? 0) + ((st.on && st.q > 0 && !st.noFlow ? st.q / aq.c : 0) - (st.aqN ?? 0)) * (1 - Math.exp(-sub / AQ_TAU));
+      if (st.on && st.q > 0 && st.runT > 60 && (st.aqS ?? 0) + st.dd > (st.aqN ?? 0) * 1.15 + 0.3) seen('rabattement_fort');
+      const target = st.on && st.q > 0 && !st.noFlow ? st.q / cEff : 0;
       st.aqS = (st.aqS ?? 0) + (target - (st.aqS ?? 0)) * (1 - Math.exp(-sub / AQ_TAU));
       const lv = i.geo.staticLevel + st.aqS + st.dd;
       if (st.on && !st.hum && !st.aqDry && lv >= i.geo.pumpDepth - 0.3) {
@@ -886,7 +913,12 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const ref = (st.trip || st.isolated) && st.tripKind && st.recent[st.tripKind as Sym] != null ? st.recent[st.tripKind as Sym]! : st.t;
   for (const [k, t] of Object.entries(st.recent)) if (t != null && t > ref - 3 * 3600) o.add(k as Sym);
   if (fx.ids.includes('sous_tension') && st.t >= st.outageUntil) o.add('tension_basse');
-  if (fx.heatK && st.on) o.add('courants_desequilibres'); // se mesure à la pince sur les 3 phases
+  if (fx.heatK && st.on) o.add('courants_desequilibres');
+  // Forage : niveau mesuré à la sonde, comparé à celui qu'on attend à ce débit
+  if (isForage(i) && running && st.runT > 60) {
+    const aqN = aquiferOf(normal.i, normal.h.q);
+    if (aqN && (st.aqS ?? 0) + st.dd > (st.aqN ?? st.q / aqN.c) * 1.15 + 0.5) o.add('rabattement_fort');
+  } // se mesure à la pince sur les 3 phases
   if (fx.sandy && (st.vol > 0.05)) o.add('eau_sableuse'); // sable visible dans l'eau pompée
   if (st.overflow) o.add('debordement');
   if (st.on && st.noFlow) { o.add('debit_nul'); o.add('marche_a_sec'); o.add('courant_bas'); }

@@ -1443,3 +1443,6 @@ html, body { overflow-x: clip; }
 .r-bypass path:first-child{fill:#d9534f;stroke:#5a2420;stroke-width:1.2}.r-bypass path:last-child{stroke:#5a2420;stroke-width:1.6}
 .vrec.bad{background:#fff1f0;border-color:#f3c3be}
 .r-now{fill:#0b5cad;font-style:italic;font-weight:700}
+.r-slot{stroke:#2f3a44;stroke-width:2}
+.r-pack{fill:#c9b48a;opacity:.75;stroke:none}
+.r-scr-lim{stroke:#6b5a3a;stroke-width:1;stroke-dasharray:3 3;fill:none}

@@ -1,4 +1,6 @@
 import { aquiferOf, withAquifer } from './aquifer';
+import { FORMATIONS, screenCalc, screenOf } from './borehole';
+import { isForage as isForageI } from './hydraulics';
 import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pumpCompat, refLen, refStatic } from './catalog';
 import { isForage, losses, pressureHead, solve, speedFor, staticHead, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, type ElecResult } from './electrical';
@@ -600,6 +602,50 @@ export function evaluate(input: Installation): Evaluation {
     }
   }
 
+  // ---------- Crépine du forage : position de la pompe, fentes, vitesse d'entrée ----------
+  const scr = screenOf(i);
+  if (isForageI(i) && !scr) add({ id: 'scr_unknown', sev: 'info', cat: 'hydraulique', title: 'Crépine du forage non renseignée',
+    detail: 'Sans la position et l\'ouverture de la crépine (rapport de forage), on ne peut pas vérifier que la pompe est posée au bon endroit, que la crépine reste noyée ni qu\'elle ne se colmatera pas.',
+    consequences: [], parts: [], solutions: ['Renseigner la crépine (Conception › Site, niveaux et distances)'] });
+  if (scr && h.ok) {
+    const c = screenCalc(i, scr, h.q), g = i.geo;
+    const cm = (v: number) => (v * 100).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+    const upTo = Math.floor(scr.top - 2);
+    const canRaise = upTo >= g.dynamicLevel + 3;
+    if (c.pos === 'inside') add({ id: 'scr_inside', sev: i.acc.chemise?.on ? 'info' : 'warning', cat: 'hydraulique', title: 'Pompe posée dans la zone crépinée',
+      detail: `La pompe (${f0(g.pumpDepth)} m) est entre ${f0(scr.top)} et ${f0(scr.bottom)} m, au droit des fentes : l'eau arrive de côté et ne longe plus le moteur${i.acc.chemise?.on ? ' (la chemise de refroidissement compense)' : ''}, la pompe aspire les fines et le sable, et la crépine se colmate plus vite.`,
+      consequences: i.acc.chemise?.on ? ['Entraînement de fines'] : ['Moteur mal refroidi', 'Eau sableuse', 'Colmatage accéléré'], parts: ['moteur', 'roue'],
+      solutions: [canRaise ? `Remonter la pompe à ${upTo} m (2 m au-dessus de la crépine)` : 'Le niveau dynamique est trop bas pour remonter la pompe au-dessus de la crépine', 'Sinon : chemise de refroidissement obligatoire'],
+      fix: canRaise ? { label: `Pompe à ${upTo} m`, apply: (x) => ({ ...x, geo: { ...x.geo, pumpDepth: upTo } }) } : !i.acc.chemise?.on ? { label: 'Ajouter une chemise', apply: (x) => ({ ...x, acc: { ...x.acc, chemise: { ...(x.acc.chemise ?? { dn: 0, qty: 1 }), on: true } } }) } : undefined });
+    if (c.pos === 'below') add({ id: 'scr_below', sev: 'warning', cat: 'hydraulique', title: 'Pompe sous la crépine, dans le décanteur',
+      detail: `La pompe (${f0(g.pumpDepth)} m) est sous le bas de la crépine (${f0(scr.bottom)} m), là où se déposent le sable et les boues.`,
+      consequences: ['Pompe qui s\'ensable', 'Usure rapide de la roue'], parts: ['roue', 'bagues'],
+      solutions: [canRaise ? `Remonter la pompe à ${upTo} m` : 'Remonter la pompe au-dessus du décanteur'], fix: canRaise ? { label: `Pompe à ${upTo} m`, apply: (x) => ({ ...x, geo: { ...x.geo, pumpDepth: upTo } }) } : undefined });
+    if (c.sump < 3) add({ id: 'scr_sump', sev: 'info', cat: 'hydraulique', title: 'Pompe proche du fond du forage',
+      detail: `${f1(c.sump)} m seulement entre la pompe et le fond : les dépôts finissent par l'atteindre.`, consequences: ['Pompe qui s\'ensable avec le temps'], parts: [], solutions: ['Garder au moins 3 m sous la pompe'] });
+    const aqS = aquiferOf(i, h.q);
+    if (c.dewater > 0.5) {
+      const qDew = aqS ? aqS.c * Math.max(0, scr.top - g.staticLevel) : 0;
+      add({ id: 'scr_dewater', sev: 'warning', cat: 'hydraulique', title: 'La crépine se dénoie en pompage',
+        detail: `À ${f1(h.q)} m³/h, l'eau descend à ${f1(g.dynamicLevel)} m, sous le haut de la crépine (${f0(scr.top)} m) : ${f1(c.dewater)} m de fentes sont à l'air. L'oxygène fait précipiter le fer et le calcaire, les bactéries ferrugineuses s'y installent : la crépine se colmate et le forage perd son débit.`,
+        consequences: ['Colmatage par incrustations', 'Débit du forage qui baisse d\'année en année', 'Eau rouge (fer)'], parts: [],
+        solutions: [qDew > 0.3 ? `Limiter le débit à ${f1(qDew)} m³/h pour garder la crépine noyée` : 'Réduire le débit', 'Pompage plus long à débit plus faible (variateur, château d\'eau)'] });
+    }
+    if (c.vIn > 0.03) add({ id: 'scr_vin', sev: c.vIn > 0.05 ? 'warning' : 'info', cat: 'hydraulique', title: 'L\'eau entre trop vite dans la crépine',
+      detail: `Vitesse d'entrée ${cm(c.vIn)} cm/s pour 3 cm/s au plus (${f1(c.len)} m de crépine ${scr.type === 'inox' ? 'inox à fil enroulé' : 'PVC fendue'}, ${f0(c.openRatio * 100)} % de vide) : pertes de charge, entraînement de fines, colmatage et incrustation rapides.`,
+      consequences: ['Rabattement plus fort', 'Colmatage accéléré', 'Eau sableuse'], parts: [],
+      solutions: [`Pomper au plus ${f1(c.qVmax)} m³/h`, 'Crépine plus longue ou inox à fil enroulé (3 à 4 fois plus de vide) au prochain forage'] });
+    if (c.slotK > 1.5) add({ id: 'scr_slot_big', sev: 'warning', cat: 'hydraulique', title: 'Fentes de crépine trop larges pour le terrain',
+      detail: `Fentes de ${f1(scr.slot, 2)} mm pour ${f1(c.slotRec, 2)} mm conseillés (${FORMATIONS[scr.formation].label.toLowerCase()}${scr.pack ? ', avec massif filtrant' : ', sans massif filtrant'}) : le terrain passe à travers, le forage produit du sable.`,
+      consequences: ['Eau sableuse', 'Usure rapide de la roue et des bagues', 'Pompe qui s\'ensable'], parts: ['roue', 'bagues'],
+      solutions: ['Débit réduit et progressif au démarrage', 'Pompe tolérante au sable, posée bien au-dessus de la crépine', 'Décanteur ou dessableur en surface'] });
+    else if (c.slotK < 0.6) add({ id: 'scr_slot_fine', sev: 'info', cat: 'hydraulique', title: 'Fentes de crépine fines',
+      detail: `Fentes de ${f1(scr.slot, 2)} mm pour ${f1(c.slotRec, 2)} mm conseillés : elles retiennent bien le terrain mais freinent l'eau et se colmatent plus vite.`,
+      consequences: ['Colmatage plus rapide'], parts: [], solutions: ['Nettoyage / régénération du forage plus fréquents'] });
+    if (c.pos === 'above' && c.dewater <= 0.5 && c.vIn <= 0.03 && c.slotK >= 0.6 && c.slotK <= 1.5)
+      goods.push(`Crépine ${f0(scr.top)}–${f0(scr.bottom)} m, fentes ${f1(scr.slot, 2)} mm adaptées au terrain, vitesse d'entrée ${cm(c.vIn)} cm/s, pompe ${f1(c.gap)} m au-dessus : crépine noyée, moteur bien refroidi`);
+  }
+
   // ---------- Électricité, réservoir à vessie, solaire ----------
   const el = electrical(i, h);
   out.push(...el.issues);
@@ -671,7 +717,7 @@ export function evaluate(input: Installation): Evaluation {
 
   // ---------- Note ----------
   const W: Record<Sev, number> = { critical: 16, warning: 6, info: 1 };
-  let score = 100 - out.filter((x) => x.id !== 'defaults' && x.id !== 'aq_unknown').reduce((s, x) => s + W[x.sev], 0);
+  let score = 100 - out.filter((x) => x.id !== 'defaults' && x.id !== 'aq_unknown' && x.id !== 'scr_unknown').reduce((s, x) => s + W[x.sev], 0);
   const nCrit = out.filter((x) => x.sev === 'critical').length;
   if (nCrit) score = Math.min(score, 54 - (nCrit - 1) * 6);
   score = Math.max(0, Math.min(100, Math.round(score)));
