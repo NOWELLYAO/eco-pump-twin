@@ -33,7 +33,10 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const sVfd = speedFor(i, qN, asksAtNeed);
   // Variateur : courbe de la pompe à vitesse réduite (lois de similitude H(q, s) = s² · H(q / s))
   const hasVfd = effectiveStart(i) === 'variateur' && i.elec.supply !== 'solaire';
-  const vfdOk = h.ok && h.q > qN * 1.03 && sVfd > 0.3 && sVfd < 0.995;
+  const vfdPossible = h.ok && h.q > qN * 1.03 && sVfd > 0.3 && sVfd < 0.995;
+  // Sans variateur installé, sa courbe n'est tracée que si on la demande
+  const [askVfd, setAskVfd] = useState(false);
+  const vfdOk = vfdPossible && (hasVfd || askVfd);
   const vfdHz = sVfd * 50;
   // Plusieurs pompes en parallèle : la courbe « pompe » est celle des pompes en service ensemble ; on montre aussi une pompe seule
   const multi = h.n > 1;
@@ -152,11 +155,14 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
             )}
           </div>
         )}
-        {!hasVfd && vfdOk && i.elec.supply !== 'solaire' && (
-          <div className="vfdbox opt">
-            <h5>Et avec un variateur ?</h5>
-            <p>La ligne verte en pointillés montre la pompe ralentie à <b>{fmt(vfdHz, 0)} Hz</b> : elle donnerait exactement votre besoin ({fmt(qN, 1)} m³/h), à {fmt(xReg * 100, 0)} % de son débit optimal{vs ? '' : ''}. Activez le variateur (Électricité ou accessoires) pour voir le gain détaillé.</p>
-          </div>
+        {!hasVfd && vfdPossible && i.elec.supply !== 'solaire' && (
+          vfdOk ? (
+            <div className="vfdbox opt">
+              <h5>Et avec un variateur ?</h5>
+              <p>La ligne verte en pointillés montre la pompe ralentie à <b>{fmt(vfdHz, 0)} Hz</b> : elle donnerait exactement votre besoin ({fmt(qN, 1)} m³/h), à {fmt(xReg * 100, 0)} % de son débit optimal. Activez le variateur (Électricité ou accessoires) pour voir le gain détaillé.</p>
+              <button type="button" className="btn sm" onClick={() => setAskVfd(false)}>Masquer la courbe avec variateur</button>
+            </div>
+          ) : <button type="button" className="btn sm" onClick={() => setAskVfd(true)}>Voir la courbe avec un variateur</button>
         )}
       </div>
     </figure>
