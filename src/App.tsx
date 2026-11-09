@@ -157,7 +157,7 @@ export default function App() {
     inst, ev, highlight, selected, activeIssue,
     set: (fn) => setInst((i) => withAutoName(ensureElec(sanitizeAcc(fn(i))))),
     pick: (t) => { setSelected(t); setActiveIssue(null); },
-    selectIssue: (x) => { setActiveIssue(x); setSelected(targetsOf(x.id)[0] ?? null); showDiagram(); },
+    selectIssue: (x, scroll = true) => { setActiveIssue(x); setSelected(targetsOf(x.id)[0] ?? null); if (scroll) showDiagram(); },
     fix: (x) => { if (x.fix) setInst((i) => ensureElec(sanitizeAcc(x.fix!.apply(i)))); },
     clearIssue: () => setActiveIssue(null),
   };

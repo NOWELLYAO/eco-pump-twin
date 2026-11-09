@@ -81,10 +81,14 @@ export function KeyFigures({ i, ev }: { i: Installation; ev: Evaluation }) {
   );
 }
 
-function IssueCard({ x, onFix, open, onToggle, onSelect, active }: { x: Issue; onFix: (x: Issue) => void; open: boolean; onToggle: () => void; onSelect?: (x: Issue) => void; active?: boolean }) {
+function IssueCard({ x, onFix, open, onToggle, onSelect, active }: { x: Issue; onFix: (x: Issue) => void; open: boolean; onToggle: () => void; onSelect?: (x: Issue, scroll?: boolean) => void; active?: boolean }) {
   return (
     <li className={`issue lv-${LV[x.sev]}${active ? ' active' : ''}`} id={`issue-${x.id}`}>
-      <button className="issue-head" onClick={() => { const opening = !open; onToggle(); if (opening) onSelect?.(x); }} aria-expanded={open}>
+      <button className="issue-head" onClick={() => {
+        const opening = !open; onToggle();
+        // On ouvre l'alerte pour la lire : on la surligne sur le schéma sans faire défiler la page, et on garde la carte en vue
+        if (opening) { onSelect?.(x, false); window.setTimeout(() => document.getElementById(`issue-${x.id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 80); }
+      }} aria-expanded={open}>
         <LevelIcon level={LV[x.sev]} size={18} />
         <strong>{x.title}</strong>
         <span className={`badge lv-${LV[x.sev]}`}>{SEV_LABEL[x.sev]}</span>

@@ -17,7 +17,7 @@ export interface Shared {
   selected: string | null;
   activeIssue: Issue | null;
   pick: (t: string | null) => void;
-  selectIssue: (x: Issue) => void;
+  selectIssue: (x: Issue, scroll?: boolean) => void;
   fix: (x: Issue) => void;
   clearIssue: () => void;
 }
