@@ -3,6 +3,7 @@ import { fitCurve, type Fit } from './pumpcurve';
 import type { PumpSpec } from '../engine/types';
 import { ACC, ACCESSORIES, FLUIDS, PIPE_MATS, refLen, refStatic } from './catalog';
 import type { FluidId, Installation, PipeRun } from './types';
+import { backupCalc, backupMode, backupOf } from './backup';
 
 const G = 9.81;
 export const area = (dnMm: number) => (Math.PI / 4) * (dnMm / 1000) ** 2;
@@ -168,7 +169,13 @@ export function speedFor(i: Installation, q: number, hTarget: number) {
   return hi;
 }
 
-export const pressureHead = (i: Installation) => (i.duty.pRes * 1e5) / (i.fluid.rho * G);
+/** Pression à fournir au point d'arrivée (m). Réservoir de secours en série : la pompe ne sert plus la maison mais
+ *  remplit la cuve par le haut (robinet à flotteur) — c'est la cuve qui donne la pression aux robinets. */
+export const pressureHead = (i: Installation) => {
+  const b = backupOf(i);
+  if (b && backupMode(b) === 'serie') return backupCalc(i, b).headTop * 1e5 / (i.fluid.rho * G) - Math.max(0, i.geo.hRef);
+  return (i.duty.pRes * 1e5) / (i.fluid.rho * G);
+};
 export const systemHeadAt = (i: Installation, q: number) => staticHead(i) + pressureHead(i) + losses(i, q).total;
 
 export function shaftPower(i: Installation, q: number, h: number) {

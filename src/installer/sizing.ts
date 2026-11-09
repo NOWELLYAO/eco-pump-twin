@@ -47,12 +47,18 @@ function sizeLoop(d: Installation): Installation {
     let p: Installation = { ...out, pump: { ...out.pump, qn: Math.round((d.duty.qReq / nr) * 10) / 10 } };
     for (let n = 0; n < 5; n++) {
       const v = vessel(p, solve(p)); if (!v) break;
-      const hMid = (((v.pOn + v.pOff) / 2) * 1e5) / rhoG - pressZ(p);
-      const hOff = (v.pOff * 1e5) / rhoG - pressZ(p);
+      // Réglages saisis trop bas pour le réseau (marche sous la pression utile) : on dimensionne sur les réglages conseillés
+      // (le diagnostic propose aussi de corriger le pressostat), sinon la pompe ne donnerait jamais le débit demandé
+      const okSet = v.pOn >= v.pReq - 0.05;
+      const pOn = okSet ? v.pOn : v.rec.pOn, pOff = okSet ? v.pOff : Math.max(v.rec.pOff, pOn + 0.6);
+      const hMid = (((pOn + pOff) / 2) * 1e5) / rhoG - pressZ(p);
+      const hOff = (pOff * 1e5) / rhoG - pressZ(p);
       const hn = Math.ceil(Math.max(hMid, (hOff + 3) / p.pump.shutoff));
       if (hn === p.pump.hn) break;
       p = { ...p, pump: { ...p.pump, hn } };
     }
+    // Pressostat réglé trop bas : la pompe proposée va avec les réglages conseillés (on les remet en automatique)
+    { const v0 = vessel(d, solve(d)); if (v0 && v0.pOn < v0.pReq - 0.05) p = { ...p, acc: { ...p.acc, vessie: { ...p.acc.vessie, pOn: undefined, pOff: undefined, pre: undefined } } }; }
     const h = solve(p);
     const need = Math.max(h.ok ? h.pShaft * 1.15 : 0, ((rhoG * (p.pump.qn / 3600) * p.pump.hn) / p.pump.eta / 1000) * 1.15);
     p = { ...p, pump: { ...p.pump, motorKw: MOTORS.find((m) => m >= need) ?? 300 } };

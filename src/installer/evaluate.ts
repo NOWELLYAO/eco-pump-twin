@@ -30,7 +30,7 @@ function lowqFix(i: Installation, side: 'asp' | 'ref', canGrow: boolean): Fix | 
     }
   }
   const s = sized(i);
-  return sameAs(s, i) ? undefined : { label: `Pompe adaptée : ${f1(s.pump.qn)} m³/h à ${f0(s.pump.hn)} m`, apply: sized };
+  return sameAs(s, i) ? undefined : { label: sizedLabel(i), apply: sized };
 }
 
 export function defaultDn(i: Installation, id: string) {
@@ -190,7 +190,7 @@ export function evaluate(input: Installation): Evaluation {
         consequences: low ? ['Recirculation interne, vibrations', 'Échauffement du liquide', 'Efforts radiaux sur l\'arbre'] : ['Risque de cavitation', 'Surcharge du moteur', 'Bruit et vibrations'],
         parts: low ? ['roulements', 'garniture', 'arbre', 'roue'] : ['roue', 'moteur', 'garniture', 'roulements'],
         solutions: low ? ['Choisir une pompe dont le débit optimal est proche du besoin', 'Utiliser un variateur plutôt qu\'une vanne étranglée'] : rightSolutions(i, h, !!vfdPt),
-        fix: low || sameAs(sized(i), i) ? undefined : { label: `Pompe adaptée : ${f1(sized(i).pump.qn)} m³/h à ${f0(sized(i).pump.hn)} m`, apply: sized } });
+        fix: low || sameAs(sized(i), i) ? undefined : { label: sizedLabel(i), apply: sized } });
     } else if (xr >= 0.85 && xr <= 1.1) goods.push(`Point de fonctionnement proche du rendement optimal (${f0(xr * 100)} % du débit nominal${at})`);
 
     const share = h.hLoss / h.h;
@@ -848,7 +848,9 @@ export { APPS };
 const sizedCache = new WeakMap<Installation, Installation>();
 function sized(i: Installation): Installation { let r = sizedCache.get(i); if (!r) { r = proposePump(i); sizedCache.set(i, r); } return r; }
 /** La « pompe adaptée » est-elle déjà celle en place ? (pas de bouton qui ne changerait rien) */
-const sameAs = (a: Installation, b: Installation) => Math.abs(a.pump.qn - b.pump.qn) < 0.05 && Math.abs(a.pump.hn - b.pump.hn) < 0.5 && a.pump.motorKw === b.pump.motorKw;
+const sameAs = (a: Installation, b: Installation) => Math.abs(a.pump.qn - b.pump.qn) < 0.05 && Math.abs(a.pump.hn - b.pump.hn) < 0.5 && a.pump.motorKw === b.pump.motorKw
+  && a.acc.vessie?.pOn === b.acc.vessie?.pOn && a.acc.vessie?.pOff === b.acc.vessie?.pOff;
+const sizedLabel = (i: Installation) => { const s = sized(i); return `Pompe adaptée : ${f1(s.pump.qn)} m³/h à ${f0(s.pump.hn)} m${s.acc.vessie?.pOn !== i.acc.vessie?.pOn ? ' + pressostat réglé' : ''}`; };
 
 /** Que faire quand la pompe est trop à droite de sa courbe (débit > 120 % de son optimum) */
 function rightSolutions(i: Installation, h: Hydro, vfdHelps: boolean): string[] {
