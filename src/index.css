@@ -746,11 +746,14 @@ figcaption span { color: var(--muted); font-weight: 500; }
 }
 
 .mpower { display: none; gap: 8px; align-items: stretch; position: sticky; top: 60px; z-index: 12; }
+.mwhy { display: none; }
+.mwhy .firebtn { margin-top: 6px; }
 .mpower .power { padding: 10px 14px; }
 .mpower .icon-btn { height: auto; width: 52px; }
 @media (max-width: 1100px) {
   .mpower { display: flex; }
-  .simctl .power { display: none; }
+  .mwhy { display: block; }
+  .simctl .power, .simctl .why-run, .simctl .firebtn { display: none; }
 }
 @media (max-width: 760px) {
   .livekpis { grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -1451,3 +1454,11 @@ html, body { overflow-x: clip; }
 .live-dot{width:9px;height:9px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 0 rgba(22,163,74,.6);animation:livepulse 1.6s infinite}
 @keyframes livepulse{70%{box-shadow:0 0 0 8px rgba(22,163,74,0)}100%{box-shadow:0 0 0 0 rgba(22,163,74,0)}}
 .r-pump-small{fill:#2b7fd6;stroke:#1d4f86;stroke-width:1.5}
+
+.fitbtn{display:none;position:absolute;top:14px;right:14px;z-index:3;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:5px 11px;font-size:.8rem;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.12)}
+.vbody{position:relative}
+@media (max-width: 760px){
+  .fitbtn{display:inline-block}
+  .vbody.fit .realview,.vbody.fit .pidview{min-width:0 !important}
+}
+.r-jk-on .r-pump-small{fill:#16a34a;stroke:#0f6b30;animation:bkpulse 1s infinite}

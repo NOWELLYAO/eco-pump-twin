@@ -104,7 +104,7 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
-  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
+  bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; jk?: boolean; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
 export interface Phys { tmCause?: string; relaySet?: number; tm: number; tl: number; relay: number; pPeak?: number; peakAge?: number; burst: 'fuite' | 'rupture' | null; burnt: boolean; sealGone: boolean }
@@ -391,8 +391,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
         const jx = REF_END - 105, jy = 196;
         els.push(
           <path key="jk-p" d={`M${jx} ${jy - 10} V150`} stroke="#8a96a3" strokeWidth={3} className="r-pipe" />,
-          <g key="jk" className="r-obst"><circle cx={jx} cy={jy} r={9} className="r-pump-small" /><rect x={jx + 8} y={jy - 6} width={18} height={12} rx={2} className="r-motor" /></g>,
-          <text key="jk-l" x={jx + 8} y={jy + 24} textAnchor="middle" className="r-label small">Pompe jockey</text>,
+          live?.jk ? <path key="jk-f" d={`M${jx} ${jy - 10} V150`} className="r-flow" strokeWidth={1.8} /> : null,
+          <g key="jk" className={`r-obst${live?.jk ? ' r-jk-on' : ''}`}><circle cx={jx} cy={jy} r={9} className="r-pump-small" /><rect x={jx + 8} y={jy - 6} width={18} height={12} rx={2} className="r-motor" /></g>,
+          <text key="jk-l" x={jx + 8} y={jy + 24} textAnchor="middle" className="r-label small">{live?.jk ? 'Pompe jockey · en marche' : 'Pompe jockey'}</text>,
         );
       }
       front.push(<g key="fire">{els}</g>);

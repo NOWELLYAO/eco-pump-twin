@@ -168,6 +168,9 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
 }) {
   const term = termLines(i, ev, live ? { phys: live.phys, on: live.on, r: live.r, kind: live.kind, x: live.x, clock: live.clock, events: live.events, starts: live.starts, vol: live.vol, kwh: live.kwh, hz: live.hz, why: live.why } : undefined);
   const [view, setView] = useState<View>('real');
+  // Téléphone : schéma en entier (tout visible, petit) ou agrandi (lisible, à faire glisser) — choix mémorisé
+  const [fit, setFit] = useState<boolean>(() => { try { return localStorage.getItem('ecopump-fit') !== '0'; } catch { return true; } });
+  const toggleFit = () => setFit((f) => { try { localStorage.setItem('ecopump-fit', f ? '0' : '1'); } catch { /* */ } return !f; });
   const elive: ELive | undefined = live ? {
     q: live.r.q, pRef: live.r.pRef, pAsp: live.r.pAsp, kw: live.r.kw, hz: live.hz, x: live.x, kind: live.kind, clock: live.clock, starts: live.starts,
     startsH: (live.startLog ?? []).filter((t) => t > (live.simT ?? 0) - 3600).length, vol: live.vol, kwh: live.kwh, runTot: live.runTot, pv: live.pv,
@@ -204,7 +207,8 @@ export function DiagramPanel({ i, ev, highlight, selected, onPick, onIssue, onSe
             {onCloseBanner && <button className="icon-btn sm" onClick={onCloseBanner} aria-label="Fermer"><X size={14} /></button>}
           </div>
         )}
-        <div className="vbody" onClick={() => onPick(null)}>
+        <div className={`vbody${fit ? ' fit' : ''}`} onClick={() => onPick(null)}>
+          {(view === 'real' || view === 'pid') && <button className="fitbtn" onClick={(e) => { e.stopPropagation(); toggleFit(); }}>{fit ? '🔍 Agrandir' : '⤢ Vue entière'}</button>}
           {view === 'real' && <RealView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} live={live} term={term} />}
           {view === 'pid' && <PidView i={i} h={ev.hydro} highlight={highlight} onPick={onPick} />}
           {view === 'curve' && <InstCurve i={i} ev={ev} />}

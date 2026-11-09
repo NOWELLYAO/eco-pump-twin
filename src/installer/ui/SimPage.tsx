@@ -126,7 +126,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   const useRel = kind === 'vessel' || kind === 'vfd' ? cNow / Math.max(0.1, s.inst.duty.qReq) : kind === 'tank' ? cNow / Math.max(0.1, s.inst.duty.qReq * 0.55) : sim.on ? 0.6 : 0;
   const phys = { tmCause: sim.tmCause, relaySet: relaySetting(ctx), tm: sim.tm ?? s.inst.fluid.temp, tl: sim.tl ?? s.inst.fluid.temp, relay: sim.relay ?? 0, pPeak: sim.pPeak, peakAge: sim.pPeakT != null ? sim.t - sim.pPeakT : undefined, burst: sim.burst ?? null, burnt: !!sim.burnt, sealGone: !!sim.sealGone };
   const why = sim.master ? pumpReason(ctx, sim) : null;
-  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, jk: !!sim.jk, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   // Vue réelle de la page Conception : la même simulation, en direct
   useEffect(() => { onLive?.({ live, i: iView, ev: evSim, playing, setPlaying, clock: clock(sim.t), rate }); }, [sim, iView, evSim, playing, rate]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
@@ -156,6 +156,11 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
             <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'la pompe tourne') : 'arrêtée par l\'automatisme') : 'cliquez pour démarrer'}</small></span>
           </button>
           {why && <p className={`why-run${/ANORMALE/.test(why) ? ' bad' : ''}`}><b>Pourquoi ?</b> {why.charAt(0).toUpperCase() + why.slice(1)}</p>}
+          {fire && (
+            <button type="button" className={`btn full firebtn ${mods.draw > 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: mods.draw > 0 ? 0 : 100 })}>
+              {mods.draw > 0 ? '🧯 Fermer la lance (fin de l\'incendie)' : '🔥 Déclencher un incendie (ouvrir la lance)'}
+            </button>
+          )}
           <p className="muted small">{KIND_LABEL[kind]}</p>
           <div className="timebar">
             <button className="icon-btn" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Lecture'}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
@@ -168,11 +173,6 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
           <h3>Réglages en direct</h3>
           {(kind === 'vessel' || kind === 'vfd' || kind === 'tank' || kind === 'pit') && (
             <div className="drawctl">
-              {fire && (
-                <button type="button" className={`btn full firebtn ${mods.draw > 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: mods.draw > 0 ? 0 : 100 })}>
-                  {mods.draw > 0 ? 'Fermer la lance (fin de l\'essai)' : 'Ouvrir la lance (essai incendie)'}
-                </button>
-              )}
               <Slider label={kind === 'pit' ? 'Arrivée d\'effluents' : fire ? 'Lances incendie ouvertes (débit)' : 'Consommation (robinets ouverts)'} value={mods.draw < 0 ? Math.round((sim.series.at(-1)?.c ?? 0) / Math.max(0.01, kind === 'pit' ? ctx.h.q * 0.55 : kind === 'tank' ? s.inst.duty.qReq * 0.55 : s.inst.duty.qReq) * 100) : mods.draw} min={0} max={150} unit="%"
                 onChange={(x) => setMods({ ...mods, draw: x })}
                 hint={mods.draw < 0
@@ -221,6 +221,11 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
             <Power size={22} aria-hidden /><span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{clock(sim.t)} · {sim.trip ? 'DÉFAUT' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.on ? (sim.hum ? 'moteur bloqué' : sim.noFlow ? 'sans débit' : 'la pompe tourne') : 'pompe arrêtée'}</small></span>
           </button>
           <button className="icon-btn" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Lecture'}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
+        </div>
+        {/* Téléphone : pourquoi la pompe tourne / attend, et déclenchement d'un incendie, sous le bouton marche */}
+        <div className="mwhy">
+          {why && <p className={`why-run${/ANORMALE/.test(why) ? ' bad' : ''}`}><b>Pourquoi ?</b> {why.charAt(0).toUpperCase() + why.slice(1)}</p>}
+          {fire && <button type="button" className={`btn full firebtn ${mods.draw > 0 ? 'on' : ''}`} onClick={() => setMods({ ...mods, draw: mods.draw > 0 ? 0 : 100 })}>{mods.draw > 0 ? '🧯 Fermer la lance (fin de l\'incendie)' : '🔥 Déclencher un incendie (ouvrir la lance)'}</button>}
         </div>
         <div className={`livescore lv-${liveLvl}`}>
           <b>{liveScore}<small>/100</small></b>

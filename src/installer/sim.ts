@@ -73,6 +73,10 @@ export function floatFlow(bc: { headTop: number; fillM3h: number }, st: { x: num
 
 /** Pourquoi la pompe tourne (ou attend), en clair, avec les chiffres du moment. */
 export function pumpReason(ctx: SimCtx, st: SimState): string | null {
+  const r = pumpReasonRaw(ctx, st);
+  return r && ctx.i.app === 'incendie' ? r.replace(/la maison prend/g, 'les lances prennent').replace(/marche continue normale en pointe/g, 'incendie en cours') : r;
+}
+function pumpReasonRaw(ctx: SimCtx, st: SimState): string | null {
   const { i, kind, er, fx } = ctx;
   if (kind !== 'vessel' && kind !== 'vfd') return null;
   const v = er.vessel;
@@ -91,7 +95,15 @@ export function pumpReason(ctx: SimCtx, st: SimState): string | null {
   if (st.trip || st.t < st.outageUntil) return null;
   if (st.on && !st.hum && (st.q < 0.05 || st.noFlow)) return `ANORMALE : la pompe tourne mais ne débite rien (${st.noFlow ? 'plus d\'eau à l\'aspiration' : 'vanne fermée, colonne bouchée ou hauteur inatteignable'}) — l'eau s'échauffe dans la pompe (${f(st.tl ?? 0, 0)} °C), moteur à ${f(st.tm ?? 0, 0)} °C : à arrêter`;
   if (i.app === 'incendie' && i.acc.coffret_inc?.on && st.on && er.vessel && st.x >= er.vessel.pOff - 0.05) return `pompe incendie : pression d'arrêt atteinte, mais elle reste en marche — arrêt MANUEL uniquement, au coffret, une fois l'incendie maîtrisé${i.acc.soupape_circ?.on ? ' (la soupape de circulation l\'empêche de chauffer)' : ''}`;
-  if (i.app === 'incendie' && !st.on && er.vessel) return `pompe incendie en veille : démarrage automatique sous ${f(er.vessel.pOn)} bar${i.acc.jockey?.on ? ' ; la pompe jockey compense les petites fuites' : ''}`;
+  if (i.app === 'incendie' && st.on && st.q > 0.05 && er.vessel && st.x < er.vessel.pOff - 0.05) {
+    const lances = use(ctx, hourOf(st.t)) * i.duty.qReq;
+    return lances > 0.05
+      ? `incendie en cours : la pompe envoie ${f(st.q)} m³/h aux lances, à ${f(st.x)} bar ; elle restera en marche jusqu'à l'arrêt manuel au coffret`
+      : `lance fermée : la pression remonte (${f(st.x)} bar) ; la pompe incendie reste en marche jusqu'à l'arrêt manuel au coffret`;
+  }
+  if (i.app === 'incendie' && !st.on && er.vessel) return st.jk
+    ? `pompe jockey en marche : elle remonte la pression (${f(st.x)} → ${f(er.vessel.pOff)} bar) perdue par les petites fuites du réseau ; la pompe principale reste en veille (démarrage sous ${f(er.vessel.pOn)} bar, si un RIA ou une tête s'ouvre)`
+    : `réseau incendie en veille sous pression (${f(st.x)} bar) : la pompe principale démarrera seule sous ${f(er.vessel.pOn)} bar, quand un RIA ou une tête s'ouvrira${i.acc.jockey?.on ? ' ; la pompe jockey compense les petites fuites' : ' ; sans pompe jockey, les petites fuites finiront par la faire démarrer pour rien'}`;
   if (st.bkFeed) return `arrêtée : la maison est alimentée par le réservoir de secours (${Math.round((st.bk ?? 0) * 100)} %)`;
   if (st.lowLevel) return 'arrêtée : manque d\'eau au forage, attend que le niveau remonte';
   if (kind === 'vfd') return st.on ? `variateur à ${Math.round(st.s * 50)} Hz : la maison prend ${f(house)} m³/h${fillTxt}, pression tenue à ${f(st.x)} bar` : 'en veille : consommation trop faible';
@@ -233,6 +245,8 @@ export interface SimState {
   aqN?: number; // rabattement qu'aurait un forage sain au même débit (référence de la sonde)
   aqS?: number; // forage : rabattement actuel de la nappe sous le niveau statique (m)
   aqDry?: boolean; // forage : l'eau est descendue sous l'entrée de la pompe (le forage ne suit pas)
+  jk?: boolean; // pompe jockey (incendie) en marche
+  jkStarts?: number;
   bkQ?: number; // débit qui entre dans le réservoir par le robinet à flotteur (m³/h)
   bkVo?: boolean; // robinet à flotteur différentiel ouvert (de « bas » jusqu'à plein)
   bkOpen?: boolean; // électrovanne (normalement ouverte) de sortie du réservoir de secours : ouverte
@@ -505,9 +519,19 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (kind === 'vessel' && v) {
       const vt = (v.vol / 1000) * (fx.vesselK ?? 1); // m³ utiles
       // Incendie : la pompe jockey compense les petites fuites, la soupape de circulation fait passer un débit minimal
-      const jockeyQ = fireMode && i.acc.jockey?.on ? Math.max(0.3, i.duty.qReq * 0.03) : 0;
+      // Réseau incendie en veille : petites fuites (joints, robinets de purge) qui font lentement baisser la pression
+      const fireLeak = fireMode ? i.duty.qReq * 0.02 : 0;
       const circQ = fireMode && i.acc.soupape_circ?.on && st.on ? Math.max(0.3, i.pump.qn * 0.03) : 0;
-      const qd = Math.max(0, houseNet + leakQ + fillQ - jockeyQ) + circQ;
+      const qd = houseNet + leakQ + fillQ + fireLeak + circQ;
+      // Pompe jockey : relance sous (démarrage principal + 0,5 bar), s'arrête près de la pression d'arrêt ; elle ne suit pas un vrai puisage
+      const jkQ0 = fireMode && i.acc.jockey?.on && v ? Math.max(0.5, i.duty.qReq * 0.06) : 0;
+      if (jkQ0 && v) {
+        const wasJk = !!st.jk;
+        if (!st.on && st.x <= v.pOn + 0.5 && st.t >= st.outageUntil) st.jk = true;
+        if (st.x >= v.pOff - 0.1 || st.on || st.t < st.outageUntil) st.jk = false;
+        if (st.jk && !wasJk) { st.jkStarts = (st.jkStarts ?? 0) + 1; }
+      } else st.jk = false;
+      const jkQ = st.jk ? jkQ0 : 0;
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
       if (st.x <= v.pOn) start();
       if (st.on && st.x >= v.pOff && fireManual) once('fire_nostop', { t: st.t, sev: 'info', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte : pompe incendie maintenue en marche (arrêt manuel uniquement, au coffret)`, target: 'acc:coffret_inc' });
@@ -531,7 +555,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         if (st.q < circQ && st.x >= pC - 0.05) { st.q = circQ; st.x = Math.min(st.x, pC); }
       }
       if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
-      vw += ((st.q - qd) / 3600) * sub;
+      vw += ((st.q + jkQ - qd) / 3600) * sub;
       const pMax = Math.max(0, (h0 + (isForage(i) ? pressZ(i) : Math.max(0, suctionZ(i)))) * rhoG / 1e5);
       // Vessie vide : robinets ouverts, la pression du réseau s'effondre aussitôt (lentement si personne ne puise)
       if (vw <= 0 && serie && bc && st.on && st.q > 0.05) {
