@@ -10,7 +10,7 @@ import { aquiferOf, withAquifer } from '../aquifer';
 import { fireCfg } from '../fire';
 import { FORMATIONS, SLOTS, screenCalc, screenProposal, type FormationId } from '../borehole';
 import { PRESETS, autoEquip, blank, fluidForPump, makeFluid } from '../presets';
-import { BORE_SIZES, sizeLabel, sizeOf } from '../borepump';
+import { BORE_SIZES, sizeOf } from '../borepump';
 import { fitBore } from '../sizing';
 import type { FireCfg, AccState, AppId, FluidId, Installation, ModeId, Need, PipeMatId, PipeRun, PumpMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, Section, SelField, TextField, Toggle } from './Fields';
