@@ -1505,3 +1505,31 @@ html, body { overflow-x: clip; }
 .dcauses > p.muted { margin: 10px 0 0; }
 
 .pce-row.n3 { grid-template-columns: repeat(3, minmax(0, 1fr)) 34px; }
+
+/* Lecture d'une fiche de pompe (image / PDF) */
+.cimp-bd { padding: 8px; }
+.modal.cimp { width: min(980px, 100%); max-height: 96vh; display: flex; flex-direction: column; gap: 10px; padding: 14px 14px 16px; }
+.cimp .modal-head { margin-bottom: 2px; }
+.cimp .modal-head h2 { display: flex; align-items: center; gap: 8px; font-size: 1.1rem; }
+.cimp-load { display: flex; flex-direction: column; gap: 12px; }
+.cimp-load label.btn { cursor: pointer; justify-content: center; }
+.cimp-steps { display: flex; gap: 6px; list-style: none; padding: 0; margin: 0; }
+.cimp-steps li { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: .78rem; font-weight: 700; background: var(--input); color: var(--muted); border: 1px solid var(--line); }
+.cimp-steps li.on { background: var(--accent, #1689c6); color: #fff; border-color: transparent; }
+.cimp-steps li.done { background: var(--good-bg); color: var(--good-ink); }
+.cimp-help { font-size: .9rem; line-height: 1.4; }
+.cimp-help small { display: block; color: var(--muted); margin-top: 2px; }
+.cimp-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cimp-tol { display: flex; align-items: center; gap: 6px; font-size: .82rem; color: var(--muted); }
+.cimp-tol input { width: 110px; }
+.cimp-man { display: flex; align-items: center; gap: 6px; font-size: .85rem; }
+.cimp-wrap { overflow: auto; max-height: 58vh; border: 1px solid var(--line); border-radius: 10px; background: #fff; -webkit-overflow-scrolling: touch; }
+.cimp-cv { display: block; cursor: crosshair; }
+.cimp-val { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--input); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }
+.cimp-val label { display: flex; align-items: center; gap: 6px; font-size: .88rem; }
+.cimp-val input { width: 90px; padding: 7px 8px; border-radius: 7px; border: 1px solid var(--input-bd); background: var(--panel); font-size: 1rem; }
+.cimp-nudge { display: flex; gap: 4px; }
+.cimp-nav { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.cimp-info { display: flex; flex-direction: column; gap: 10px; }
+.cimp-tbl .pce-row span { font-size: .9rem; }
+.cimp-open { align-self: flex-start; margin: 4px 0 6px; }

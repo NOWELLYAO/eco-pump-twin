@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, MapPin, Wand2, X } from 'lucide-react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, ArrowRight, Check, FileImage, MapPin, Wand2, X } from 'lucide-react';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_TYPES, withPipesFor } from '../catalog';
 import { evaluate, withPipe } from '../evaluate';
 import { ensureElec, SUPPLY_LABEL, START_LABEL } from '../electrical';
@@ -11,6 +11,8 @@ import { HealthRing, LevelIcon } from '../../ui/Status';
 import { touch, trackedFields } from '../defaults';
 import { NumField, SelField, TextField } from './Fields';
 import { proposePump } from '../sizing';
+import { syncNominal } from './PumpCurveEditor';
+const CurveImport = lazy(() => import('./CurveImport').then((m) => ({ default: m.CurveImport })));
 import { sizeLabel, sizeOf } from '../borepump';
 export { proposePump };
 
@@ -168,6 +170,7 @@ function Cards<T extends string>({ items, value, onPick }: { items: { v: T; l: s
 const NEED_ORDER: Record<Need, number> = { required: 0, recommended: 1, avoid: 2, optional: 3, na: 9 };
 
 export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: Installation) => void }) {
+  const [imp, setImp] = useState(false);
   const [k, setK] = useState(0);
   const [d, setD] = useState<Installation>(() => {
     const i = empty('forage');
@@ -435,7 +438,10 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
           )}
           {ownPump && (
             <div className="igrid">
-              <p className="ihint wide">Recopiez la plaque ou la fiche constructeur (point de meilleur rendement).</p>
+              <p className="ihint wide">Recopiez la plaque ou la fiche constructeur (point de meilleur rendement), ou faites lire la courbe :</p>
+              <button type="button" className="btn primary sm wide cimp-open" onClick={() => setImp(true)}><FileImage size={14} aria-hidden /> Lire la courbe sur la fiche (image ou PDF)</button>
+              {imp && <Suspense fallback={null}><CurveImport onClose={() => setImp(false)} onApply={(r) => { setImp(false); set((x) => ({ ...x, pump: syncNominal({ ...x.pump, pts: r.pts, usePts: true, motorKw: r.motorKw ?? x.pump.motorKw, nn: r.nn ?? x.pump.nn, model: r.model ?? x.pump.model }) })); }} /></Suspense>}
+              {d.pump.usePts && (d.pump.pts?.length ?? 0) >= 3 && <p className="ihint ok wide">Courbe lue{d.pump.model ? ` (${d.pump.model})` : ''} : {d.pump.pts!.length} points, meilleur rendement à {fx(d.pump.qn)} m³/h et {fx(d.pump.hn, 0)} m.</p>}
               <NumField label="Débit nominal" unit="m³/h" value={d.pump.qn} onChange={(v) => v > 0 && pump({ qn: v })} />
               <NumField label="Hauteur nominale" unit="m" value={d.pump.hn} onChange={(v) => v > 0 && pump({ hn: v })} />
               <NumField label="Puissance moteur" unit="kW" value={d.pump.motorKw} onChange={(v) => v > 0 && pump({ motorKw: v })} />

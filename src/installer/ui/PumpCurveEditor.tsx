@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { LineChart, Plus, Trash2, Wand2 } from 'lucide-react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
+import { FileImage, LineChart, Plus, Trash2, Wand2 } from 'lucide-react';
+const CurveImport = lazy(() => import('./CurveImport').then((m) => ({ default: m.CurveImport })));
 import { fitCurve, ptsFromNominal, validPts, type PPt } from '../pumpcurve';
 import type { Installation } from '../types';
 import { Toggle } from './Fields';
@@ -38,6 +39,7 @@ export function syncNominal(p: Installation['pump']): Installation['pump'] {
 
 export function PumpCurveEditor({ pump, onChange, npsh = true }: { pump: Installation['pump']; onChange: (p: Installation['pump']) => void; npsh?: boolean }) {
   const pts = pump.pts ?? [];
+  const [imp, setImp] = useState(false);
   const f = fitCurve(pts);
   const valid = validPts(pts);
   const set = (np: PPt[], use = pump.usePts) => onChange(syncNominal({ ...pump, pts: np, usePts: use }));
@@ -58,6 +60,13 @@ export function PumpCurveEditor({ pump, onChange, npsh = true }: { pump: Install
     <div className="pce">
       <h4 className="isub"><LineChart size={15} aria-hidden /> Courbe du fabricant</h4>
       <p className="ihint">Relevez 3 à 8 points sur la courbe de la fiche technique (débit, hauteur ; rendement{npsh ? ' et NPSH requis' : ''} si disponibles). Plus il y a de points, plus les calculs sont justes, surtout loin du point nominal.</p>
+      <button type="button" className="btn primary sm cimp-open" onClick={() => setImp(true)}><FileImage size={14} aria-hidden /> Lire la courbe sur une fiche (image ou PDF)</button>
+      {pump.model && <p className="ihint">Pompe : <b>{pump.model}</b></p>}
+      {imp && (
+        <Suspense fallback={null}>
+          <CurveImport onClose={() => setImp(false)} onApply={(r) => { setImp(false); onChange(syncNominal({ ...pump, pts: r.pts, usePts: true, motorKw: r.motorKw ?? pump.motorKw, nn: r.nn ?? pump.nn, model: r.model ?? pump.model })); }} />
+        </Suspense>
+      )}
       <Toggle label="Utiliser cette courbe pour tous les calculs" checked={!!pump.usePts} onChange={(v) => set(pts.length ? pts : ptsFromNominal(pump.qn, pump.hn, pump.shutoff, pump.eta, pump.npshr), v)} />
       {(pump.usePts || pts.length > 0) && (
         <>

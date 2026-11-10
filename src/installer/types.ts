@@ -42,6 +42,7 @@ export interface InstPump {
   alternate?: boolean; // permutation automatique
   pts?: import('./pumpcurve').PPt[]; // courbe constructeur (une pompe, vitesse nominale)
   usePts?: boolean; // utiliser la courbe constructeur plutôt que le modèle à un point
+  model?: string; // référence de la pompe (lue sur la fiche du fabricant)
 }
 
 export interface Geometry {
