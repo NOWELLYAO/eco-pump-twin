@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, ChevronDown, Eye, HelpCircle, RotateCcw, Shuffle, Stethoscope, Wrench, XCircle, Zap } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Fuel, Eye, HelpCircle, RotateCcw, Shuffle, Stethoscope, Wrench, XCircle, Zap } from 'lucide-react';
 import { FAULTS, FAULT_CAT, SYM_LABEL, diagnose, faultById, type FaultCat, type FaultDef, type Sym } from '../faults';
 import { PARTS } from '../catalog';
 import type { SimKind } from '../sim';
@@ -31,9 +31,10 @@ function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boole
   );
 }
 
-export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
+export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, genEmpty, onRefuel, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
   inst: Installation; kind: SimKind; active: string[]; obs: Sym[];
-  design?: Issue[]; onIssue?: (x: Issue) => void; onFix?: (x: Issue) => void; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
+  design?: Issue[]; onIssue?: (x: Issue) => void; onFix?: (x: Issue) => void;
+  genEmpty?: boolean; onRefuel?: () => void; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
   mystery: Mystery | null;
   onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void;
   onRepair: (id: string) => void; onRepairAll: () => void; onRearm: () => void; onShow: (t: string) => void;
@@ -55,6 +56,13 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
           <Zap size={16} aria-hidden />
           <span><b>Pompe 1 isolée : {isolated}</b> — {spare ? 'la pompe de secours a pris le relais.' : 'l\'installation continue avec une pompe de moins (débit réduit).'}</span>
           <button type="button" className="btn sm" onClick={onRearm}><RotateCcw size={14} aria-hidden /> Réarmer</button>
+        </div>
+      )}
+      {genEmpty && (
+        <div className="fstate out">
+          <Fuel size={16} aria-hidden />
+          <span><b>Réservoir de gasoil vide</b> — le groupe s'est arrêté, plus de courant pour la pompe.</span>
+          {onRefuel && <button type="button" className="btn sm" onClick={onRefuel}><Fuel size={14} aria-hidden /> Faire le plein</button>}
         </div>
       )}
       {(trip || outageLeft > 0) && (

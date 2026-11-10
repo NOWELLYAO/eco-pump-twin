@@ -1533,3 +1533,25 @@ html, body { overflow-x: clip; }
 .cimp-info { display: flex; flex-direction: column; gap: 10px; }
 .cimp-tbl .pce-row span { font-size: .9rem; }
 .cimp-open { align-self: flex-start; margin: 4px 0 6px; }
+
+/* Groupe électrogène et réseau */
+.r-acline { fill: none; stroke: #3a4652; stroke-width: 1.6; stroke-dasharray: 7 3; }
+.r-acline.off { stroke: #aab3bc; }
+.r-gencase { fill: #f2b705; stroke: #8a6a00; stroke-width: 1.5; }
+.r-gen.on .r-gencase { animation: genshake .12s linear infinite; transform-box: fill-box; }
+@keyframes genshake { 0%,100% { transform: translate(0,0); } 50% { transform: translate(.6px,-.4px); } }
+.r-genskid { fill: #5b6772; }
+.r-gengrille { stroke: #8a6a00; stroke-width: 2; opacity: .55; }
+.r-genpanel { fill: #1d2a35; }
+.r-genled { fill: #9aa4ad; } .r-genled.on { fill: #3cc35f; }
+.r-genfuelbg { fill: #fff; stroke: #8a6a00; stroke-width: 1; }
+.r-genfuel { fill: #2f9e44; } .r-genfuel.low { fill: #e03131; }
+.r-genexh { fill: none; stroke: #5b6772; stroke-width: 4; stroke-linecap: round; }
+.r-exh circle { fill: #9aa4ad; opacity: 0; animation: exh 1.8s ease-out infinite; transform-box: fill-box; transform-origin: center; }
+.r-exh.black circle { fill: #222; }
+@keyframes exh { 0% { opacity: .75; transform: translate(0,0) scale(.6); } 100% { opacity: 0; transform: translate(16px,-26px) scale(2.6); } }
+.r-pole { stroke: #6b5a45; stroke-width: 5; stroke-linecap: round; }
+.r-pole.thin { stroke-width: 3; }
+.r-insul { fill: #c9d1d8; stroke: #5b6772; stroke-width: 1; }
+.r-transfo { fill: #8a96a3; stroke: #4a545e; stroke-width: 1.2; }
+@media (prefers-reduced-motion: reduce) { .r-gen.on .r-gencase { animation: none; } }

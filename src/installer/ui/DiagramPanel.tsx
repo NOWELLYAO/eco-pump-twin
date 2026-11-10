@@ -141,6 +141,14 @@ function Detail({ t, i, ev, onIssue, onSet, onClose }: {
   } else if (t === 'pv' && ev.elec.solar) {
     const s = ev.elec.solar;
     rows.push(['Panneaux', `${s.n} × ${i.elec.solar.panelWc} Wc (${s.ns} série × ${s.np})`], ['Puissance crête', `${fmt(s.wc / 1000, 2)} kWc`], ['Volume / jour', `≈ ${fmt(s.dailyM3, 1)} m³`], ['Surface', `≈ ${fmt(s.area, 0)} m²`]);
+  } else if (t === 'gen') {
+    const g = ev.elec.gen;
+    rows.push(['Groupe conseillé', `${g.kva} kVA (besoin ${fmt(g.need, 1)} kVA)`], ['Installé', i.elec.genKva ? `${i.elec.genKva} kVA` : 'à choisir'],
+      ['Moteur diesel', `≥ ${fmt(g.dieselKw, 0)} kW (${fmt(Math.max(150, i.geo.altitude), 0)} m, 40 °C)`],
+      ['Gasoil', `≈ ${fmt(0.28 * (i.pump.motorKw / 0.88) + 0.07 * (i.elec.genKva || g.kva) * 0.8, 1)} L/h pompe en marche · ${fmt(0.07 * (i.elec.genKva || g.kva) * 0.8, 1)} L/h à vide`],
+      ['Calcul', g.why]);
+  } else if (t === 'grid') {
+    rows.push(['Alimentation', i.elec.supply === 'tri' ? 'Réseau triphasé 400 V, 50 Hz' : 'Réseau monophasé 230 V, 50 Hz'], ['Courant moteur', `${fmt(ev.elec.inom, 1)} A · ${fmt(ev.elec.istart, 0)} A au démarrage`], ['Chute de tension', `${fmt(ev.elec.dropStart, 1)} % au démarrage`]);
   } else if (t === 'source') {
     if (i.pumpType === 'immergee_forage') rows.push(['Niveaux', `statique ${i.geo.staticLevel} m · dynamique ${i.geo.dynamicLevel} m`], ['Forage', `${i.geo.boreDepth} m · Ø ${i.geo.boreDia} mm`], ['Pompe', `à ${i.geo.pumpDepth} m`]);
     else if (i.mode === 'immergee') rows.push(['Volume utile', `${i.geo.tankVolume} L`], ['Eau au-dessus de la pompe', `${i.geo.wetLevel} m`]);

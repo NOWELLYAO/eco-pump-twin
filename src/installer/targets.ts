@@ -40,5 +40,5 @@ export const photoQuery = (target: string, pumpType: string) => PHOTO_EN[target 
 
 export function targetLabel(t: string): string {
   if (t.startsWith('acc:')) return ACC[t.slice(4)]?.label ?? t;
-  return ({ pump: 'Pompe et moteur', asp: 'Conduite d\'aspiration', ref: 'Conduite de refoulement', cable: 'Coffret et câble électrique', pv: 'Champ solaire', source: 'Source / ouvrage', dest: 'Destination' } as Record<string, string>)[t] ?? PARTS[t] ?? t;
+  return ({ pump: 'Pompe et moteur', asp: 'Conduite d\'aspiration', ref: 'Conduite de refoulement', cable: 'Coffret et câble électrique', pv: 'Champ solaire', gen: 'Groupe électrogène', grid: 'Réseau électrique', source: 'Source / ouvrage', dest: 'Destination' } as Record<string, string>)[t] ?? PARTS[t] ?? t;
 }

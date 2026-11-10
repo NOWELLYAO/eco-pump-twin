@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
-import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
+import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, genSpec, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
 import { LevelIcon } from '../../ui/Status';
@@ -105,6 +105,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
     setFaultT({});
     setSim((st) => note('ok', 'Toutes les pannes réparées, protections réarmées')(cleared({ ...st, outageUntil: 0 })));
   };
+  const refuel = () => setSim((st) => (st.gen ? note('ok', `Plein de gasoil fait (${Math.round(st.gen.tank)} L)`, 'gen')({ ...st, gen: { ...st.gen, fuel: st.gen.tank } }) : st));
   const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_sous_charge: undefined, decl_variateur: undefined } }));
   const startMystery = () => {
     const cands = FAULTS.filter((f) => f.applies(iSim, kind) && !mods.faults.includes(f.id));
@@ -132,7 +133,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   useEffect(() => { if (snd) soundUpdate(acou, sim.on, kind === 'vfd' || kind === 'solar' ? sim.s * 50 : 50); }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => soundOff(), []);
   const toggleSnd = () => { if (snd) { soundOff(); setSnd(false); } else { soundOn(); setSnd(true); } };
-  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, ac: acou, leakQ: sim.leakQ ?? 0, leakVol: sim.leakVol ?? 0, circOnly: !!sim.circOnly, jk: !!sim.jk, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
+  const live = { why, bk: sim.bk, bkFeed: !!sim.bkFeed, bkFill: !!sim.bkFill, bkOpen: !!sim.bkOpen, ac: acou, leakQ: sim.leakQ ?? 0, leakVol: sim.leakVol ?? 0, circOnly: !!sim.circOnly, jk: !!sim.jk, clog: sim.clog ?? 0, lvl: ctx.i.pumpType === 'immergee_forage' ? ctx.i.geo.staticLevel + (sim.aqS ?? 0) + sim.dd : undefined, bkQ: sim.bkQ ?? 0, bkLatch: sim.bkLatch ?? null, lowLevel: !!sim.lowLevel, phys, overflow: sim.overflow, backDrop: sim.backDrop, syms: obs, runTot: sim.runTot ?? 0, startLog: sim.startLog, simT: sim.t, use: useRel, inflow: kind === 'pit' ? cNow : 0, isolated: !!sim.isolated, faults: mods.faults, powered: sim.t >= sim.outageUntil && (!sim.gen || sim.gen.run), gen: sim.gen ? { run: sim.gen.run, fuel: sim.gen.fuel / Math.max(1, sim.gen.tank), liters: sim.gen.fuel, hz: sim.gen.hz, v: sim.gen.v, temp: sim.gen.temp, lph: sim.gen.lph, why: sim.gen.why ?? null, smoke: !sim.gen.run ? null : mods.faults.includes('gen_filtre_air') ? 'black' as const : 'grey' as const, kva: genSpec(ctx.i, ctx.er).kva } : undefined, grid: ctx.i.elec.supply === 'mono' || ctx.i.elec.supply === 'tri' ? { v: sim.t < sim.outageUntil ? 0 : (ctx.i.elec.supply === 'mono' ? 230 : 400) * (mods.faults.includes('sous_tension') ? 0.85 : 1) } : undefined, runaway: sim.runaway, dd: sim.dd, trip: sim.trip, tripKind: sim.tripKind, hum: sim.hum, noFlow: sim.noFlow, vesFill, floatPit: ctx.fx.floatPit, floatRes: ctx.fx.floatRes, on: sim.on, r, kind, x: sim.x, pv: kind === 'solar' ? sim.pv : undefined, clock: clock(sim.t), events: sim.events, starts: sim.starts, vol: sim.vol, kwh: sim.kwh, hz: kind === 'vfd' || kind === 'solar' ? sim.s * 50 : hasVfd ? (mods.speed / 100) * 50 : undefined };
   // Vue réelle de la page Conception : la même simulation, en direct
   useEffect(() => { onLive?.({ live, i: iView, ev: evSim, playing, setPlaying, clock: clock(sim.t), rate }); }, [sim, iView, evSim, playing, rate]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
@@ -159,7 +160,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
         <section className="card simctl">
           <button className={`power ${sim.trip ? 'fault' : sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
             <Power size={26} aria-hidden />
-            <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'la pompe tourne') : 'arrêtée par l\'automatisme') : 'cliquez pour démarrer'}</small></span>
+            <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.gen && sim.master && !sim.gen.run ? `groupe arrêté : ${sim.gen.why ?? 'défaut'}` : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'la pompe tourne') : 'arrêtée par l\'automatisme') : 'cliquez pour démarrer'}</small></span>
           </button>
           {why && <p className={`why-run${/ANORMALE/.test(why) ? ' bad' : ''}`}><b>Pourquoi ?</b> {why.charAt(0).toUpperCase() + why.slice(1)}</p>}
           <button type="button" className={`btn full sndbtn${snd ? ' on' : ''}`} onClick={toggleSnd}>{snd ? '🔇 Couper le son' : '🔊 Écouter la pompe'}</button>
@@ -225,7 +226,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
       <div className="sim-main">
         <div className="mpower">
           <button className={`power ${sim.trip ? 'fault' : sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
-            <Power size={22} aria-hidden /><span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{clock(sim.t)} · {sim.trip ? 'DÉFAUT' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.on ? (sim.hum ? 'moteur bloqué' : sim.noFlow ? 'sans débit' : 'la pompe tourne') : 'pompe arrêtée'}</small></span>
+            <Power size={22} aria-hidden /><span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{clock(sim.t)} · {sim.trip ? 'DÉFAUT' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.gen && sim.master && !sim.gen.run ? 'groupe arrêté' : sim.on ? (sim.hum ? 'moteur bloqué' : sim.noFlow ? 'sans débit' : 'la pompe tourne') : 'pompe arrêtée'}</small></span>
           </button>
           <button className="icon-btn" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Lecture'}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
         </div>
@@ -270,7 +271,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
             <button type="button" className="btn primary sm" onClick={() => s.set((x) => ({ ...x, acc: { ...x.acc, flotteur_marche: { ...((x.acc.flotteur_marche as AccState | undefined) ?? { dn: 0, qty: 1 }), on: true }, flotteur_arret: { ...((x.acc.flotteur_arret as AccState | undefined) ?? { dn: 0, qty: 1 }), on: true }, flotteur_alarme: { ...((x.acc.flotteur_alarme as AccState | undefined) ?? { dn: 0, qty: 1 }), on: true } } }))}>Ajouter les flotteurs (marche, arrêt, alarme)</button>
           </div>
         )}
-        <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} isolated={sim.isolated} spare={(s.inst.pump.standby ?? 0) > 0} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery}
+        <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} isolated={sim.isolated} spare={(s.inst.pump.standby ?? 0) > 0} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery} genEmpty={!!sim.gen && sim.gen.fuel <= 0 && !mods.faults.includes('gen_gasoil')} onRefuel={refuel}
           design={s.ev.issues.filter((x) => x.sev === 'critical')} onIssue={(x) => s.selectIssue(x)} onFix={(x) => { const fx = x.fix; if (fx) { s.set((i) => fx.apply(i)); rearm(); } }}
           onToggle={toggleFault} onMystery={startMystery} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
           onRepair={(id) => { repair(id); if (mystery?.id === id) setMystery(null); }} onRepairAll={repairAll} onRearm={rearm}

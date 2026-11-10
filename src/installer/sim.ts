@@ -204,6 +204,26 @@ export function simKind(i: Installation): SimKind {
   return 'continuous';
 }
 
+/** Groupe électrogène simulé : carburant, température du moteur diesel, calages, tension et fréquence. */
+export interface GenState {
+  run: boolean; // moteur diesel en marche
+  fuel: number; tank: number; // gasoil restant / capacité (L)
+  temp: number; // température du liquide de refroidissement (°C)
+  hot?: boolean; // arrêté sur défaut température, en attente de refroidissement
+  stallUntil?: number; // calé (filtre à gasoil) jusqu'à t, redémarrage automatique
+  runS?: number; // temps de marche depuis le dernier calage (s)
+  hz: number; v: number; // fréquence et tension délivrées
+  lph: number; // consommation instantanée (L/h)
+  why?: string | null; // raison de l'arrêt
+}
+/** Groupe : puissance retenue, réservoir (≈ 12 h à pleine charge, 0,28 L/kWh). */
+export function genSpec(i: Installation, er: ElecResult) {
+  const kva = i.elec.genKva > 0 ? i.elec.genKva : er.genKva;
+  const pr = kva * 0.8;
+  const tank = Math.max(20, Math.ceil((0.28 * pr * 12) / 5) * 5);
+  return { kva, pr, tank };
+}
+
 export interface SimEvent { t: number; sev: 'info' | 'warning' | 'critical' | 'ok'; text: string; target?: string }
 export interface SimPoint { t: number; a: number | null; b: number | null; c: number | null }
 export interface SimState {
@@ -273,6 +293,7 @@ export interface SimState {
   blocked: boolean; // le démarrage est demandé mais impossible
   backDrop: boolean; // la pression / le niveau chute pompe arrêtée
   isolated: string | null; // pompe 1 en défaut, isolée : les autres pompes continuent (message)
+  gen?: GenState; // groupe électrogène (alimentation « groupe »)
 }
 
 export const clock = (t: number) => {
@@ -304,6 +325,7 @@ export function initSim(ctx: SimCtx): SimState {
   return {
     t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [],
     bk: backupOf(ctx.i) ? 1 : undefined,
+    gen: ctx.i.elec.supply === 'groupe' ? { run: true, fuel: genSpec(ctx.i, er).tank, tank: genSpec(ctx.i, er).tank, temp: 70, hz: 50, v: 400, lph: 0, why: null } : undefined,
     trip: null, tripKind: null, recent: {}, hum: false, primed: true, noFlow: false, runT: 0, outageUntil: 0, dd: 0, startLog: [], runaway: false, blocked: false, backDrop: false, isolated: null,
   };
 }
@@ -482,7 +504,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   // Poste de relevage / drainage alimenté par panneaux solaires (sans batterie) : pas de soleil, pas de pompe
   const solarPit = kind === 'pit' && i.elec.supply === 'solaire';
   const pFullPit = Math.max(0.1, h.pElec / 0.95);
-  const sunOk = () => !solarPit || sunKw(ctx, hourOf(st.t)) >= 0.35 * pFullPit;
+  const sunOk = () => (!solarPit || sunKw(ctx, hourOf(st.t)) >= 0.35 * pFullPit) && genUp();
+  // Groupe électrogène : il faut qu'il tourne pour qu'il y ait du courant
+  const isGen = i.elec.supply === 'groupe';
+  if (isGen && !st.gen) st.gen = { run: true, fuel: genSpec(i, er).tank, tank: genSpec(i, er).tank, temp: 70, hz: 50, v: 400, lph: 0, why: null };
+  const genUp = () => !isGen || !!st.gen?.run;
   const start = () => {
     if (st.on) return;
     if (!st.master) return;
@@ -534,9 +560,45 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       for (let it = 0; it < 24; it++) { const m = (lo + hi) / 2; if (pumpHead(i, m) - systemHeadAt(i, m) - dL > 0) lo = m; else hi = m; }
       return lo;
     };
+    if (isGen && st.gen) {
+      const g = { ...st.gen }; const gs = genSpec(i, er);
+      const was = g.run;
+      // Pannes du groupe
+      if (fx.gen === 'fuel' && !st.flags!.genFuelOut) { st.flags!.genFuelOut = true; g.fuel = 0; }
+      if (fx.gen !== 'fuel' && st.flags!.genFuelOut) { st.flags!.genFuelOut = false; g.fuel = g.tank; newEv.push({ t: st.t, sev: 'ok', text: 'Plein de gasoil fait et circuit purgé : le groupe redémarre', target: 'gen' }); }
+      const battery = fx.gen === 'battery';
+      if (g.stallUntil != null && st.t >= g.stallUntil) { g.stallUntil = undefined; g.runS = 0; newEv.push({ t: st.t, sev: 'info', text: 'Le groupe a redémarré', target: 'gen' }); }
+      if (g.hot && g.temp < 72) { g.hot = false; if (!battery) newEv.push({ t: st.t, sev: 'info', text: 'Groupe refroidi : redémarrage', target: 'gen' }); }
+      // Marche si : demandé (automatisme actif), du gasoil, pas calé, pas en surchauffe, batterie bonne
+      const want = st.master;
+      g.run = want && g.fuel > 0 && g.stallUntil == null && !g.hot && !battery;
+      g.why = !want ? 'arrêt manuel' : g.fuel <= 0 ? 'plus de gasoil' : battery ? 'ne démarre pas (batterie)' : g.hot ? 'surchauffe' : g.stallUntil != null ? 'calé (filtre à gasoil)' : null;
+      if (was && !g.run && g.fuel <= 0) { seen('gen_jauge_vide', 'pas_de_tension'); newEv.push({ t: st.t, sev: 'critical', text: 'Le groupe cale : réservoir de gasoil vide', target: 'gen' }); }
+      if (battery && !st.flags!.genBatt) { st.flags!.genBatt = true; seen('gen_demarreur', 'pas_de_tension'); newEv.push({ t: st.t, sev: 'critical', text: 'Groupe arrêté puis relancé : le démarreur cliquette sans lancer le moteur (batterie à plat)', target: 'gen' }); }
+      if (!battery) st.flags!.genBatt = false;
+      // Charge électrique et consommation de gasoil (0,07 × Pr à vide + 0,28 L/kWh)
+      const loadKw = st.on && !st.hum ? Math.min(gs.pr * 1.1, h.pElec * Math.max(0.3, st.q > 0 && h.q > 0 ? Math.min(1.1, st.q / h.q) : 0.6)) : 0;
+      g.lph = g.run ? 0.07 * gs.pr + 0.28 * loadKw * (fx.gen === 'airFilter' ? 1.15 : 1) : 0;
+      if (g.run) { g.fuel = Math.max(0, g.fuel - (g.lph * sub) / 3600); g.runS = (g.runS ?? 0) + sub; }
+      if (g.run && g.fuel < g.tank * 0.1) once('genLow', { t: st.t, sev: 'warning', text: `Gasoil bas : ${f1(g.fuel, 0)} L restants (≈ ${f1(g.fuel / Math.max(0.1, g.lph), 1)} h)`, target: 'gen' });
+      if (g.fuel >= g.tank * 0.1) st.flags!.genLow = false;
+      // Température du moteur diesel
+      const tTarget = g.run ? (fx.gen === 'overheat' ? 118 : fx.gen === 'airFilter' ? 92 : 82) : 32;
+      g.temp += (tTarget - g.temp) * Math.min(1, sub / (g.run ? 900 : 1200));
+      if (g.run && g.temp >= 105) { g.hot = true; g.run = false; seen('gen_surchauffe', 'pas_de_tension'); newEv.push({ t: st.t, sev: 'critical', text: `Groupe arrêté en sécurité : moteur diesel à ${f1(g.temp, 0)} °C (radiateur / courroie)`, target: 'gen' }); }
+      // Filtre à gasoil colmaté : le régime galope et le groupe cale toutes les ~75 min de marche
+      if (g.run && fx.gen === 'fuelFilter') { seen('freq_instable'); if ((g.runS ?? 0) > 75 * 60) { g.run = false; g.stallUntil = st.t + 120; seen('pas_de_tension'); newEv.push({ t: st.t, sev: 'warning', text: 'Le groupe cale (manque de gasoil sous charge : filtre colmaté)', target: 'gen' }); } }
+      if (g.run && fx.gen === 'airFilter') seen('gen_fumee_noire');
+      g.why = !st.master ? 'arrêt manuel' : g.fuel <= 0 ? 'plus de gasoil' : battery ? 'ne démarre pas (batterie)' : g.hot ? 'surchauffe' : g.stallUntil != null ? 'calé (filtre à gasoil)' : null;
+      g.hz = !g.run ? 0 : fx.gen === 'fuelFilter' ? 50 + 2.8 * Math.sin(st.t / 6.3) : fx.gen === 'airFilter' && loadKw > 0 ? 48.6 : 50;
+      g.v = !g.run ? 0 : fx.gen === 'avr' ? 340 : 400;
+      if (!was && g.run && st.t > 6 * 3600 + 60 && !st.flags!.genStart) { st.flags!.genStart = true; newEv.push({ t: st.t, sev: 'ok', text: 'Groupe démarré', target: 'gen' }); }
+      if (!g.run) st.flags!.genStart = false;
+      st.gen = g;
+    }
     const power = st.t >= st.outageUntil && sunOk();
     if (solarPit) st.pv = sunKw(ctx, hr);
-    if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: solarPit && st.t >= st.outageUntil ? 'Soleil insuffisant : les panneaux ne peuvent plus faire tourner la pompe (pas de batterie)' : 'Coupure secteur : plus de tension, la pompe s\'arrête', target: solarPit ? 'pv' : 'cable' }); }
+    if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: solarPit && st.t >= st.outageUntil ? 'Soleil insuffisant : les panneaux ne peuvent plus faire tourner la pompe (pas de batterie)' : isGen && st.t >= st.outageUntil ? `Plus de courant : groupe arrêté (${st.gen?.why ?? 'défaut'}), la pompe s'arrête` : 'Coupure secteur : plus de tension, la pompe s\'arrête', target: solarPit ? 'pv' : isGen ? 'gen' : 'cable' }); }
     if (power && prev.outageUntil > 0 && st.t - sub < st.outageUntil && st.t >= st.outageUntil) newEv.push({ t: st.t, sev: 'ok', text: 'Retour du courant : redémarrage automatique possible', target: 'cable' });
     if (!st.master) { stop('arrêt manuel', true); st.q = 0; st.blocked = false; }
     // Moteur déjà lancé quand la panne apparaît : il cale et ronfle (rotor bloqué)
@@ -727,7 +789,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const qHouse = use(ctx, hr) * i.duty.qReq + leakQ;
       const wasFeed = !!st.bkFeed, wasFull = (st.bk ?? 1) >= 0.999, wasOpen = !!st.bkOpen;
       const pLow = Math.max(0.3, (kind === 'vfd' ? vfdSet(er) : v?.pOn ?? 3) - 0.6);
-      const power = st.t >= st.outageUntil;
+      const power = st.t >= st.outageUntil && genUp();
       if (power && !st.trip && !st.lowLevel && st.x < pLow && !st.bkFeed) st.bkLowT = (st.bkLowT ?? 0) + sub; else if (!st.bkFeed) st.bkLowT = 0;
       if (!st.bkLatch && (st.bkLowT ?? 0) >= 120) { st.bkLatch = `pression restée sous ${f1(pLow)} bar`; newEv.push({ t: st.t, sev: 'critical', text: `Défaut pompe (pression restée sous ${f1(pLow)} bar pendant 2 min) : le coffret ouvre l'électrovanne du réservoir de secours`, target: 'dest' }); }
       const why = !power ? 'coupure de courant' : st.trip ? 'disjonction' : st.lowLevel ? 'manque d\'eau au forage' : st.bkLatch ?? null;
@@ -1019,6 +1081,14 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const solarQ = kind === 'solar' ? atSpeed(normal.i, st.s) : null; // solaire : machine saine à la MÊME vitesse (même soleil)
   const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : solarQ ? Math.max(0.1, solarQ.q) : undefined, kind === 'vfd' || kind === 'solar' ? st.s : 1);
   if (st.t < st.outageUntil) { o.add('pas_de_tension'); o.add('ne_demarre_pas'); }
+  // Groupe électrogène à l'arrêt alors que l'installation est en marche
+  if (st.gen && st.master && !st.gen.run) {
+    o.add('pas_de_tension'); o.add('ne_demarre_pas');
+    if (st.gen.fuel <= 0) o.add('gen_jauge_vide');
+    if (st.gen.hot) o.add('gen_surchauffe');
+    if (fx.gen === 'battery') o.add('gen_demarreur');
+  }
+  if (st.gen?.run && fx.gen === 'avr') o.add('tension_basse');
   if ((st.trip || st.isolated) && st.tripKind) o.add(st.tripKind);
   // Symptômes passagers : ceux des 3 dernières heures, ou des 3 heures avant le déclenchement (tant qu'il n'est pas réarmé)
   const ref = (st.trip || st.isolated) && st.tripKind && st.recent[st.tripKind as Sym] != null ? st.recent[st.tripKind as Sym]! : st.t;
@@ -1087,12 +1157,12 @@ export const SERIES_LABEL: Record<SimKind, { a: string; unit: string; c?: string
 };
 
 /* ===================== Bruit et vibrations ===================== */
-export interface NoiseSrc { kind: NoiseKind | 'moteur' | 'ecoulement'; label: string; level: number }
+export interface NoiseSrc { kind: NoiseKind | 'moteur' | 'ecoulement' | 'groupe'; label: string; level: number }
 export interface Acoustic { vib: number; zone: 'A' | 'B' | 'C' | 'D'; sources: NoiseSrc[]; main: NoiseSrc | null; measurable: boolean }
 const NOISE_LABEL: Record<NoiseSrc['kind'], string> = {
   moteur: 'Ronronnement du moteur', ecoulement: 'Bruit d\'écoulement', cavitation: 'Bruit de gravier (cavitation)', roulements: 'Grondement / sifflement de roulements',
   magnetique: 'Ronflement magnétique (déséquilibre de phases)', ronflement: 'Ronflement fort, rotor bloqué', sifflement: 'Sifflement aigu', gargouillement: 'Gargouillement (air aspiré)',
-  barattage: 'Barattage de l\'eau (pompe sans débit)', claquement: 'Claquements', cognement: 'Cognements réguliers à chaque tour', sable: 'Crissement de sable', recirculation: 'Grondement de recirculation (débit trop faible)', balourd: 'Vibrations de balourd (roue déséquilibrée)',
+  barattage: 'Barattage de l\'eau (pompe sans débit)', claquement: 'Claquements', cognement: 'Cognements réguliers à chaque tour', sable: 'Crissement de sable', recirculation: 'Grondement de recirculation (débit trop faible)', balourd: 'Vibrations de balourd (roue déséquilibrée)', groupe: 'Groupe électrogène diesel',
 };
 /** Vibrations (mm/s eff., zones ISO 10816-3) et bruits du groupe, d'après l'état simulé et les pannes en cours. */
 export function acoustics(ctx: SimCtx, st: SimState): Acoustic {
@@ -1120,7 +1190,9 @@ export function acoustics(ctx: SimCtx, st: SimState): Acoustic {
   }
   // Coup de bélier récent : claquement sec dans la tuyauterie
   if (st.pPeak != null && st.pPeakT != null && st.t - st.pPeakT < 20 && st.pPeak > i.ref.pn * 0.6) add('claquement', 1);
+  // Groupe électrogène qui tourne : grondement du diesel (à part : ce n'est pas un bruit de la pompe)
+  if (st.gen?.run) src.push({ kind: 'groupe', label: NOISE_LABEL.groupe, level: ctx.fx.gen === 'fuelFilter' ? 0.75 + 0.25 * Math.sin(st.t / 6.3) : 0.8 });
   const zone = vib < 1.4 ? 'A' : vib < 2.8 ? 'B' : vib < 4.5 ? 'C' : 'D';
-  const main = src.filter((s) => s.kind !== 'moteur' && s.kind !== 'ecoulement').sort((a, b) => b.level - a.level)[0] ?? null;
+  const main = src.filter((s) => s.kind !== 'moteur' && s.kind !== 'ecoulement' && s.kind !== 'groupe').sort((a, b) => b.level - a.level)[0] ?? null;
   return { vib, zone, sources: src, main, measurable: i.mode !== 'immergee' };
 }

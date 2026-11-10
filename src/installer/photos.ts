@@ -60,6 +60,8 @@ const RULES: Record<string, Rule> = {
   ref: { ...R(PIPE, 'water pipeline', 'HDPE pipe', 'water pipe'), not: /heat|smoking|organ|tobacco|gas/i },
   cable: PANEL,
   pv: R(/solar|photovoltaic|\bPV\b/i, 'solar water pumping', 'solar panels array', 'photovoltaic array'),
+  gen: R(/generat|genset|diesel/i, 'diesel generator set', 'diesel generator', 'generator set'),
+  grid: R(/power|electric|transformer|pole|line/i, 'power line pole transformer', 'utility pole transformer', 'electricity pylon'),
   'acc:coffret': PANEL,
   'acc:clapet_pied': R(/foot.?valve/i, 'foot valve', 'foot valve strainer'),
   'acc:crepine': { ...R(/strainer|foot.?valve|intake.?screen/i, 'suction strainer', 'foot valve strainer', 'pump strainer'), not: /y.?strainer|basket/i },

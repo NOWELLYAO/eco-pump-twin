@@ -104,6 +104,8 @@ export interface Live {
   phys?: Phys;
   hz?: number;
   overflow?: boolean; backDrop?: boolean; lowLevel?: boolean;
+  gen?: { run: boolean; fuel: number; liters: number; hz: number; v: number; temp: number; lph: number; why: string | null; smoke: 'grey' | 'black' | null; kva: number };
+  grid?: { v: number };
   bk?: number; bkFeed?: boolean; bkFill?: boolean; bkOpen?: boolean; bkLatch?: string | null; bkQ?: number; ac?: import('../sim').Acoustic; jk?: boolean; circOnly?: boolean; leakQ?: number; leakVol?: number; lvl?: number; clog?: number; // réservoir de secours ; lvl : niveau de l'eau dans le forage (m)
 }
 /** Grandeurs physiques simulées */
@@ -796,6 +798,62 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       </g>,
     );
   }
+  // Largeur du titre (3 lignes en haut à gauche) : l'alimentation se dessine juste après, sans le recouvrir
+  const titleW = 16 + Math.max(
+    `${APPS[i.app].label} · ${fluid.label} · ${i.fluid.temp} °C`.length * 9.4,
+    `${asp ? `Asp DN${i.asp.dn} · ${PIPE_MATS[i.asp.material].label} · ${i.asp.length} m — ` : ''}Ref DN${i.ref.dn} · ${PIPE_MATS[i.ref.material].label} · ${i.ref.length} m`.length * 6.9,
+    44 * 6.9) + 26;
+  const supX = Math.max(430, Math.round(titleW));
+  // ---- Groupe électrogène : capot, échappement (fumée), réservoir, câble vers le coffret ----
+  if (i.elec?.supply === 'groupe') {
+    // Bandeau du haut, à droite du titre : la zone la plus libre de tous les schémas
+    const gx = supX + 16, gy = 26, gw = 96, gh = 40;
+    const g = live?.gen;
+    const run = live ? !!g?.run : false;
+    const kva = g?.kva ?? (i.elec.genKva || 0);
+    const fuel = g ? Math.max(0, Math.min(1, g.fuel)) : 1;
+    anchors.gen = { x: gx + gw + 14, y: gy + 42, r: 70 };
+    items.push(
+      <g key="gen" {...pick('gen')}>
+        <path d={`M${gx + 20} ${gy + gh + 6} C ${gx + 10} ${gy + gh + 50}, ${boxX + 40} ${boxY - 80}, ${boxX + 10} ${boxY - 30}`} className="r-acline" />
+        <g className={`r-obst r-gen${run ? ' on' : ''}`}>
+          <rect x={gx} y={gy + gh} width={gw} height={6} rx={1} className="r-genskid" />
+          <rect x={gx + 2} y={gy} width={gw - 4} height={gh} rx={6} className="r-gencase" />
+          {[0, 1, 2, 3].map((k) => <path key={k} d={`M${gx + 40 + k * 9} ${gy + 9} v${gh - 18}`} className="r-gengrille" />)}
+          <rect x={gx + 9} y={gy + 8} width={20} height={13} rx={2} className="r-genpanel" />
+          <circle cx={gx + 19} cy={gy + 30} r={4} className={run ? 'r-genled on' : 'r-genled'} />
+          {/* Jauge de gasoil */}
+          <rect x={gx + gw - 18} y={gy + 7} width={8} height={gh - 14} rx={2} className="r-genfuelbg" />
+          <rect x={gx + gw - 18} y={gy + 7 + (gh - 14) * (1 - fuel)} width={8} height={(gh - 14) * fuel} rx={2} className={`r-genfuel${fuel < 0.15 ? ' low' : ''}`} />
+          {/* Échappement */}
+          <path d={`M${gx + gw - 32} ${gy} v-8 h8`} className="r-genexh" />
+        </g>
+        {live && g?.smoke && <g className={`r-exh${g.smoke === 'black' ? ' black' : ''}`}>{[0, 1, 2, 3].map((k) => <circle key={k} cx={gx + gw - 22} cy={gy - 9} r={4} style={{ animationDelay: `${k * 0.45}s` }} />)}</g>}
+        {live && run && <g className="r-noise soft r-gennoise">{[0, 1, 2].map((k) => <path key={k} d={`M${gx - 5 - k * 6} ${gy + 8 - k * 3} q -5 ${12 + k * 3} 0 ${24 + k * 6}`} style={{ animationDelay: `${k * 0.25}s` }} />)}</g>}
+        <text x={gx + gw + 14} y={gy + 18} className="r-label">{`Groupe ${kva ? `${kva} kVA` : 'électrogène'}`}</text>
+      </g>,
+    );
+  }
+  // ---- Réseau électrique : poteau, transformateur, ligne aérienne jusqu'au coffret ----
+  if (i.elec?.supply === 'tri' || i.elec?.supply === 'mono') {
+    const px = supX + 24, py = 8;
+    const v = live?.grid?.v;
+    const off = live ? (v ?? 0) <= 0 : false;
+    anchors.grid = { x: px + 34, y: py + 36, r: 60 };
+    items.push(
+      <g key="grid" {...pick('grid')}>
+        <path d={`M${px - 22} ${py + 12} C ${px - 60} ${py + 60}, ${boxX + 60} ${boxY - 90}, ${boxX + 10} ${boxY - 30}`} className={`r-acline${off ? ' off' : ''}`} />
+        <g className="r-obst">
+          <path d={`M${px} ${py} V${py + 56}`} className="r-pole" />
+          <path d={`M${px - 22} ${py + 6} H${px + 22}`} className="r-pole thin" />
+          {(i.elec.supply === 'tri' ? [-18, 0, 18] : [-10, 10]).map((dx) => <circle key={dx} cx={px + dx} cy={py + 3} r={2.6} className="r-insul" />)}
+          <rect x={px + 5} y={py + 16} width={18} height={22} rx={3} className="r-transfo" />
+        </g>
+        {off && <g className="r-tbadge crit"><rect x={px + 34} y={py + 44} width={80} height={18} rx={9} /><text x={px + 74} y={py + 57} textAnchor="middle">COUPURE</text></g>}
+        <text x={px + 34} y={py + 18} className="r-label">{`Réseau ${i.elec.supply === 'tri' ? '400 V tri' : '230 V mono'}`}</text>
+      </g>,
+    );
+  }
   if (on('variateur') || isSolar) items.push(<g key="vfd"><g className="r-obst" transform={`translate(${boxX + 60},${boxY + 2})`}><RealGlyph kind="vfd" /></g><text x={boxX + 60} y={boxY - 36} textAnchor="middle" className="r-label">{isSolar ? 'MPPT' : 'Variateur'}</text></g>);
   if (on('marche_sec') && !forage && asp) {
     const [sx, sy] = asp[0];
@@ -825,14 +883,16 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       'acc:manometre': `${fx(pMano)} bar`, 'acc:vacuometre': `${fx(r.pAsp, 2)} bar`, 'acc:debitmetre': `${fx(qMeter)} m³/h`,
       'acc:capteur_p': `${fx(surp ? Math.max(0, live.x ?? 0) : r.pRef)} bar`, // posé après la vanne, sur le réseau 'acc:vessie': live.kind === 'vessel' || live.kind === 'vfd' ? `${fx(live.x)} bar${live.vesFill != null ? ` · ${Math.round(Math.max(0, Math.min(1, live.vesFill)) * 100)} % eau` : ''}` : '',
       cable: `${fx(r.amps)} A`, pv: live.pv != null ? `${fx(live.pv, 2)} kW` : '',
+      gen: live.gen ? (live.gen.run ? `${fx(live.gen.hz, 1)} Hz · ${Math.round(live.gen.v)} V` : 'ARRÊT') : '',
+      grid: live.grid && live.grid.v > 0 ? `${Math.round(live.grid.v)} V` : '',
     };
     for (const [k, t] of Object.entries(val)) {
       const an = anchors[k];
       if (!an || !t) continue;
       const w = t.length * 7.6 + 12;
       const side = ['acc:manometre', 'acc:vacuometre', 'acc:capteur_p', 'acc:vessie'].includes(k);
-      const y = k === 'acc:vessie' ? an.y + 6 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : side ? an.y - 8 : an.y - 40;
-      const cx = side ? an.x + (k === 'acc:vessie' ? 22 : 16) + w / 2 : an.x;
+      const y = k === 'acc:vessie' ? an.y + 6 : k === 'cable' ? an.y + 36 : k === 'pv' ? an.y + 48 : k === 'gen' || k === 'grid' ? an.y + 6 : side ? an.y - 8 : an.y - 40;
+      const cx = side ? an.x + (k === 'acc:vessie' ? 22 : 16) + w / 2 : k === 'gen' || k === 'grid' ? an.x + w / 2 : an.x;
       lcd.push(<g key={`lcd-${k}`} className="lcd"><rect x={cx - w / 2} y={y - 13} width={w} height={19} rx={4} /><text x={cx} y={y + 1} textAnchor="middle">{t}</text></g>);
     }
     // Pompe arrêtée : le réservoir à vessie alimente seul le réseau (écoulement après le réservoir uniquement)

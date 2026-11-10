@@ -48,6 +48,11 @@ export function soundOn() {
   const sb = ac.createBiquadFilter(); sb.type = 'highpass'; sb.frequency.value = 5200; noiseSrc(ac, nb).connect(sb); chan('sable', sb);
   // Chocs (cognement, claquement, balourd) : coups graves déclenchés au rythme de la rotation
   const kn = ac.createBiquadFilter(); kn.type = 'lowpass'; kn.frequency.value = 180; noiseSrc(ac, nb).connect(kn); chan('choc', kn);
+  // Groupe électrogène diesel : explosions du moteur (≈ 50 Hz à 1500 tr/min) + souffle grave, modulés au régime
+  const ge = ac.createOscillator(); ge.type = 'sawtooth'; ge.frequency.value = 50;
+  const gn = ac.createBiquadFilter(); gn.type = 'lowpass'; gn.frequency.value = 160; noiseSrc(ac, nb).connect(gn);
+  const gl = ac.createBiquadFilter(); gl.type = 'lowpass'; gl.frequency.value = 240; ge.connect(gl); gn.connect(gl); ge.start();
+  chan('groupe', gl); (ch.groupe as Ch & { o?: OscillatorNode[] }).o = [ge];
   timer = window.setInterval(tick, 45);
 }
 
@@ -75,6 +80,10 @@ function tick() {
   set('gargouillement', (lvl('gargouillement')) * (rnd < 0.3 ? 0.5 : 0.03), 0.02);
   set('barattage', Math.max(lvl('barattage'), lvl('recirculation')) * 0.25);
   set('sable', lvl('sable') * 0.12);
+  // Diesel : battement à 12,5 Hz (cycle des 4 cylindres) pour le côté « tac-tac » du groupe
+  const gLvl = lvl('groupe');
+  const go = (ch.groupe as Ch & { o?: OscillatorNode[] }).o; if (go) go[0].frequency.setTargetAtTime(gLvl > 0 ? 46 + gLvl * 6 : 50, t, 0.3);
+  set('groupe', gLvl * (0.16 + 0.07 * Math.sin(t * 2 * Math.PI * 12.5)), 0.01);
   // Chocs : à chaque « tour » perceptible (≈ 6 par seconde) pour cognement / balourd, irréguliers pour claquement
   const knock = Math.max(lvl('cognement'), lvl('balourd') * 0.7), clack = lvl('claquement');
   const g = ch.choc?.g.gain;

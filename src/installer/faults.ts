@@ -2,9 +2,9 @@ import type { Installation } from './types';
 import type { SimKind } from './sim';
 
 /** Familles de pannes. */
-export type FaultCat = 'hydraulique' | 'eau' | 'accessoire' | 'electrique' | 'reseau' | 'equipement';
+export type FaultCat = 'hydraulique' | 'eau' | 'accessoire' | 'electrique' | 'reseau' | 'groupe' | 'equipement';
 export const FAULT_CAT: Record<FaultCat, string> = {
-  hydraulique: 'Hydraulique', eau: 'Manque d\'eau', accessoire: 'Accessoires', electrique: 'Électrique', reseau: 'Réseau électrique', equipement: 'Pompe / moteur',
+  hydraulique: 'Hydraulique', eau: 'Manque d\'eau', accessoire: 'Accessoires', electrique: 'Électrique', reseau: 'Réseau électrique', groupe: 'Groupe électrogène', equipement: 'Pompe / moteur',
 };
 
 /** Symptômes mesurables ou constatables, utilisés pour le diagnostic. */
@@ -13,7 +13,8 @@ export type Sym =
   | 'depression_forte' | 'cycles_courts' | 'ronfle' | 'ne_demarre_pas' | 'ne_s_arrete_pas'
   | 'debordement' | 'pas_de_tension' | 'marche_a_sec' | 'pression_tombe_arret' | 'bruit' | 'fuite_visible'
   | 'decl_thermique' | 'decl_diff' | 'decl_manque_eau' | 'decl_sous_charge' | 'decl_variateur' | 'tension_basse' | 'marche_sans_commande'
-  | 'vibrations' | 'bruit_gravier' | 'bruit_roulement' | 'claquements' | 'cognements' | 'rabattement_fort' | 'niveau_bas' | 'statique_bas' | 'moteur_chaud' | 'courants_desequilibres' | 'coups_belier' | 'eau_sableuse';
+  | 'vibrations' | 'bruit_gravier' | 'bruit_roulement' | 'claquements' | 'cognements' | 'rabattement_fort' | 'niveau_bas' | 'statique_bas' | 'moteur_chaud' | 'courants_desequilibres' | 'coups_belier' | 'eau_sableuse'
+  | 'gen_jauge_vide' | 'gen_fumee_noire' | 'gen_surchauffe' | 'gen_demarreur' | 'freq_instable';
 
 export const SYM_LABEL: Record<Sym, string> = {
   debit_bas: 'Débit plus faible que prévu', debit_nul: 'Pompe en marche sans débit', pression_basse: 'Pression basse',
@@ -25,6 +26,7 @@ export const SYM_LABEL: Record<Sym, string> = {
   debordement: 'Débordement', pas_de_tension: 'Pas de tension au coffret', marche_a_sec: 'Marche à sec',
   pression_tombe_arret: 'La pression chute pompe arrêtée', bruit: 'Bruit / vibrations anormaux', fuite_visible: 'Fuite de liquide visible',
   moteur_chaud: 'Moteur chaud (bobinage > 120 °C)', courants_desequilibres: 'Courants différents sur les 3 phases', coups_belier: 'Claquements dans la conduite à l\'arrêt', eau_sableuse: 'Eau chargée de sable aux robinets',
+  gen_jauge_vide: 'Groupe arrêté, jauge de gasoil à zéro', gen_fumee_noire: 'Fumée noire à l\'échappement du groupe', gen_surchauffe: 'Groupe arrêté sur défaut température (radiateur brûlant)', gen_demarreur: 'Le démarreur du groupe ne lance pas le moteur (cliquetis)', freq_instable: 'Groupe qui « galope » : fréquence instable, le moteur de la pompe accélère et ralentit',
 };
 
 export type NoiseKind = 'cavitation' | 'roulements' | 'magnetique' | 'ronflement' | 'sifflement' | 'gargouillement' | 'barattage' | 'claquement' | 'cognement' | 'sable' | 'recirculation' | 'balourd';
@@ -61,6 +63,7 @@ export interface FaultEffect {
   noise?: NoiseKind; // bruit caractéristique
   screenClog?: number; // crépine du forage qui se colmate (% de perte de débit spécifique par heure de simulation)
   bkFloatStuck?: boolean; // robinet à flotteur du réservoir de secours bloqué ouvert
+  gen?: 'fuel' | 'fuelFilter' | 'airFilter' | 'overheat' | 'battery' | 'avr'; // panne du groupe électrogène
 }
 
 export interface FaultDef {
@@ -83,6 +86,7 @@ const tri = (i: Installation) => i.elec.supply !== 'mono' && i.elec.supply !== '
 const vfd = (i: Installation) => i.elec.supply === 'solaire' || !!i.acc.variateur?.on;
 const surfaceAsp = (i: Installation) => i.mode === 'aspiration';
 const pressureKind = (k: SimKind) => k === 'vessel' || k === 'vfd';
+const GEN = (i: Installation) => i.elec.supply === 'groupe';
 const scale = (i: Installation, q: number, h: number, e = 1): Installation => ({ ...i, pump: { ...i.pump, qn: i.pump.qn * q, hn: i.pump.hn * h, eta: i.pump.eta * e } });
 
 export const FAULTS: FaultDef[] = [
@@ -271,7 +275,7 @@ export const FAULTS: FaultDef[] = [
   {
     id: 'coupure', cat: 'reseau', label: 'Coupure de courant (45 min)', target: 'cable',
     what: 'Coupure du réseau électrique (délestage), puis retour du courant.',
-    applies: (i) => i.elec.supply !== 'solaire', effect: { outage: 45 * 60 },
+    applies: (i) => i.elec.supply === 'mono' || i.elec.supply === 'tri', effect: { outage: 45 * 60 },
     sig: ['pas_de_tension', 'ne_demarre_pas', 'pression_basse'], field: ['Tous les voyants éteints', 'Plus d\'eau chez les usagers'],
     checks: ['Vérifier la tension en tête de coffret', 'Vérifier le compteur et le disjoncteur général'],
     fix: ['Attendre le retour du courant : redémarrage automatique', 'Prévoir un groupe électrogène ou un réservoir tampon'], parts: [],
@@ -279,10 +283,59 @@ export const FAULTS: FaultDef[] = [
   {
     id: 'sous_tension', cat: 'reseau', label: 'Tension trop basse (−15 %)', target: 'cable',
     what: 'Le réseau ne délivre que 85 % de la tension nominale : le moteur absorbe plus de courant pour la même puissance.',
-    applies: (i) => i.elec.supply !== 'solaire', effect: { ampsK: 1.2, tripAfter: 50 * 60, tripMsg: 'Disjoncteur moteur déclenché (surchauffe par sous-tension)', tripKind: 'decl_thermique' },
+    applies: (i) => i.elec.supply === 'mono' || i.elec.supply === 'tri', effect: { ampsK: 1.2, tripAfter: 50 * 60, tripMsg: 'Disjoncteur moteur déclenché (surchauffe par sous-tension)', tripKind: 'decl_thermique' },
     sig: ['tension_basse', 'courant_haut', 'decl_thermique'], field: ['Lumières qui baissent au démarrage', 'Moteur chaud au toucher'],
     checks: ['Mesurer la tension au coffret, moteur en marche', 'Mesurer la chute de tension dans le câble'],
     fix: ['Signaler au distributeur', 'Augmenter la section du câble', 'Régulateur de tension ou variateur'], parts: ['moteur', 'coffret', 'cable'],
+  },
+  // ---------------- Groupe électrogène ----------------
+  {
+    id: 'gen_gasoil', cat: 'groupe', label: 'Panne de gasoil', target: 'gen',
+    what: 'Le réservoir du groupe est vide : le moteur diesel cale, plus de courant, la pompe s\'arrête.',
+    applies: GEN, effect: { gen: 'fuel' },
+    sig: ['pas_de_tension', 'ne_demarre_pas', 'gen_jauge_vide'], field: ['Groupe arrêté, silence', 'Jauge à zéro', 'Après remplissage, il faut souvent purger l\'air du circuit de gasoil'],
+    checks: ['Regarder la jauge et le réservoir', 'Vérifier le registre de consommation (L/h)'],
+    fix: ['Faire le plein', 'Purger le circuit d\'alimentation (pompe d\'amorçage, vis de purge)', 'Alarme niveau bas de gasoil sur le coffret'], parts: [],
+  },
+  {
+    id: 'gen_filtre_gasoil', cat: 'groupe', label: 'Filtre à gasoil colmaté', target: 'gen',
+    what: 'Le filtre à gasoil (ou le préfiltre décanteur) est encrassé : le moteur manque de carburant sous charge, la vitesse « galope » et il cale par moments.',
+    applies: GEN, effect: { gen: 'fuelFilter', inst: (i) => scale(i, 0.96, 0.92) },
+    sig: ['freq_instable', 'debit_bas', 'pas_de_tension', 'pression_basse'], field: ['Le régime du groupe monte et descend', 'Le groupe cale puis redémarre', 'Eau ou boues dans le bol décanteur'],
+    checks: ['Mesurer la fréquence (fréquencemètre du coffret) : variations de plusieurs Hz', 'Inspecter le préfiltre / décanteur'],
+    fix: ['Remplacer les filtres à gasoil, vidanger le décanteur', 'Purger l\'air', 'Gasoil propre (cuve décantée, filtration au remplissage)'], parts: ['filtre gasoil'],
+  },
+  {
+    id: 'gen_filtre_air', cat: 'groupe', label: 'Filtre à air du groupe encrassé', target: 'gen',
+    what: 'Le filtre à air est bouché (poussière, harmattan) : combustion incomplète, fumée noire, le groupe perd de la puissance et chauffe.',
+    applies: GEN, effect: { gen: 'airFilter', inst: (i) => scale(i, 0.97, 0.94) },
+    sig: ['gen_fumee_noire', 'debit_bas', 'pression_basse'], field: ['Fumée noire à l\'échappement', 'Le groupe « peine » au démarrage de la pompe', 'Consommation de gasoil en hausse'],
+    checks: ['Indicateur de colmatage du filtre à air (rouge)', 'Sortir la cartouche et la regarder à la lumière'],
+    fix: ['Souffler ou remplacer la cartouche', 'Préfiltre cyclonique en zone poussiéreuse'], parts: ['filtre à air'],
+  },
+  {
+    id: 'gen_surchauffe', cat: 'groupe', label: 'Surchauffe du groupe (radiateur / courroie)', target: 'gen',
+    what: 'Le radiateur est encrassé ou la courroie du ventilateur a cassé : le moteur diesel monte en température et le groupe s\'arrête en sécurité, puis repart une fois refroidi.',
+    applies: GEN, effect: { gen: 'overheat' },
+    sig: ['gen_surchauffe', 'pas_de_tension', 'ne_demarre_pas'], field: ['Voyant température allumé sur le groupe', 'Radiateur brûlant, ventilateur à l\'arrêt', 'Le groupe s\'arrête après ¾ d\'heure de marche'],
+    checks: ['Niveau de liquide de refroidissement (moteur froid)', 'Tension et état de la courroie', 'Faisceau du radiateur bouché (poussière, insectes)'],
+    fix: ['Remplacer la courroie', 'Nettoyer le radiateur à l\'air comprimé ou à l\'eau basse pression', 'Compléter le liquide de refroidissement'], parts: ['courroie', 'radiateur'],
+  },
+  {
+    id: 'gen_batterie', cat: 'groupe', label: 'Batterie de démarrage du groupe à plat', target: 'gen',
+    what: 'Le groupe a été arrêté (la nuit, pour l\'entretien) et sa batterie est à plat : au redémarrage, le démarreur ne lance pas le moteur.',
+    applies: GEN, effect: { gen: 'battery' },
+    sig: ['gen_demarreur', 'pas_de_tension', 'ne_demarre_pas'], field: ['Cliquetis du relais de démarreur, pas de rotation', 'Voyants du tableau du groupe faibles'],
+    checks: ['Tension batterie : < 12 V (ou < 24 V) au repos = déchargée', 'Cosses oxydées ou desserrées', 'Chargeur de batterie / alternateur de charge'],
+    fix: ['Recharger ou remplacer la batterie', 'Nettoyer et serrer les cosses', 'Chargeur de maintien sur le groupe'], parts: ['batterie'],
+  },
+  {
+    id: 'gen_avr', cat: 'groupe', label: 'Régulateur de tension (AVR) du groupe défaillant', target: 'gen',
+    what: 'Le régulateur de tension de l\'alternateur ne tient plus la consigne : le groupe ne donne que 340 V, le moteur de la pompe absorbe plus de courant et chauffe.',
+    applies: GEN, effect: { gen: 'avr', ampsK: 1.2, tripAfter: 50 * 60, tripMsg: 'Disjoncteur moteur déclenché (surchauffe : tension du groupe trop basse)', tripKind: 'decl_thermique' },
+    sig: ['tension_basse', 'courant_haut', 'decl_thermique', 'moteur_chaud'], field: ['Voltmètre du groupe à 340 V au lieu de 400 V', 'Lampes faibles', 'Moteur de pompe chaud'],
+    checks: ['Mesurer la tension à vide puis en charge au groupe', 'Contrôler le réglage et les fusibles de l\'AVR'],
+    fix: ['Régler ou remplacer l\'AVR', 'Vérifier les diodes tournantes de l\'alternateur'], parts: ['AVR'],
   },
   // ---------------- Pompe / moteur ----------------
   {
@@ -407,7 +460,7 @@ export const FAULTS: FaultDef[] = [
     fix: ['Faire équilibrer les charges par le distributeur', 'Resserrer les connexions', 'Relais de contrôle de phases avec seuil de déséquilibre'], parts: ['moteur'],
   },
   {
-    id: 'groupe_faible', cat: 'reseau', label: 'Groupe électrogène trop faible', target: 'cable',
+    id: 'groupe_faible', cat: 'groupe', label: 'Groupe électrogène trop faible', target: 'cable',
     what: 'Au démarrage, l\'appel de courant effondre la tension du groupe : le moteur n\'arrive pas à démarrer et la protection déclenche.',
     applies: (i) => i.elec.supply === 'groupe' && !vfd(i), effect: { startFail: true, ampsK: 2.2, tripAfter: 12, tripMsg: 'Démarrage impossible : tension du groupe effondrée, disjoncteur déclenché', tripKind: 'decl_thermique' },
     sig: ['ne_demarre_pas', 'ronfle', 'tension_basse', 'decl_thermique'], field: ['Le groupe « tousse » et ralentit au démarrage de la pompe', 'Les lampes baissent fortement'],
@@ -450,6 +503,7 @@ export function combined(ids: string[]): FaultEffect & { ids: string[] } {
     if (x.noStop) e.noStop = true;
     if (x.primeLoss) e.primeLoss = true;
     if (x.bkFloatStuck) e.bkFloatStuck = true;
+    if (x.gen) e.gen = x.gen;
     if (x.screenClog) e.screenClog = x.screenClog;
     if (x.vib) e.vib = (e.vib ?? 0) + x.vib;
     if (x.noise && !e.noise) e.noise = x.noise;
@@ -480,6 +534,7 @@ const SPECIFIC: Partial<Record<Sym, number>> = {
   courants_desequilibres: 3, eau_sableuse: 3, coups_belier: 2.5, decl_diff: 2.5, decl_variateur: 2.5, decl_manque_eau: 2, decl_sous_charge: 2.5, rabattement_fort: 2, niveau_bas: 3, vibrations: 1.5, bruit_gravier: 2, bruit_roulement: 2.5, claquements: 2.5, cognements: 2, statique_bas: 3,
   pression_tombe_arret: 2, marche_sans_commande: 2.5, tension_basse: 2, pas_de_tension: 2.5, moteur_chaud: 1.5, cycles_courts: 1.5,
   fuite_visible: 2, debordement: 1.5, ronfle: 1.5, bruit: 0.6, debit_bas: 0.8,
+  gen_jauge_vide: 4, gen_fumee_noire: 4, gen_surchauffe: 4, gen_demarreur: 4, freq_instable: 3.5,
 };
 export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; score: number; match: Sym[] }[] {
   if (!obs.length) return [];
@@ -504,5 +559,6 @@ export const SYM_WEIGHT: Record<Sym, number> = {
   debordement: 20, ne_s_arrete_pas: 18, ronfle: 18, ne_demarre_pas: 12, pression_haute: 10, cycles_courts: 10, depression_forte: 8,
   courant_haut: 8, pression_basse: 8, debit_bas: 8, pression_tombe_arret: 6, courant_bas: 4, bruit: 5, fuite_visible: 5,
   tension_basse: 8, marche_sans_commande: 15, moteur_chaud: 12, courants_desequilibres: 8, coups_belier: 8, eau_sableuse: 6,
+  gen_jauge_vide: 20, gen_fumee_noire: 8, gen_surchauffe: 20, gen_demarreur: 20, freq_instable: 10,
 };
 
