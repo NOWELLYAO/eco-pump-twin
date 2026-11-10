@@ -30,16 +30,16 @@ export const MODES: Record<ModeId, { label: string; desc: string }> = {
 
 export interface FluidDef { label: string; rho: number; nu: number; solidsPct: number; particleMm: number; sandGm3: number; ph: number; temp: number; water: boolean; pv?: number; note: string }
 export const FLUIDS: Record<FluidId, FluidDef> = {
-  eau_claire: { label: 'Eau claire', rho: 998, nu: 1.0, solidsPct: 0, particleMm: 0.1, sandGm3: 0, ph: 7.2, temp: 20, water: true, note: 'Eau potable ou de réseau.' },
-  eau_forage: { label: 'Eau de forage', rho: 999, nu: 1.0, solidsPct: 0.01, particleMm: 0.5, sandGm3: 20, ph: 6.8, temp: 27, water: true, note: 'Peut contenir du sable et être agressive.' },
-  eau_brute: { label: 'Eau brute (rivière, lac, bassin)', rho: 1000, nu: 1.0, solidsPct: 0.3, particleMm: 5, sandGm3: 80, ph: 7.0, temp: 26, water: true, note: 'Matières en suspension, débris végétaux.' },
+  eau_claire: { label: 'Eau claire', rho: 998, nu: 1.0, solidsPct: 0, particleMm: 0.1, sandGm3: 0, ph: 7.2, temp: 25, water: true, note: 'Eau potable ou de réseau.' },
+  eau_forage: { label: 'Eau de forage', rho: 999, nu: 1.0, solidsPct: 0.01, particleMm: 0.5, sandGm3: 20, ph: 6.8, temp: 25, water: true, note: 'Peut contenir du sable et être agressive.' },
+  eau_brute: { label: 'Eau brute (rivière, lac, bassin)', rho: 1000, nu: 1.0, solidsPct: 0.3, particleMm: 5, sandGm3: 80, ph: 7.0, temp: 25, water: true, note: 'Matières en suspension, débris végétaux.' },
   eaux_usees: { label: 'Eaux usées domestiques', rho: 1010, nu: 1.3, solidsPct: 1.5, particleMm: 40, sandGm3: 150, ph: 7.5, temp: 25, water: true, note: 'Fibres, lingettes, H₂S corrosif.' },
   boues: { label: 'Eaux très chargées / boues', rho: 1150, nu: 25, solidsPct: 10, particleMm: 25, sandGm3: 3000, ph: 7.5, temp: 25, water: true, note: 'Abrasives et visqueuses.' },
-  eau_mer: { label: 'Eau de mer / saumâtre', rho: 1025, nu: 1.05, solidsPct: 0.05, particleMm: 1, sandGm3: 30, ph: 8.1, temp: 26, water: true, note: 'Chlorures : très corrosive pour fontes et aciers.' },
+  eau_mer: { label: 'Eau de mer / saumâtre', rho: 1025, nu: 1.05, solidsPct: 0.05, particleMm: 1, sandGm3: 30, ph: 8.1, temp: 25, water: true, note: 'Chlorures : très corrosive pour fontes et aciers.' },
   eau_chaude: { label: 'Eau chaude', rho: 975, nu: 0.4, solidsPct: 0, particleMm: 0.1, sandGm3: 0, ph: 7.5, temp: 70, water: true, note: 'Tension de vapeur élevée : NPSH critique.' },
   gasoil: { label: 'Gasoil / fioul', rho: 840, nu: 4, solidsPct: 0, particleMm: 0.1, sandGm3: 0, ph: 7, temp: 25, water: false, pv: 0.5, note: 'Inflammable : matériel ATEX, liaison équipotentielle.' },
-  huile: { label: 'Huile (hydraulique / moteur)', rho: 880, nu: 100, solidsPct: 0, particleMm: 0.1, sandGm3: 0, ph: 7, temp: 30, water: false, pv: 0.1, note: 'Visqueuse : rendement et débit réduits.' },
-  eau_piscine: { label: 'Eau de piscine (chlorée)', rho: 998, nu: 0.9, solidsPct: 0.01, particleMm: 2, sandGm3: 5, ph: 7.3, temp: 27, water: true, note: 'Chlore et sel : corrosion des aciers.' },
+  huile: { label: 'Huile (hydraulique / moteur)', rho: 880, nu: 100, solidsPct: 0, particleMm: 0.1, sandGm3: 0, ph: 7, temp: 25, water: false, pv: 0.1, note: 'Visqueuse : rendement et débit réduits.' },
+  eau_piscine: { label: 'Eau de piscine (chlorée)', rho: 998, nu: 0.9, solidsPct: 0.01, particleMm: 2, sandGm3: 5, ph: 7.3, temp: 25, water: true, note: 'Chlore et sel : corrosion des aciers.' },
 };
 
 export const PIPE_MATS: Record<PipeMatId, { label: string; rough: number; celerity: number; tmax: number; color: string }> = {

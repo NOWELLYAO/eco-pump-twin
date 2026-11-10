@@ -430,7 +430,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   // Château d'eau en série : la maison est servie par le réservoir, la vessie ne débite que dans le robinet à flotteur
   const bkSerie = !!bkp && backupMode(bkp) === 'serie';
   const fromVessel = !!live && !bkSerie && (live.kind === 'vessel' || live.kind === 'vfd') && !live.bkFeed && (live.vesFill ?? 0) > 0.02 && (live.x ?? 0) > 0.3;
-  const netFlow = live ? (bkSerie ? (live.bk ?? 1) > 0.002 : flow || fromVessel || !!live.bkFeed) : flow;
+  // Réservoir (château d'eau) : il alimente le réseau par gravité, que la pompe tourne ou non
+  const fromTank = !!live && live.kind === 'tank' && (live.x ?? 0) > 0.02;
+  const netFlow = live ? (bkSerie ? (live.bk ?? 1) > 0.002 : flow || fromVessel || fromTank || !!live.bkFeed) : flow;
   const dryTaps = !!live && !netFlow;
   const use = live ? (dryTaps ? 0 : Math.max(0, live.use ?? 0)) : 0.6; // consommation relative (robinets, réseau aval)
   const stream = (k: string, x: number, y1: number, y2: number, w = 6) => (
