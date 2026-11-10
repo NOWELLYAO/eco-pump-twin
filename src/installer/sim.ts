@@ -617,6 +617,9 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (!power && st.on) { hammer(true); st.on = false; st.hum = false; st.noFlow = false; newEv.push({ t: st.t, sev: 'warning', text: solarPit && st.t >= st.outageUntil ? 'Soleil insuffisant : les panneaux ne peuvent plus faire tourner la pompe (pas de batterie)' : isGen && st.t >= st.outageUntil ? `Plus de courant : groupe arrêté (${st.gen?.why ?? 'défaut'}), la pompe s'arrête` : 'Coupure secteur : plus de tension, la pompe s\'arrête', target: solarPit ? 'pv' : isGen ? 'gen' : 'cable' }); }
     if (power && prev.outageUntil > 0 && st.t - sub < st.outageUntil && st.t >= st.outageUntil) newEv.push({ t: st.t, sev: 'ok', text: 'Retour du courant : redémarrage automatique possible', target: 'cable' });
     if (!st.master) { stop('arrêt manuel', true); st.q = 0; st.blocked = false; }
+    // Contacts du contacteur soudés : le moteur est alimenté dès que le disjoncteur moteur est fermé, même sans
+    // aucune demande de l'automatisme (il démarre tout seul, puis ne s'arrête plus)
+    if (fx.noStop && power && !st.on && !st.trip && st.master) { start(); if (st.on) { st.runaway = true; seen('ne_s_arrete_pas', 'marche_sans_commande'); } }
     // Moteur déjà lancé quand la panne apparaît : il cale et ronfle (rotor bloqué)
     if (fx.noStart && st.on && !st.hum) { st.hum = true; st.runT = 0; seen('ronfle', 'ne_demarre_pas', 'courant_haut'); newEv.push({ t: st.t, sev: 'critical', text: 'Le moteur cale et ronfle — courant de rotor bloqué', target: 'cable' }); }
     const leakQ = ((fx.leak ?? 0) + (st.burst === 'rupture' ? 0.7 : st.burst === 'fuite' ? 0.2 : 0) + (st.sealGone ? 0.03 : 0)) * i.duty.qReq;
@@ -650,7 +653,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       } else st.jk = false;
       const jkQ = st.jk ? jkQ0 : 0;
       let vw = vt * (1 - (v.pre + 1) / (Math.max(st.x, v.pre) + 1));
-      if (st.x <= v.pOn) start();
+      if (st.x <= v.pOn || fx.pswitch === 'stuck') start(); // contact du pressostat soudé : demande de marche permanente
       if (st.on && st.x >= v.pOff && fireManual) once('fire_nostop', { t: st.t, sev: 'info', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte : pompe incendie maintenue en marche (arrêt manuel uniquement, au coffret)`, target: 'acc:coffret_inc' });
       else if (st.on && st.x >= v.pOff) {
         if (fx.pswitch === 'stuck') { if (!st.runaway) newEv.push({ t: st.t, sev: 'critical', text: `Pression d'arrêt ${f1(v.pOff)} bar atteinte mais le pressostat ne coupe pas`, target: 'acc:pressostat' }); st.runaway = true; }
@@ -680,7 +683,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
         fillEff = Math.min(fillQ, st.q);
         st.x = fillQ > st.q + 0.05 ? Math.max(bc.headTop + 0.02, st.x - 0.1) : Math.min(v.pOff, st.x + 0.03);
       } else if (vw <= 0) st.x = st.on && st.q > 0.05 ? Math.min(v.pOff, st.x) : Math.max(0, st.x - (qd > 0.02 * i.duty.qReq ? 1.5 : 0.08));
-      else st.x = Math.min(pMax, (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1);
+      // La pression ne peut dépasser la pression maximale de la pompe que si celle-ci est arrêtée (réseau tenu par le réservoir ou la jockey)
+      else st.x = Math.min(st.on ? pMax : Infinity, (v.pre + 1) * vt / Math.max(1e-6, vt - Math.min(vw, vt * 0.95)) - 1);
       if (st.on && st.q < 0.05 * i.duty.qReq && st.x >= pMax - 0.05) st.x = pMax;
       st.s = 1;
     } else if (kind === 'vfd') {
@@ -952,7 +956,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const why = st.tmCause ? ` — cause : ${st.tmCause}` : '';
       if (st.tm > 120) { seen('moteur_chaud'); once('tm120', { t: st.t, sev: 'warning', text: `Moteur chaud : bobinage à ${f1(st.tm, 0)} °C${why}`, target: 'pump' }); }
       if (st.tm > 140) once('tm140', { t: st.t, sev: 'critical', text: `Moteur très chaud : ${f1(st.tm, 0)} °C, sa durée de vie se réduit fortement${why}`, target: 'pump' });
-      if (st.tm > 155) { once('tm155', { t: st.t, sev: 'critical', text: `Bobinage à ${f1(st.tm, 0)} °C : au-delà de la classe d'isolation F (155 °C), le vernis se dégrade`, target: 'pump' }); seen('bruit'); }
+      if (st.tm > 155) { once('tm155', { t: st.t, sev: 'critical', text: `Bobinage à ${f1(st.tm, 0)} °C : au-delà de la classe d'isolation F (155 °C), le vernis se dégrade`, target: 'pump' }); }
       if (st.tm > 180 && !st.burnt) {
         st.burnt = true;
         trip(`Moteur grillé : bobinage à ${f1(st.tm, 0)} °C, court-circuit entre spires`, 'decl_thermique');
@@ -975,7 +979,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (closedNow && st.tl >= ts - 2) {
         st.tl = ts;
         if (!st.sealGone) {
-          st.sealGone = true; seen('fuite_visible', 'bruit');
+          st.sealGone = true; seen('fuite_pompe', 'bruit');
           newEv.push({ t: st.t, sev: 'critical', text: `Vaporisation dans la pompe (${f1(ts, 0)} °C) : la garniture mécanique est détruite, fuite au niveau de l'arbre`, target: 'pump' });
         }
       }
@@ -984,7 +988,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       if (st.on && (st.noFlow || st.dry) && !imm) {
         st.dryRun = (st.dryRun ?? 0) + sub;
         if (st.dryRun >= 60) once('dry60', { t: st.t, sev: 'warning', text: 'Marche à sec : la garniture mécanique frotte sans eau, elle chauffe', target: 'pump' });
-        if (st.dryRun >= 300 && !st.sealGone) { st.sealGone = true; seen('fuite_visible', 'bruit'); newEv.push({ t: st.t, sev: 'critical', text: 'Garniture mécanique détruite par 5 min de marche à sec : fuite au niveau de l\'arbre', target: 'pump' }); }
+        if (st.dryRun >= 300 && !st.sealGone) { st.sealGone = true; seen('fuite_pompe', 'bruit'); newEv.push({ t: st.t, sev: 'critical', text: 'Garniture mécanique détruite par 5 min de marche à sec : fuite au niveau de l\'arbre', target: 'pump' }); }
       } else if (!st.on) st.dryRun = 0;
       // Pression à débit nul contre la conduite
       if (closedNow && pShut * spd * spd > pn * 0.8 && !st.flags!.pshut) {
@@ -1008,7 +1012,8 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     if (st.runaway) seen('ne_s_arrete_pas');
     // ----- Surveillance : la pompe tourne presque tout le temps alors que la maison consomme peu -----
     // (moyennes glissantes sur 1 h : l'eau pompée part ailleurs — fuite, robinet à flotteur bloqué, trop-plein — ou le pressostat ne coupe pas)
-    if (kind === 'vessel' || kind === 'vfd') {
+    // (pompe incendie à arrêt manuel : une fois lancée, elle tourne jusqu'à l'arrêt au coffret — c'est normal)
+    if ((kind === 'vessel' || kind === 'vfd') && !(fireManual && st.on)) {
       const a = Math.min(1, sub / 3600), w = st.wd ?? { on: 0, house: 0, q: 0 };
       const bkS = backupOf(i);
       const house = bkS && backupMode(bkS) === 'serie' ? (st.bkOver ? 0 : st.bkFill ? st.q : 0) : use(ctx, hourOf(st.t)) * i.duty.qReq;
@@ -1101,7 +1106,17 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   // change la pression en tête, mais ce n'est pas un défaut — on compare à niveau d'eau égal.
   const r = isForage(i) && running ? { ...r0, pRef: r0.pRef + (i.fluid.rho * G * (i.geo.staticLevel + (st.aqS ?? 0) - i.geo.dynamicLevel)) / 1e5 } : r0;
   const solarQ = kind === 'solar' ? atSpeed(normal.i, st.s) : null; // solaire : machine saine à la MÊME vitesse (même soleil)
-  const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : solarQ ? Math.max(0.1, solarQ.q) : undefined, kind === 'vfd' || kind === 'solar' ? st.s : 1);
+  // Courant de référence : celui d'une pompe saine dans la même situation. Sous pressostat, à la même pression
+  // du réservoir (une pompe affaiblie débite moins à cette pression : on la compare à ce qu'une pompe saine y débiterait).
+  let qRef: number | undefined = solarQ ? Math.max(0.1, solarQ.q) : undefined;
+  if (kind === 'vfd') qRef = Math.max(0.1, st.q);
+  if (kind === 'vessel') {
+    const rhoG = i.fluid.rho * G, dL = isForage(i) ? i.geo.staticLevel + (st.aqS ?? 0) + st.dd - i.geo.dynamicLevel : 0, hNeed = (st.x * 1e5) / rhoG - pressZ(normal.i) + dL;
+    let lo = 0, hi = normal.i.pump.qn * 2.5 * Math.max(1, normal.h.n);
+    if (pumpHead(normal.i, 0) > hNeed) { for (let it = 0; it < 22; it++) { const m = (lo + hi) / 2; if (pumpHead(normal.i, m) - losses(normal.i, m).total > hNeed) lo = m; else hi = m; } }
+    qRef = Math.max(0.1, lo, st.q); // jamais moins que le débit réel (pression du réservoir ≠ pression de la pompe en transitoire)
+  }
+  const rn = readings(normal.i, normal.h, true, normal.er, qRef, kind === 'vfd' || kind === 'solar' ? st.s : 1);
   if (st.t < st.outageUntil) { o.add('pas_de_tension'); o.add('ne_demarre_pas'); }
   // Groupe électrogène à l'arrêt alors que l'installation est en marche
   if (st.gen && st.master && !st.gen.run && st.gen.why !== 'en attente (pompe à l\'arrêt)' && st.gen.why !== 'démarrage…') {
@@ -1143,7 +1158,8 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
       if (kind !== 'solar' && r.pRef < rn.pRef * 0.85 - 0.05) o.add('pression_basse');
       if (kind !== 'solar' && r.pRef > rn.pRef * 1.15 + 0.1) o.add('pression_haute');
     }
-    if (kind === 'vessel' && r.pRef > rn.pRef * 1.15 + 0.2) o.add('pression_haute');
+    // Manomètre de la pompe au-dessus de la pression d'arrêt (et de ce qu'une pompe saine afficherait) : refoulement bouché ou vanne fermée
+    if (kind === 'vessel' && r.pRef > Math.max((ctx.er.vessel?.pOff ?? 0) + 0.3, rn.pRef * 1.15 + 0.2)) o.add('pression_haute');
     if (kind === 'pit' && st.q < normal.h.q * 0.85) o.add(st.q < 0.05 ? 'debit_nul' : 'debit_bas');
     if (r.amps > rn.amps * 1.12 + 0.1 || r.amps > er.inom * 1.05) o.add('courant_haut');
     if (r.amps < rn.amps * 0.86) o.add('courant_bas');
@@ -1154,9 +1170,15 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
     const pLow = kind === 'vfd' ? vfdSet(ctx.er) - 0.6 : (ctx.er.vessel?.pOn ?? 3) - 0.4;
     if (st.x < pLow && st.q < 0.5 * Math.max(0.1, normal.h.q)) o.add(st.q < 0.1 * i.duty.qReq ? 'debit_nul' : 'debit_bas');
   }
+  // Sous pressostat : à la même pression, le débitmètre montre bien moins que ce que donnerait une pompe saine
+  if (kind === 'vessel' && running && st.runT > 120 && (qRef ?? 0) > 0.5 && st.q < 0.6 * (qRef ?? 0)) o.add(st.q < 0.06 * Math.max(0.1, normal.h.q) ? 'debit_nul' : 'debit_bas');
+  // Pompe incendie (arrêt manuel) : une fois lancée elle reste en marche et monte à sa pression maximale, c'est normal ;
+  // l'anomalie, c'est qu'elle ait démarré alors qu'aucune lance n'est ouverte
+  const fireRun = i.app === 'incendie' && !!i.acc.coffret_inc?.on && st.on;
+  if (fireRun && use(ctx, hourOf(st.t)) < 0.02) o.add('demarrage_intempestif');
   if (kind === 'vessel' && ctx.er.vessel) {
     const v = ctx.er.vessel;
-    if (st.x > v.pOff + 0.3) o.add('pression_haute');
+    if (st.x > v.pOff + 0.3 && !fireRun) o.add('pression_haute');
     if (st.x < v.pOn - 0.4 || (fx.pswitch === 'drift' && st.x < v.pOff - 0.6)) o.add('pression_basse');
   }
   if (kind === 'vfd') {
@@ -1165,7 +1187,10 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
     if (st.x < set - 0.5) o.add('pression_basse');
   }
   // Constats sur le terrain (bruit, fuite) liés aux pannes présentes
-  for (const id of fx.ids) for (const s of faultById(id)?.sig ?? []) if (s === 'bruit' || s === 'fuite_visible') o.add(s);
+  // Fuites visibles : sur le réseau (canalisation cassée) ou sous la pompe (garniture)
+  if (fx.sensorZero && kind === 'vfd' && st.on) o.add('affichage_faux'); // 0 bar à l'écran, pression réelle au manomètre
+  if (fx.ids.includes('fuite_reseau')) o.add('fuite_visible');
+  if (fx.ids.includes('garniture') || st.sealGone) o.add('fuite_pompe');
   return [...o];
 }
 
@@ -1217,4 +1242,25 @@ export function acoustics(ctx: SimCtx, st: SimState): Acoustic {
   const zone = vib < 1.4 ? 'A' : vib < 2.8 ? 'B' : vib < 4.5 ? 'C' : 'D';
   const main = src.filter((s) => s.kind !== 'moteur' && s.kind !== 'ecoulement' && s.kind !== 'groupe').sort((a, b) => b.level - a.level)[0] ?? null;
   return { vib, zone, sources: src, main, measurable: i.mode !== 'immergee' };
+}
+
+/** Symptômes qu'une panne produit réellement sur cette installation (simulation de quelques heures, comparée à la
+ *  même installation saine). Sert à la panne mystère : on ne tire que des pannes qui se voient, et des leurres qui
+ *  ne donnent pas exactement les mêmes symptômes (sinon le quiz serait impossible à résoudre). */
+export function faultSymptoms(i0: Installation, mods: Mods, id: string, hours = 4): Sym[] {
+  const f = faultById(id);
+  if (!f) return [];
+  const pw = progressiveWear([id], { [id]: -8 * 3600 }, 0);
+  const healthy = applyMods(i0, { ...mods, faults: [] });
+  const ctx = makeCtx(applyMods(i0, { ...mods, faults: [id], wear: Math.min(90, mods.wear + pw) }), mods.draw, [id], healthy);
+  const nctx = makeCtx(healthy, mods.draw);
+  let st = initSim(ctx), sn = initSim(nctx);
+  st = { ...st, faultT: { [id]: st.t - 8 * 3600 }, outageUntil: f.effect.outage ? st.t + f.effect.outage : st.outageUntil };
+  const seen = new Set<Sym>(), base = new Set<Sym>();
+  for (let k = 0; k < hours * 6; k++) {
+    st = stepSim(ctx, st, 600); sn = stepSim(nctx, sn, 600);
+    observe(ctx, nctx, st).forEach((x) => seen.add(x));
+    observe(nctx, nctx, sn).forEach((x) => base.add(x));
+  }
+  return [...seen].filter((x) => !base.has(x)).sort();
 }

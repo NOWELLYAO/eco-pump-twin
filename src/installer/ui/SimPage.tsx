@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
-import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, genSpec, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
+import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, faultSymptoms, genSpec, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
 import { LevelIcon } from '../../ui/Status';
@@ -107,19 +107,39 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   };
   const refuel = () => setSim((st) => (st.gen ? note('ok', `Plein de gasoil fait (${Math.round(st.gen.tank)} L)`, 'gen')({ ...st, gen: { ...st.gen, fuel: st.gen.tank } }) : st));
   const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_sous_charge: undefined, decl_variateur: undefined } }));
+  const [busy, setBusy] = useState(false);
   const startMystery = () => {
-    const cands = FAULTS.filter((f) => f.applies(iSim, kind));
+    setBusy(true);
+    // Laisse l'écran afficher « Préparation… » avant les quelques simulations d'essai
+    window.setTimeout(() => {
+      try { pickMystery(); } finally { setBusy(false); }
+    }, 30);
+  };
+  const pickMystery = () => {
+    const m0: Mods = { ...mods, faults: [] };
+    const iH = applyMods(s.inst, m0);
+    const cands = FAULTS.filter((f) => f.applies(iH, kind)).sort(() => Math.random() - 0.5);
     if (!cands.length) return;
-    const f = cands[Math.floor(Math.random() * cands.length)];
-    // Leurres : de préférence des pannes aux symptômes voisins
-    const others = cands.filter((x) => x.id !== f.id).map((x) => ({ x, k: x.sig.filter((y) => f.sig.includes(y)).length + Math.random() })).sort((a, b) => b.k - a.k).slice(0, 3).map((o) => o.x.id);
+    // 1. Une panne qui se voit vraiment sur CETTE installation (certaines restent invisibles : relais réglé trop bas
+    //    sur une pompe qui tourne peu, usure sur un surpresseur qui atteint encore sa pression…)
+    const symOf = new Map<string, string>();
+    const sym = (id: string) => { if (!symOf.has(id)) symOf.set(id, faultSymptoms(s.inst, m0, id).join(',')); return symOf.get(id)!; };
+    const f = cands.slice(0, 10).find((x) => sym(x.id) !== '') ?? cands[0];
+    const seenF = sym(f.id);
+    // 2. Leurres plausibles (symptômes voisins) mais qui ne donnent pas EXACTEMENT les mêmes symptômes ici
+    const ranked = cands.filter((x) => x.id !== f.id).map((x) => ({ x, k: x.sig.filter((y) => f.sig.includes(y)).length + Math.random() })).sort((a, b) => b.k - a.k).map((o) => o.x.id);
+    const others: string[] = [];
+    for (const id of ranked.slice(0, 8)) { if (others.length >= 3) break; if (sym(id) !== seenF) others.push(id); }
+    for (const id of ranked) { if (others.length >= 3) break; if (!others.includes(id) && symOf.get(id) !== seenF) others.push(id); }
     const options = [f.id, ...others].sort(() => Math.random() - 0.5);
+    // Panne qui s'aggrave (usure, ensablement) : elle a commencé il y a quelques heures, sinon rien ne se verrait encore
+    const t0 = f.effect.progressive ? sim.t - 8 * 3600 : sim.t;
     // Une seule panne à la fois : les pannes déjà présentes sont réparées et les symptômes passés effacés,
     // sinon ils se mélangeraient à ceux de la panne mystère (ex. « moteur qui ronfle » d'une panne précédente).
     setMystery({ id: f.id, answer: null, options });
     setMods((m) => ({ ...m, faults: [f.id] }));
-    setFaultT({ [f.id]: sim.t });
-    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject({ ...cleared({ ...st, outageUntil: 0 }), startLog: [], faultT: { [f.id]: st.t } }, f.effect)));
+    setFaultT({ [f.id]: t0 });
+    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject({ ...cleared({ ...st, outageUntil: 0 }), startLog: [], faultT: { [f.id]: t0 } }, f.effect)));
     setPlaying(true);
   };
   const hasVfd = s.inst.acc.variateur?.on || s.inst.elec.supply === 'solaire';
@@ -275,7 +295,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
         )}
         <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} isolated={sim.isolated} spare={(s.inst.pump.standby ?? 0) > 0} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery} genEmpty={!!sim.gen && sim.gen.fuel <= 0 && !mods.faults.includes('gen_gasoil')} onRefuel={refuel}
           design={s.ev.issues.filter((x) => x.sev === 'critical')} onIssue={(x) => s.selectIssue(x)} onFix={(x) => { const fx = x.fix; if (fx) { s.set((i) => fx.apply(i)); rearm(); } }}
-          onToggle={toggleFault} onMystery={startMystery} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
+          onToggle={toggleFault} onMystery={startMystery} busy={busy} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
           onRepair={(id) => { repair(id); if (mystery?.id === id) setMystery(null); }} onRepairAll={repairAll} onRearm={rearm}
           onShow={(t) => { s.pick(t); document.getElementById('diagram')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} />
 

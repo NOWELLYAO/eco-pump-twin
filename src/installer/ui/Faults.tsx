@@ -31,12 +31,12 @@ function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boole
   );
 }
 
-export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, genEmpty, onRefuel, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow }: {
+export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, genEmpty, onRefuel, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow, busy }: {
   inst: Installation; kind: SimKind; active: string[]; obs: Sym[];
   design?: Issue[]; onIssue?: (x: Issue) => void; onFix?: (x: Issue) => void;
   genEmpty?: boolean; onRefuel?: () => void; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
   mystery: Mystery | null;
-  onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void;
+  onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void; busy?: boolean;
   onRepair: (id: string) => void; onRepairAll: () => void; onRearm: () => void; onShow: (t: string) => void;
 }) {
   const cands = useMemo(() => FAULTS.filter((f) => f.applies(inst, kind)), [inst, kind]);
@@ -143,7 +143,7 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
 
       {/* Injection de pannes */}
       <h4 className="fh">Provoquer une panne</h4>
-      <button type="button" className="btn primary full" onClick={onMystery}><Shuffle size={16} aria-hidden /> Panne mystère (entraînement au diagnostic)</button>
+      <button type="button" className="btn primary full" onClick={onMystery} disabled={busy}><Shuffle size={16} aria-hidden /> {busy ? 'Préparation de la panne…' : 'Panne mystère (entraînement au diagnostic)'}</button>
       {/* Pannes en cours : visibles même listes repliées, un clic pour réparer */}
       {shownActive.length > 0 && (
         <div className="factive">

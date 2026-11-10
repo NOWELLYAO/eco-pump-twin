@@ -11,7 +11,7 @@ export const FAULT_CAT: Record<FaultCat, string> = {
 export type Sym =
   | 'debit_bas' | 'debit_nul' | 'pression_basse' | 'pression_haute' | 'courant_haut' | 'courant_bas'
   | 'depression_forte' | 'cycles_courts' | 'ronfle' | 'ne_demarre_pas' | 'ne_s_arrete_pas'
-  | 'debordement' | 'pas_de_tension' | 'marche_a_sec' | 'pression_tombe_arret' | 'bruit' | 'fuite_visible'
+  | 'debordement' | 'pas_de_tension' | 'marche_a_sec' | 'pression_tombe_arret' | 'bruit' | 'fuite_visible' | 'fuite_pompe' | 'affichage_faux' | 'demarrage_intempestif'
   | 'decl_thermique' | 'decl_diff' | 'decl_manque_eau' | 'decl_sous_charge' | 'decl_variateur' | 'tension_basse' | 'marche_sans_commande'
   | 'vibrations' | 'bruit_gravier' | 'bruit_roulement' | 'claquements' | 'cognements' | 'rabattement_fort' | 'niveau_bas' | 'statique_bas' | 'moteur_chaud' | 'courants_desequilibres' | 'coups_belier' | 'eau_sableuse'
   | 'gen_jauge_vide' | 'gen_fumee_noire' | 'gen_surchauffe' | 'gen_demarreur' | 'freq_instable';
@@ -24,7 +24,7 @@ export const SYM_LABEL: Record<Sym, string> = {
   tension_basse: 'Tension mesurée trop basse', marche_sans_commande: 'Moteur en marche, voyant de commande éteint',
   ronfle: 'Moteur qui ronfle sans tourner', ne_demarre_pas: 'La pompe ne démarre pas', ne_s_arrete_pas: 'La pompe ne s\'arrête pas',
   debordement: 'Débordement', pas_de_tension: 'Pas de tension au coffret', marche_a_sec: 'Marche à sec',
-  pression_tombe_arret: 'La pression chute pompe arrêtée', bruit: 'Bruit / vibrations anormaux', fuite_visible: 'Fuite de liquide visible',
+  pression_tombe_arret: 'La pression chute pompe arrêtée', bruit: 'Bruit / vibrations anormaux', fuite_visible: 'Fuite visible sur la conduite (zone humide, jet)', fuite_pompe: 'Fuite sous la pompe (garniture, lanterne)', affichage_faux: 'Le variateur affiche une pression différente du manomètre', demarrage_intempestif: 'Pompe incendie démarrée alors qu\'aucune lance n\'est ouverte',
   moteur_chaud: 'Moteur chaud (bobinage > 120 °C)', courants_desequilibres: 'Courants différents sur les 3 phases', coups_belier: 'Claquements dans la conduite à l\'arrêt', eau_sableuse: 'Eau chargée de sable aux robinets',
   gen_jauge_vide: 'Groupe arrêté, jauge de gasoil à zéro', gen_fumee_noire: 'Fumée noire à l\'échappement du groupe', gen_surchauffe: 'Groupe arrêté sur défaut température (radiateur brûlant)', gen_demarreur: 'Le démarreur du groupe ne lance pas le moteur (cliquetis)', freq_instable: 'Groupe qui « galope » : fréquence instable, le moteur de la pompe accélère et ralentit',
 };
@@ -111,7 +111,7 @@ export const FAULTS: FaultDef[] = [
     id: 'clapet_ar_fuit', cat: 'hydraulique', label: 'Clapet anti-retour non étanche', target: 'acc:clapet_ar',
     what: 'Le clapet anti-retour laisse revenir l\'eau vers la pompe quand elle est arrêtée.',
     applies: (i, k) => on(i, 'clapet_ar') && (k === 'vessel' || k === 'tank'), effect: { backflow: true },
-    sig: ['pression_tombe_arret', 'cycles_courts'], field: ['La pompe redémarre sans que personne ne puise', 'Bruit d\'écoulement à l\'arrêt', 'La pompe tourne parfois à l\'envers juste après l\'arrêt'],
+    sig: ['pression_tombe_arret', 'cycles_courts', 'pression_basse'], field: ['La pompe redémarre sans que personne ne puise', 'Bruit d\'écoulement à l\'arrêt', 'La pompe tourne parfois à l\'envers juste après l\'arrêt'],
     checks: ['Fermer la vanne après le clapet pompe arrêtée : si la pression tient, le clapet fuit', 'Observer le manomètre pompe arrêtée'],
     fix: ['Démonter et nettoyer le clapet', 'Remplacer le clapet (ou son joint)'], parts: ['clapet', 'moteur', 'coffret'],
   },
@@ -119,15 +119,15 @@ export const FAULTS: FaultDef[] = [
     id: 'roue_bouchee', cat: 'hydraulique', label: 'Roue partiellement bouchée', target: 'pump',
     what: 'Des débris (fibres, feuilles, sable) obstruent les canaux de la roue.',
     applies: () => true, effect: { inst: (i) => scale(i, 0.75, 0.75, 0.8), ampsK: 0.92 , vib: 2.2, noise: 'balourd' },
-    sig: ['debit_bas', 'pression_basse', 'bruit', 'vibrations', 'cognements'], field: ['Vibrations', 'Débit nettement plus faible qu\'à la mise en service'],
-    checks: ['Comparer pression vanne fermée avec la courbe (elle est plus basse)', 'Ouvrir le corps de pompe et inspecter la roue'],
+    sig: ['debit_bas', 'pression_basse', 'courant_bas', 'bruit', 'vibrations', 'cognements'], field: ['Vibrations', 'Débit nettement plus faible qu\'à la mise en service'],
+    checks: ['Mesurer le courant : plus faible qu\'à la mise en service (la roue débite moins)', 'Comparer la pression vanne fermée à la courbe (elle est plus basse)', 'Ouvrir le corps de pompe (pompe immergée : la remonter) et inspecter la roue'],
     fix: ['Nettoyer la roue', 'Nettoyer ou ajouter la protection en amont (crépine, préfiltre, panier ou dégrilleur)'], parts: ['roue', 'roulements'],
   },
   {
     id: 'vanne_fermee', cat: 'hydraulique', label: 'Vanne de refoulement fermée par erreur', target: 'acc:vanne_ref',
     what: 'Quelqu\'un a refermé la vanne de refoulement : la pompe tourne contre une vanne fermée, sans débit.',
     applies: (i, k) => on(i, 'vanne_ref') && k !== 'vfd' && k !== 'solar', effect: { inst: (i) => ({ ...i, acc: { ...i.acc, vanne_ref: { ...i.acc.vanne_ref, on: true, qty: 1e12 } } }), ampsK: 0.7 },
-    sig: ['debit_nul', 'pression_haute', 'courant_bas', 'decl_sous_charge', 'moteur_chaud', 'fuite_visible'], field: ['Pompe qui chauffe', 'Pression maximale au manomètre, pas d\'eau en sortie'],
+    sig: ['debit_nul', 'pression_haute', 'courant_bas', 'decl_sous_charge', 'moteur_chaud'], field: ['Pompe qui chauffe', 'Pression maximale au manomètre, pas d\'eau en sortie'],
     checks: ['Vérifier la position de toutes les vannes', 'Manomètre = pression à débit nul de la courbe'],
     fix: ['Ouvrir la vanne', 'Plomber / étiqueter la vanne en position ouverte'], parts: ['garniture', 'roulements'],
   },
@@ -135,7 +135,7 @@ export const FAULTS: FaultDef[] = [
     id: 'fuite_reseau', cat: 'hydraulique', label: 'Fuite ou casse sur le réseau', target: 'ref',
     what: 'Une canalisation est fissurée ou cassée après la pompe.',
     applies: (_i, k) => pressureKind(k) || k === 'tank' || k === 'continuous', effect: { leak: 0.45, inst: (i) => ({ ...i, duty: { ...i.duty, pRes: Math.max(0, i.duty.pRes - 0.8) } }) },
-    sig: ['debit_bas', 'pression_basse', 'cycles_courts', 'fuite_visible'], field: ['La pompe tourne beaucoup plus longtemps', 'Zone humide ou affaissement sur le tracé', 'Consommation d\'énergie en hausse'],
+    sig: ['debit_bas', 'pression_basse', 'cycles_courts', 'fuite_visible', 'ne_s_arrete_pas', 'courant_haut'], field: ['La pompe tourne beaucoup plus longtemps', 'Zone humide ou affaissement sur le tracé', 'Consommation d\'énergie en hausse'],
     checks: ['Relever le compteur la nuit (aucune consommation normale)', 'Fermer les tronçons un à un pour localiser la fuite', 'Inspecter le tracé'],
     fix: ['Réparer la conduite (manchon de réparation)', 'Contrôler le coup de bélier si la casse est due à une surpression'], parts: ['tuyauterie', 'moteur'],
   },
@@ -161,7 +161,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le niveau d\'eau baisse plus vite qu\'il ne se recharge (forage surexploité, bâche non alimentée, saison sèche).',
     applies: (_i, k) => k !== 'pit', effect: { drawdown: 6 },
     sig: ['debit_bas', 'debit_nul', 'marche_a_sec', 'courant_bas', 'decl_manque_eau', 'depression_forte', 'rabattement_fort', 'niveau_bas', 'statique_bas'], field: ['Le débit baisse au fil de la journée puis s\'arrête', 'Eau trouble ou sableuse', 'Bruit de cavitation'],
-    checks: ['Mesurer le niveau (sonde lumineuse) pompe en marche', 'Comparer avec le niveau dynamique de l\'essai de pompage', 'Vérifier l\'alimentation de la bâche'],
+    checks: ['Mesurer le niveau d\'eau pompe en marche (sonde lumineuse dans le forage, règle dans la bâche)', 'Forage : comparer au niveau dynamique de l\'essai de pompage, et le niveau au repos à celui d\'avant', 'Bâche ou citerne : vérifier son alimentation (robinet à flotteur, arrivée)'],
     fix: ['Réduire le débit (vanne, variateur) ou la durée de pompage', 'Descendre la pompe si le forage le permet', 'Protection manque d\'eau obligatoire'], parts: ['garniture', 'roue', 'moteur', 'diffuseurs'],
   },
   {
@@ -186,15 +186,15 @@ export const FAULTS: FaultDef[] = [
     id: 'pressostat_colle', cat: 'accessoire', label: 'Pressostat collé (contact soudé)', target: 'acc:pressostat',
     what: 'Le contact du pressostat reste fermé : il ne commande plus l\'arrêt.',
     applies: (i, k) => k === 'vessel' && on(i, 'pressostat'), effect: { pswitch: 'stuck' },
-    sig: ['ne_s_arrete_pas', 'pression_haute', 'courant_bas'], field: ['La pompe tourne en permanence', 'Pression maximale au manomètre', 'Pompe et eau qui chauffent'],
+    sig: ['ne_s_arrete_pas', 'pression_haute', 'courant_bas', 'demarrage_intempestif'], field: ['La pompe démarre même sans puisage et tourne en permanence', 'Pression maximale au manomètre', 'Pompe et eau qui chauffent'],
     checks: ['Comparer pression lue et seuil d\'arrêt', 'Débrancher le pressostat : contact fermé à l\'ohmmètre alors que la pression dépasse l\'arrêt'],
     fix: ['Remplacer le pressostat', 'Ajouter une sécurité pression haute'], parts: ['garniture', 'roulements', 'moteur'],
   },
   {
     id: 'pressostat_deregle', cat: 'accessoire', label: 'Pressostat déréglé', target: 'acc:pressostat',
-    what: 'Les seuils du pressostat ont dérivé de 1 bar vers le bas.',
+    what: 'Les seuils du pressostat ont dérivé de 1 bar vers le bas. La pression de marche passe alors sous la précharge du réservoir à vessie : le réservoir ne stocke presque plus d\'eau et la pompe redémarre beaucoup plus souvent.',
     applies: (i, k) => k === 'vessel' && on(i, 'pressostat'), effect: { pswitch: 'drift' },
-    sig: ['pression_basse'], field: ['Faible pression aux étages', 'Les usagers du haut se plaignent'],
+    sig: ['pression_basse', 'cycles_courts'], field: ['Faible pression aux étages', 'Les usagers du haut se plaignent'],
     checks: ['Relever pression de marche et d\'arrêt au manomètre', 'Comparer aux réglages prévus'],
     fix: ['Régler le pressostat (vis de marche puis d\'écart)', 'Ajuster la précharge du réservoir'], parts: [],
   },
@@ -202,7 +202,7 @@ export const FAULTS: FaultDef[] = [
     id: 'capteur_hs', cat: 'accessoire', label: 'Capteur de pression en panne', target: 'acc:capteur_p',
     what: 'Le capteur 4-20 mA envoie 0 bar au variateur (câble coupé ou capteur HS).',
     applies: (i, k) => k === 'vfd' && on(i, 'capteur_p'), effect: { sensorZero: true },
-    sig: ['pression_haute', 'ne_s_arrete_pas', 'courant_haut'], field: ['Le variateur affiche 0 bar et tourne à 50 Hz', 'Coups de bélier, robinets qui sifflent'],
+    sig: ['affichage_faux', 'pression_haute', 'ne_s_arrete_pas', 'courant_haut'], field: ['Le variateur affiche 0 bar et tourne à 50 Hz', 'Coups de bélier, robinets qui sifflent'],
     checks: ['Comparer l\'affichage du variateur et le manomètre', 'Mesurer le courant du capteur (4 mA = 0 bar)', 'Vérifier le câble du capteur'],
     fix: ['Remplacer le capteur ou le câble', 'Paramétrer un défaut « perte capteur » sur le variateur'], parts: ['tuyauterie', 'joints', 'moteur'],
   },
@@ -253,13 +253,13 @@ export const FAULTS: FaultDef[] = [
     applies: () => true, effect: { tripAtStart: 'Différentiel déclenché (défaut d\'isolement)', tripKind: 'decl_diff' },
     sig: ['decl_diff', 'ne_demarre_pas'], field: ['Le différentiel saute dès la mise en marche', 'Parfois après une pluie'],
     checks: ['Mesurer l\'isolement au mégohmmètre (500 V) entre chaque phase et la terre : > 2 MΩ attendu', 'Isoler câble et moteur pour localiser'],
-    fix: ['Refaire la jonction (kit de jonction immergée)', 'Remplacer le câble ou rebobiner le moteur'], parts: ['cable', 'moteur'],
+    fix: ['Refaire la jonction abîmée (kit de jonction immergée pour une pompe dans l\'eau)', 'Remplacer le câble ou rebobiner le moteur'], parts: ['cable', 'moteur'],
   },
   {
     id: 'contacteur_colle', cat: 'electrique', label: 'Contacteur collé', target: 'cable',
     what: 'Les contacts du contacteur sont soudés : le moteur reste alimenté même quand l\'automatisme demande l\'arrêt.',
     applies: (i, k) => !vfd(i) && k !== 'continuous', effect: { noStop: true },
-    sig: ['ne_s_arrete_pas', 'marche_sans_commande', 'pression_haute', 'debordement'], field: ['Voyant marche éteint mais moteur qui tourne', 'Bruit de contacteur absent à l\'arrêt'],
+    sig: ['ne_s_arrete_pas', 'marche_sans_commande', 'pression_haute', 'debordement', 'demarrage_intempestif'], field: ['Le moteur démarre tout seul ou ne s\'arrête plus, voyant marche éteint', 'Pas de « clac » du contacteur à l\'arrêt demandé'],
     checks: ['Couper la commande : si le moteur tourne encore, le contacteur est collé', 'Inspecter les contacts (brûlés, soudés)'],
     fix: ['Remplacer le contacteur', 'Vérifier le calibre (AC-3) et le nombre de démarrages'], parts: ['coffret', 'moteur'],
   },
@@ -276,7 +276,7 @@ export const FAULTS: FaultDef[] = [
     id: 'coupure', cat: 'reseau', label: 'Coupure de courant (45 min)', target: 'cable',
     what: 'Coupure du réseau électrique (délestage), puis retour du courant.',
     applies: (i) => i.elec.supply === 'mono' || i.elec.supply === 'tri', effect: { outage: 45 * 60 },
-    sig: ['pas_de_tension', 'ne_demarre_pas', 'pression_basse'], field: ['Tous les voyants éteints', 'Plus d\'eau chez les usagers'],
+    sig: ['pas_de_tension', 'ne_demarre_pas', 'pression_basse'], field: ['Tous les voyants du coffret éteints', 'Plus d\'eau chez les usagers, ou la fosse qui monte'],
     checks: ['Vérifier la tension en tête de coffret', 'Vérifier le compteur et le disjoncteur général'],
     fix: ['Attendre le retour du courant : redémarrage automatique', 'Prévoir un groupe électrogène ou un réservoir tampon'], parts: [],
   },
@@ -301,7 +301,7 @@ export const FAULTS: FaultDef[] = [
     id: 'gen_filtre_gasoil', cat: 'groupe', label: 'Filtre à gasoil colmaté', target: 'gen',
     what: 'Le filtre à gasoil (ou le préfiltre décanteur) est encrassé : le moteur manque de carburant sous charge, la vitesse « galope » et il cale par moments.',
     applies: GEN, effect: { gen: 'fuelFilter', inst: (i) => scale(i, 0.96, 0.92) },
-    sig: ['freq_instable', 'debit_bas', 'pas_de_tension', 'pression_basse'], field: ['Le régime du groupe monte et descend', 'Le groupe cale puis redémarre', 'Eau ou boues dans le bol décanteur'],
+    sig: ['freq_instable', 'debit_bas', 'pas_de_tension', 'pression_basse', 'courant_bas'], field: ['Le régime du groupe monte et descend', 'Le groupe cale puis redémarre', 'Eau ou boues dans le bol décanteur'],
     checks: ['Mesurer la fréquence (fréquencemètre du coffret) : variations de plusieurs Hz', 'Inspecter le préfiltre / décanteur'],
     fix: ['Remplacer les filtres à gasoil, vidanger le décanteur', 'Purger l\'air', 'Gasoil propre (cuve décantée, filtration au remplissage)'], parts: ['filtre gasoil'],
   },
@@ -309,7 +309,7 @@ export const FAULTS: FaultDef[] = [
     id: 'gen_filtre_air', cat: 'groupe', label: 'Filtre à air du groupe encrassé', target: 'gen',
     what: 'Le filtre à air est bouché (poussière, harmattan) : combustion incomplète, fumée noire, le groupe perd de la puissance et chauffe.',
     applies: GEN, effect: { gen: 'airFilter', inst: (i) => scale(i, 0.97, 0.94) },
-    sig: ['gen_fumee_noire', 'debit_bas', 'pression_basse'], field: ['Fumée noire à l\'échappement', 'Le groupe « peine » au démarrage de la pompe', 'Consommation de gasoil en hausse'],
+    sig: ['gen_fumee_noire', 'debit_bas', 'pression_basse', 'courant_bas'], field: ['Fumée noire à l\'échappement', 'Le groupe « peine » au démarrage de la pompe', 'Consommation de gasoil en hausse'],
     checks: ['Indicateur de colmatage du filtre à air (rouge)', 'Sortir la cartouche et la regarder à la lumière'],
     fix: ['Souffler ou remplacer la cartouche', 'Préfiltre cyclonique en zone poussiéreuse'], parts: ['filtre à air'],
   },
@@ -350,7 +350,7 @@ export const FAULTS: FaultDef[] = [
     id: 'garniture', cat: 'equipement', label: 'Garniture mécanique qui fuit', target: 'pump',
     what: 'La garniture mécanique est usée (marche à sec, sable) : l\'eau fuit le long de l\'arbre.',
     applies: (i) => i.mode !== 'immergee', effect: { leak: 0.04 },
-    sig: ['fuite_visible'], field: ['Goutte-à-goutte ou filet d\'eau sous la pompe', 'Traces de rouille sur la lanterne'],
+    sig: ['fuite_pompe'], field: ['Goutte-à-goutte ou filet d\'eau sous la pompe', 'Traces de rouille sur la lanterne'],
     checks: ['Observer la lanterne entre pompe et moteur', 'Rechercher des traces de marche à sec'],
     fix: ['Remplacer la garniture mécanique', 'Supprimer la cause (marche à sec, sable)'], parts: ['garniture', 'roulements'],
   },
@@ -358,16 +358,16 @@ export const FAULTS: FaultDef[] = [
     id: 'rotation', cat: 'equipement', label: 'Sens de rotation inversé', target: 'pump',
     what: 'Deux phases ont été inversées lors d\'une intervention : la pompe tourne à l\'envers.',
     applies: (i) => tri(i), effect: { inst: (i) => scale(i, 0.55, 0.45, 0.6), vib: 1.6, noise: 'sifflement' },
-    sig: ['debit_bas', 'pression_basse', 'courant_bas', 'bruit', 'decl_sous_charge', 'vibrations'], field: ['Le ventilateur tourne dans le mauvais sens (flèche)', 'Bruit inhabituel'],
-    checks: ['Comparer le sens de rotation à la flèche du carter', 'Vérifier la pression vanne fermée'],
+    sig: ['debit_bas', 'debit_nul', 'pression_basse', 'courant_bas', 'bruit', 'decl_sous_charge', 'vibrations'], field: ['Pompe de surface : le ventilateur tourne à l\'inverse de la flèche', 'Pompe immergée : rien de visible, seulement un débit et une pression bien plus faibles', 'Bruit inhabituel'],
+    checks: ['Pompe de surface : comparer le sens de rotation à la flèche du carter', 'Pompe immergée : inverser deux phases et comparer débit et pression, le bon sens donne nettement plus', 'Vérifier la pression vanne fermée (bien plus basse qu\'attendu)'],
     fix: ['Inverser deux phases au bornier', 'Installer un relais d\'ordre des phases'], parts: ['roue'],
   },
   // ---------------- Cas fréquents sur le terrain ----------------
   {
     id: 'colonne_percee', cat: 'hydraulique', label: 'Colonne de refoulement percée dans le forage', target: 'ref',
     what: 'La colonne montante est fendue ou un raccord s\'est desserré dans le forage : une partie de l\'eau retombe dans le puits.',
-    applies: (i) => i.pumpType === 'immergee_forage', effect: { inst: (i) => scale(i, 0.72, 0.82, 0.85), backflow: true, ampsK: 1.03 },
-    sig: ['debit_bas', 'pression_basse', 'pression_tombe_arret'], field: ['Débit en tête de forage plus faible qu\'avant', 'Bruit d\'eau qui ruisselle dans le forage', 'La colonne se vide à l\'arrêt (redémarrage à vide)'],
+    applies: (i) => i.pumpType === 'immergee_forage', effect: { inst: (i) => scale(i, 0.72, 0.82, 0.85), backflow: true, ampsK: 1.45 },
+    sig: ['debit_bas', 'pression_basse', 'pression_tombe_arret', 'courant_haut'], field: ['Débit en tête de forage plus faible qu\'avant', 'Bruit d\'eau qui ruisselle dans le forage', 'La colonne se vide à l\'arrêt (redémarrage à vide)'],
     checks: ['Vanne fermée en tête : la pression doit atteindre la hauteur à débit nul de la pompe', 'Pompe arrêtée, observer si la pression en tête chute', 'Remonter la pompe et inspecter tubes et raccords'],
     fix: ['Remplacer le tube ou le raccord percé', 'Serrer et sécuriser les raccords, câble fixé à la colonne'], parts: ['colonne', 'raccords'],
   },
@@ -375,7 +375,7 @@ export const FAULTS: FaultDef[] = [
     id: 'ensablement', cat: 'eau', label: 'Pompe qui s\'ensable', target: 'pump',
     what: 'Le forage produit du sable : la roue et les bagues s\'usent vite, et le sable déposé bloque la pompe au redémarrage.',
     applies: (i) => i.mode === 'immergee' && i.pumpType !== 'submersible_relevage', effect: { progressive: { rate: 8, max: 70, jamAt: 45 }, sandy: true, vib: 1.2, noise: 'sable', ampsK: 1.08, tripAfter: 9 * 3600, tripMsg: 'Disjoncteur moteur déclenché (pompe freinée par le sable)', tripKind: 'decl_thermique' },
-    sig: ['eau_sableuse', 'debit_bas', 'pression_basse', 'courant_haut', 'ronfle'], field: ['Eau trouble, sable dans les robinets et au fond du réservoir', 'Le débit baisse de jour en jour', 'Démarrages difficiles après un arrêt'],
+    sig: ['eau_sableuse', 'debit_bas', 'pression_basse', 'courant_haut', 'courant_bas', 'ronfle', 'bruit'], field: ['Eau trouble, sable dans les robinets et au fond du réservoir', 'Le débit baisse de jour en jour', 'Démarrages difficiles après un arrêt'],
     checks: ['Laisser décanter un seau d\'eau pompée', 'Comparer débit et pression aux valeurs de mise en service', 'Mesurer le courant au démarrage'],
     fix: ['Remonter la pompe plus haut (loin des crépines du forage)', 'Développer / nettoyer le forage', 'Pompe adaptée au sable, débit réduit (variateur)'], parts: ['roue', 'bagues', 'roulements'],
   },
@@ -407,7 +407,7 @@ export const FAULTS: FaultDef[] = [
     id: 'arbre_casse', cat: 'equipement', label: 'Arbre ou accouplement cassé', target: 'pump',
     what: 'L\'accouplement entre moteur et pompe (ou l\'arbre cannelé d\'une pompe immergée) est cassé : le moteur tourne à vide, la roue ne tourne plus.',
     applies: () => true, effect: { decoupled: true, inst: (i) => scale(i, 0.01, 0.01) },
-    sig: ['debit_nul', 'courant_bas', 'pression_basse'], field: ['Le moteur tourne mais aucune eau ne sort', 'Courant très faible, proche du courant à vide', 'Bruit de moteur « libre »'],
+    sig: ['debit_nul', 'courant_bas', 'pression_basse', 'bruit'], field: ['Le moteur tourne mais aucune eau ne sort', 'Courant très faible, proche du courant à vide', 'Bruit de moteur « libre »'],
     checks: ['Mesurer le courant : proche du courant à vide (25 à 35 % de In)', 'Pompe de surface : tourner l\'arbre côté pompe à la main', 'Pompe immergée : remonter et contrôler l\'accouplement cannelé'],
     fix: ['Remplacer l\'accouplement ou l\'arbre', 'Contrôler l\'alignement', 'Rechercher la cause : coup de bélier, blocage, démarrages trop fréquents'], parts: ['arbre', 'accouplement'],
   },
@@ -415,7 +415,7 @@ export const FAULTS: FaultDef[] = [
     id: 'lingettes', cat: 'equipement', label: 'Lingettes / chiffons dans la roue', target: 'pump',
     what: 'Des lingettes, chiffons ou fibres se sont enroulés dans la roue : elle est freinée et débite moins.',
     applies: (i) => i.pumpType === 'submersible_relevage' || ['eaux_usees', 'boues'].includes(i.fluid.type), effect: { inst: (i) => scale(i, 0.6, 0.8, 0.7), ampsK: 1.35, tripAfter: 3 * 3600, tripMsg: 'Disjoncteur moteur déclenché (roue freinée par des fibres)', tripKind: 'decl_thermique' , vib: 2.2, noise: 'balourd' },
-    sig: ['debit_bas', 'courant_haut', 'bruit', 'decl_thermique'], field: ['Temps de vidange de la fosse plus long', 'Vibrations, bruit sourd', 'Fosse qui monte plus haut qu\'avant'],
+    sig: ['debit_bas', 'courant_haut', 'bruit', 'decl_thermique', 'cognements', 'vibrations'], field: ['Temps de vidange de la fosse plus long', 'Vibrations, bruit sourd', 'Fosse qui monte plus haut qu\'avant'],
     checks: ['Mesurer le courant en marche : supérieur à l\'habitude', 'Chronométrer une vidange de la fosse', 'Remonter la pompe sur ses barres et inspecter la roue'],
     fix: ['Nettoyer la roue', 'Pompe dilacératrice ou vortex à grand passage', 'Grille / panier en amont, sensibiliser les usagers'], parts: ['roue', 'garniture', 'roulements'],
   },
@@ -455,7 +455,7 @@ export const FAULTS: FaultDef[] = [
     id: 'desequilibre', cat: 'reseau', label: 'Déséquilibre entre phases', target: 'cable',
     what: 'Une phase du réseau est plus basse que les autres (charge mal répartie, mauvais contact) : les courants sont déséquilibrés et le moteur chauffe.',
     applies: (i) => tri(i), effect: { heatK: 1.6, ampsK: 1.08, vib: 1, noise: 'magnetique' },
-    sig: ['courants_desequilibres', 'moteur_chaud', 'courant_haut'], field: ['Courants différents sur les trois phases (pince)', 'Moteur plus chaud que d\'habitude'],
+    sig: ['courants_desequilibres', 'moteur_chaud', 'courant_haut', 'bruit', 'vibrations'], field: ['Courants différents sur les trois phases (pince)', 'Moteur plus chaud que d\'habitude'],
     checks: ['Mesurer les trois tensions entre phases : écart > 2 % = anormal', 'Mesurer les trois courants : écart > 10 % = anormal', 'Resserrer les bornes de l\'arrivée'],
     fix: ['Faire équilibrer les charges par le distributeur', 'Resserrer les connexions', 'Relais de contrôle de phases avec seuil de déséquilibre'], parts: ['moteur'],
   },
@@ -533,9 +533,41 @@ export function combined(ids: string[]): FaultEffect & { ids: string[] } {
 const SPECIFIC: Partial<Record<Sym, number>> = {
   courants_desequilibres: 3, eau_sableuse: 3, coups_belier: 2.5, decl_diff: 2.5, decl_variateur: 2.5, decl_manque_eau: 2, decl_sous_charge: 2.5, rabattement_fort: 2, niveau_bas: 3, vibrations: 1.5, bruit_gravier: 2, bruit_roulement: 2.5, claquements: 2.5, cognements: 2, statique_bas: 3,
   pression_tombe_arret: 2, marche_sans_commande: 2.5, tension_basse: 2, pas_de_tension: 2.5, moteur_chaud: 1.5, cycles_courts: 1.5,
-  fuite_visible: 2, debordement: 1.5, ronfle: 1.5, bruit: 0.6, debit_bas: 0.8,
+  fuite_visible: 2, fuite_pompe: 2.5, affichage_faux: 4, demarrage_intempestif: 2, debordement: 1.5, ronfle: 1.5, bruit: 0.6, debit_bas: 0.8,
   gen_jauge_vide: 4, gen_fumee_noire: 4, gen_surchauffe: 4, gen_demarreur: 4, freq_instable: 3.5,
 };
+/** Symptômes qui découlent logiquement des symptômes propres à une panne (réactions en chaîne) : ils ne la
+ *  contredisent pas même s'ils ne font pas partie de sa signature. Ex. : disjoncteur déclenché → la pompe ne démarre
+ *  plus → la pression baisse / la fosse déborde ; marche à sec → moteur chaud → garniture détruite. */
+export function consequences(obs: Iterable<Sym>): Set<Sym> {
+  const o = new Set(obs), c = new Set<Sym>();
+  const has = (...xs: Sym[]) => xs.some((x) => o.has(x));
+  const add = (...xs: Sym[]) => xs.forEach((x) => c.add(x));
+  // Une protection coupe (ou plus de tension, ou rotor bloqué) : la pompe ne redémarre plus, la pression baisse, la fosse monte
+  const STOP: Sym[] = ['ne_demarre_pas', 'pression_basse', 'debordement'];
+  if (has('decl_thermique', 'decl_diff', 'decl_manque_eau', 'decl_sous_charge', 'decl_variateur', 'pas_de_tension', 'ronfle', 'ne_demarre_pas')) add(...STOP);
+  if (has('ronfle')) add('courant_haut', 'moteur_chaud', 'decl_thermique', 'bruit');
+  // Moteur qui chauffe ou absorbe trop : le disjoncteur finit par déclencher
+  if (has('moteur_chaud', 'courant_haut')) add('decl_thermique', 'moteur_chaud', ...STOP);
+  // Pompe qui débite moins : pression plus basse, fosse qui déborde, pompe qui tourne plus longtemps
+  if (has('debit_bas', 'debit_nul')) add('pression_basse', 'debordement', 'ne_s_arrete_pas');
+  if (has('pression_basse')) add('debit_bas');
+  // Pompe qui tourne sans débiter : elle chauffe, la garniture souffre, la protection finit par couper
+  if (has('debit_nul', 'marche_a_sec')) add('moteur_chaud', 'fuite_pompe', 'bruit', 'decl_thermique', 'decl_sous_charge', 'decl_manque_eau', 'courant_bas', 'debit_bas', ...STOP);
+  // Pompe qui ne s'arrête plus : surpression, débordement du réservoir, fosse vidée jusqu'à la marche à sec (puis tout ce qui suit)
+  if (has('ne_s_arrete_pas')) add('pression_haute', 'debordement', 'marche_a_sec', 'moteur_chaud', 'decl_thermique', 'courant_bas', 'bruit', 'fuite_pompe', 'ne_demarre_pas');
+  // Relais manque d'eau : il se réarme quand le niveau remonte, d'où des marches / arrêts répétés
+  if (has('decl_manque_eau')) add('cycles_courts');
+  // Démarrages trop fréquents : pointes de courant, bobinage qui chauffe, contacteur qui claque
+  if (has('cycles_courts')) add('moteur_chaud', 'decl_thermique', 'bruit', 'courant_haut');
+  // Bruits caractéristiques : ils font aussi partie des « bruits / vibrations anormaux »
+  if (has('vibrations', 'cognements', 'claquements', 'bruit_roulement', 'bruit_gravier', 'depression_forte', 'coups_belier')) add('bruit', 'vibrations');
+  if (has('depression_forte')) add('bruit_gravier', 'debit_bas', 'courant_bas');
+  // Réseau incendie : tout ce qui fait baisser la pression (fuite, clapet, pressostat) lance la pompe principale
+  if (has('pression_tombe_arret', 'fuite_visible', 'pression_basse', 'ne_s_arrete_pas', 'pression_haute', 'pas_de_tension')) add('demarrage_intempestif');
+  return c;
+}
+
 export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; score: number; match: Sym[] }[] {
   if (!obs.length) return [];
   const o = new Set(obs);
@@ -544,7 +576,9 @@ export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; sco
     const sig = new Set(f.sig);
     const match = f.sig.filter((s) => o.has(s));
     const W = (xs: Sym[]) => xs.reduce((a, s) => a + (SPECIFIC[s] ?? 1), 0);
-    const missed = obs.filter((s) => !sig.has(s) && !(s === 'debit_nul' && sig.has('debit_bas')));
+    // Symptômes non expliqués par la panne : ceux qui ne sont ni dans sa signature ni une conséquence logique d'un symptôme de sa signature
+    const cons = consequences(match);
+    const missed = obs.filter((s) => !sig.has(s) && !cons.has(s) && !(s === 'debit_nul' && sig.has('debit_bas')));
     // Les symptômes rares (déséquilibre, sable, différentiel…) pèsent plus que les symptômes banals (bruit, débit bas)
     const raw = match.length === 0 ? 0 : W(match) / W(f.sig) + W(match) / W(obs) - 0.15 * W(missed);
     return { f, score: Math.max(0, raw), match };
@@ -557,7 +591,7 @@ export function diagnose(obs: Sym[], candidates: FaultDef[]): { f: FaultDef; sco
 export const SYM_WEIGHT: Record<Sym, number> = {
   decl_thermique: 25, decl_diff: 30, decl_manque_eau: 25, decl_sous_charge: 25, rabattement_fort: 10, niveau_bas: 12, vibrations: 10, bruit_gravier: 8, bruit_roulement: 8, claquements: 8, cognements: 8, statique_bas: 10, decl_variateur: 25, pas_de_tension: 25, marche_a_sec: 25, debit_nul: 20,
   debordement: 20, ne_s_arrete_pas: 18, ronfle: 18, ne_demarre_pas: 12, pression_haute: 10, cycles_courts: 10, depression_forte: 8,
-  courant_haut: 8, pression_basse: 8, debit_bas: 8, pression_tombe_arret: 6, courant_bas: 4, bruit: 5, fuite_visible: 5,
+  courant_haut: 8, pression_basse: 8, debit_bas: 8, pression_tombe_arret: 6, courant_bas: 4, bruit: 5, fuite_visible: 5, fuite_pompe: 5, affichage_faux: 8, demarrage_intempestif: 15,
   tension_basse: 8, marche_sans_commande: 15, moteur_chaud: 12, courants_desequilibres: 8, coups_belier: 8, eau_sableuse: 6,
   gen_jauge_vide: 20, gen_fumee_noire: 8, gen_surchauffe: 20, gen_demarreur: 20, freq_instable: 10,
 };
