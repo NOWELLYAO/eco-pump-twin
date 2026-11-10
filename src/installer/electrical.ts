@@ -341,6 +341,15 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
       consequences: ['Démarrages difficiles, chutes de tension sur le réseau', 'Condensateur et bobinage qui chauffent'], parts: ['moteur', 'coffret'],
       solutions: ['Passer en triphasé 400 V', 'Ou variateur entrée monophasée / sortie triphasée avec moteur triphasé 230 V'] });
   }
+  if (start === 'etoile' && (isMono(e) || i.pump.motorKw < 5.5)) {
+    const prog = i.app === 'relevage' || i.app === 'drainage';
+    add({ id: 'yd_small', sev: 'warning', cat: 'electricite', title: isMono(e) ? 'Étoile-triangle impossible en monophasé' : 'Étoile-triangle inutile sur un petit moteur',
+      detail: isMono(e) ? 'Le démarrage étoile-triangle demande un moteur triphasé à 6 bornes.'
+        : `${f1(i.pump.motorKw)} kW : la pointe en direct n'est que d'environ ${f0(inom * 6)} A, sans gêne pour le réseau. L'étoile-triangle se justifie à partir d'environ 5,5 à 7,5 kW. Ici il ajoute 2 contacteurs (KM2, KM3), une temporisation (KT1) et un câble moteur à 6 conducteurs + terre (7G) au lieu de 3 + terre (4G). Beaucoup de petits moteurs${prog ? ', notamment ceux des pompes de relevage submersibles,' : ''} ne sortent d'ailleurs que 3 fils.`,
+      consequences: ['Coffret plus cher et plus de pièces à dépanner', 'Câble 7G plus cher', 'Couple de démarrage réduit au tiers : risque de ne pas décoller une roue chargée'], parts: ['coffret'],
+      solutions: ['Démarrage direct (contacteur + disjoncteur moteur)', 'Démarreur progressif pour adoucir le coup de bélier'],
+      fix: { label: 'Démarrage direct', apply: (x) => ({ ...x, elec: { ...x.elec, start: 'direct' } }) } });
+  }
   if (start === 'direct' && !isMono(e) && i.pump.motorKw > 7.5) {
     add({ id: 'dol', sev: 'warning', cat: 'electricite', title: 'Démarrage direct d\'un moteur puissant',
       detail: `${f1(i.pump.motorKw)} kW en direct : pointe d'environ ${f0(istart)} A (6 × In) et coup de bélier au démarrage.`,

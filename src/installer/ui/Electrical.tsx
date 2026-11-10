@@ -85,7 +85,7 @@ export function elecConfig(i: Installation, ev: Evaluation): ECfg {
   if (dryRelay) P.push({ id: 'ka2', tag: 'KA2', label: 'Relais manque d\'eau (électrodes)', kind: 'relay', poles: 1, row: 2, role: 'Arrête la pompe quand les électrodes ne sont plus dans l\'eau (marche à sec).', setting: 'Sensibilité 5–50 kΩ · tempo 5 s', panne: 'Déclenché : niveau trop bas, pompe désamorcée, électrode encrassée.', faults: ['source_tarie', 'clapet_pied_fuit'] });
   if (pumps > 1) P.push({ id: 'ka3', tag: 'KA3', label: i.pump.alternate ? 'Relais d\'alternance' : 'Relais de cascade', kind: 'relay', poles: 1, row: 2, role: i.pump.alternate ? 'Fait démarrer les pompes à tour de rôle (usure égale) et bascule sur la pompe de secours en cas de défaut.' : 'Démarre la pompe suivante si la demande augmente.' });
   if (vfd && !solar) P.push({ id: 'psu', tag: 'G1', label: 'Alimentation capteur 24 V DC', kind: 'psu', poles: 1, row: 2, setting: '24 V DC, 1 A', role: 'Alimente le capteur de pression 4-20 mA (souvent fournie par le variateur).' });
-  P.push({ id: 'x1', tag: 'X1', label: 'Bornier de raccordement', kind: 'terminal', poles: mono ? 4 : 6, row: 2, setting: 'bornes à ressort + bornes de terre PE', role: 'Raccorde câble moteur, flotteurs, pressostat, électrodes et terre (PE vert-jaune).' });
+  P.push({ id: 'x1', tag: 'X1', label: 'Bornier de raccordement', kind: 'terminal', poles: mono ? 4 : start === 'etoile' ? 8 : 6, row: 2, setting: 'bornes à ressort + bornes de terre PE', role: 'Raccorde câble moteur, flotteurs, pressostat, électrodes et terre (PE vert-jaune).' });
   // Porte
   P.push({ id: 'p1', tag: 'P1', label: 'Ampèremètre', kind: 'amp', poles: 1, row: 'door', role: 'Affiche le courant du moteur : premier indicateur de panne (surcharge, marche à sec).', setting: `Normal ≈ ${fmt(e.irun, 1)} A` });
   P.push({ id: 'h1', tag: 'H1', label: 'Voyant sous tension (blanc)', kind: 'lamp-w', poles: 1, row: 'door', setting: 'Ø 22 mm, LED', role: 'Allumé quand le coffret est alimenté.', faults: ['coupure'] });
@@ -435,7 +435,7 @@ function cabWiring({ i, ev, cfg, live, geos, rowY, W }: {
   const glands: { id: string; x: number; label: string; sub: string; cores: string[] }[] = [];
   glands.push({ id: 'in', x: 70, label: cfg.solar ? 'Champ PV' : i.elec.supply === 'groupe' ? 'Groupe' : 'Réseau', sub: cfg.solar ? 'câble solaire' : `${cfg.mono ? '3G' : '5G'} ${String(feedSec).replace('.', ',')} mm²`, cores: cfg.solar ? ['#c0392b', '#1d1d1d'] : cfg.mono ? ['#8a5a2b', '#2f6fd1', 'pe'] : ['#8a5a2b', '#1d1d1d', '#8e969d', '#2f6fd1', 'pe'] });
   const motorX = Math.min(W - 150, Math.max(200, (get('x1')?.g.x ?? 220) + 10));
-  glands.push({ id: 'mot', x: motorX, label: 'Moteur', sub: `${ev.elec.cores} ${String(i.elec.cableSec).replace('.', ',')} mm²`, cores: cfg.mono ? ['#8a5a2b', '#2f6fd1', 'pe'] : ['#8a5a2b', '#1d1d1d', '#8e969d', 'pe'] });
+  glands.push({ id: 'mot', x: motorX, label: 'Moteur', sub: `${ev.elec.cores} ${String(i.elec.cableSec).replace('.', ',')} mm²`, cores: cfg.mono ? ['#8a5a2b', '#2f6fd1', 'pe'] : cfg.start === 'etoile' ? ['#8a5a2b', '#1d1d1d', '#8e969d', '#8a5a2b', '#1d1d1d', '#8e969d', 'pe'] : ['#8a5a2b', '#1d1d1d', '#8e969d', 'pe'] });
   const auto = cfg.auto === 'pressostat' ? 'Pressostat' : cfg.auto === 'capteur' ? 'Capteur 4-20 mA' : cfg.auto === 'flotteurs' ? 'Flotteurs' : cfg.auto === 'flotteur_res' ? 'Flotteur' : cfg.auto === 'soleil' ? 'Sondes' : 'Commande';
   glands.push({ id: 'cmd', x: motorX + 92, label: auto, sub: cfg.dryRelay ? '+ électrodes' : 'câble 24 V', cores: ['#c0392b', '#1f3a93'] });
   for (const gl of glands) {
@@ -459,7 +459,7 @@ function cabWiring({ i, ev, cfg, live, geos, rowY, W }: {
   }
   // PE de l'arrivée → barrette de terre
   const peX = 60, peY = 524;
-  top.push(<g key="pebar"><rect x={peX} y={peY - 5} width={110} height={10} rx={2} className="cab-pebar" />{Array.from({ length: 7 }).map((_, k) => <circle key={k} cx={peX + 8 + k * 15} cy={peY} r={2.6} className="m-screw" />)}<text x={peX + 116} y={peY + 4} className="cab-gl2">PE</text></g>);
+  top.push(<g key="pebar"><rect x={peX} y={peY - 5} width={92} height={10} rx={2} className="cab-pebar" />{Array.from({ length: 6 }).map((_, k) => <circle key={k} cx={peX + 8 + k * 15} cy={peY} r={2.6} className="m-screw" />)}<text x={peX + 46} y={peY - 9} textAnchor="middle" className="cab-gl2">PE</text></g>);
   wire(`M${inG.x + 6} 540 V${peY}`, '#3fae3f', false, { layer: top });
   wire(`M${inG.x + 6} 540 V${peY}`, '#e1c300', false, { layer: top, thin: true });
   // ---- Entre rangées : départs (bas des appareils) → goulotte → arrivées (haut des appareils suivants) ----
@@ -473,7 +473,7 @@ function cabWiring({ i, ev, cfg, live, geos, rowY, W }: {
       const upLive = r === 0 ? powered : row0Out && (r === 1 || !!live?.powered);
       for (let k = 0; k < n; k++) {
         if (p.kind === 'terminal' && k === n - 1) continue; // borne PE : câblée à part
-        const c = power ? col(k, n, r) : k % 2 ? '#1f3a93' : '#c0392b';
+        const c = p.kind === 'terminal' && cfg.start === 'etoile' && k < 6 ? AC[k % 3] : power ? col(k, n, r) : k % 2 ? '#1f3a93' : '#c0392b';
         wire(`M${g.tx(k)} ${fromY} V${g.top}`, c, upLive, { thin: !power });
       }
     }
@@ -486,7 +486,7 @@ function cabWiring({ i, ev, cfg, live, geos, rowY, W }: {
       if (p.kind === 'terminal' && r === 2) continue; // départ moteur : câblé vers le presse-étoupe plus bas
       wire(`M${g.tx(k)} ${g.bot} V${ductTop(r)}`, c, outLive, { thin: !power, flow: running && motorPath });
     }
-    // Bornier : câble moteur (U V W + PE) vers le presse-étoupe moteur, repères sur les fils
+    // Bornier : câble moteur (U V W + PE ; en étoile-triangle U1 V1 W1 + W2 U2 V2 + PE) vers le presse-étoupe moteur, repères sur les fils
     if (id === 'x1') {
       const mg = glands[1];
       const cores = mg.cores;
@@ -496,20 +496,20 @@ function cabWiring({ i, ev, cfg, live, geos, rowY, W }: {
         const d = `M${tx} ${g.bot} V${g.bot + 32} C ${tx} ${g.bot + 52}, ${gx} ${g.bot + 46}, ${gx} 540`;
         if (c === 'pe') { wire(d, '#3fae3f', false, { layer: top }); wire(d, '#e1c300', false, { layer: top, thin: true }); }
         else wire(d, c, running || !!live?.on, { layer: top, flow: running });
-        if (c !== 'pe') top.push(<g key={`mk${k}`}><rect x={tx - 7} y={g.bot + 22} width={14} height={9} rx={2} className="cab-marker" /><text x={tx} y={g.bot + 29} textAnchor="middle" className="cab-mk">{cfg.mono ? ['L', 'N'][k] ?? '' : ['U', 'V', 'W'][k] ?? ''}</text></g>);
+        if (c !== 'pe') top.push(<g key={`mk${k}`}><rect x={tx - 8} y={g.bot + 36} width={16} height={9} rx={2} className="cab-marker" /><text x={tx} y={g.bot + 43} textAnchor="middle" className="cab-mk">{cfg.mono ? ['L', 'N'][k] ?? '' : (cfg.start === 'etoile' ? ['U1', 'V1', 'W1', 'W2', 'U2', 'V2'] : ['U', 'V', 'W'])[k] ?? ''}</text></g>);
       });
       // Pince ampèremétrique sur la phase L1 du câble moteur (simulation)
       if (live) {
-        const cx = g.tx(0), cy = g.bot + 44;
-        top.push(<g key="clamp" className="cab-clamp"><path d={`M${cx - 9} ${cy} a 9 9 0 1 1 18 0`} className="cab-jaw" /><rect x={cx - 34} y={cy + 2} width={30} height={22} rx={3} className="cab-clampbody" /><text x={cx - 19} y={cy + 17} textAnchor="middle" className="cab-clamptxt">{fmt(live.amps, 1)}</text><text x={cx - 37} y={cy + 17} textAnchor="end" className="cab-gl2">A</text></g>);
+        const cx = g.tx(0), cy = g.bot + 58;
+        top.push(<g key="clamp" className="cab-clamp"><path d={`M${cx - 9} ${cy} a 9 9 0 1 1 18 0`} className="cab-jaw" /><rect x={cx - 46} y={cy + 2} width={42} height={22} rx={3} className="cab-clampbody" /><text x={cx - 25} y={cy + 17} textAnchor="middle" className="cab-clamptxt">{fmt(live.amps, 1)} A</text></g>);
       }
       // PE du bornier → barrette de terre
       const px = g.tx(n - 1);
-      wire(`M${px} ${g.bot} V${g.bot + 8} H${peX + 100} V${peY}`, '#3fae3f', false, { layer: top });
+      wire(`M${px} ${g.bot} V${g.bot + 8} H${g.x - 5} V${peY} H${peX + 86}`, '#3fae3f', false, { layer: top });
       // Câble de commande (automatisme) → bornes de commande du bornier
       const cg = glands[2];
-      wire(`M${cg.x - 3} 540 V${g.bot + 26} H${g.tx(Math.max(0, n - 2)) + 6} V${g.bot}`, '#c0392b', !!live?.powered, { layer: top, thin: true });
-      wire(`M${cg.x + 3} 540 V${g.bot + 30} H${g.tx(Math.max(0, n - 2)) + 10} V${g.bot}`, '#1f3a93', !!live?.powered, { layer: top, thin: true });
+      wire(`M${cg.x - 3} 540 V${g.bot + 52} H${g.tx(Math.max(0, n - 2)) + 6} V${g.bot}`, '#c0392b', !!live?.powered, { layer: top, thin: true });
+      wire(`M${cg.x + 3} 540 V${g.bot + 56} H${g.tx(Math.max(0, n - 2)) + 10} V${g.bot}`, '#1f3a93', !!live?.powered, { layer: top, thin: true });
     }
   }
   // ---- Faisceau vers la porte (voyants, sélecteur, ampèremètre) : boucle souple côté charnière ----
