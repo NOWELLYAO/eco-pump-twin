@@ -32,6 +32,41 @@ export function ensureElec<T extends Omit<Installation, 'elec'> & { elec?: Parti
   return { ...i, pump, elec: { ...d, ...i.elec, solar: { ...d.solar, ...(i.elec?.solar ?? {}) } } } as Installation;
 }
 
+/** Groupe électrogène pour pompes immergées — tableau Grundfos (démarrage direct, ≤ 150 m d'altitude) :
+ *  moteur kW → groupe kVA / kW, puis moteur diesel kW à 30 °C et 40 °C, à 150 m et 750 m d'altitude. */
+const GEN_TABLE: [number, number, number, number, number, number, number][] = [
+  [0.25, 1.5, 1.0, 1.25, 1.3, 1.4, 1.43], [0.37, 2, 1.5, 2, 2.1, 2.3, 2.3], [0.55, 2.5, 2, 2.5, 3.1, 2.8, 2.86], [0.75, 3, 2.5, 3, 3.1, 3.4, 3.44],
+  [1.1, 4, 3, 4, 4.2, 4.5, 4.58], [1.5, 5, 4, 5, 5.2, 5.6, 5.73], [2.2, 7, 6, 7, 7.3, 7.8, 8], [3.7, 11, 9, 10, 10.4, 11.1, 11.5],
+  [5.5, 16, 12.5, 14, 14.6, 15.6, 16], [7.5, 19, 15, 17, 17.7, 19, 20], [11, 28, 22, 25, 26, 28, 29], [15, 38, 30, 35, 36, 39, 40],
+  [18.5, 50, 40, 45, 47, 50, 52], [22, 55, 45, 50, 52, 56, 57], [30, 75, 60, 65, 68, 72, 75], [37, 95, 75, 83, 86, 92, 95],
+  [45, 110, 90, 100, 104, 111, 115], [55, 135, 110, 120, 125, 133, 137], [75, 185, 150, 165, 172, 183, 189], [90, 220, 175, 192.5, 200, 215, 220],
+  [110, 250, 200, 220, 230, 244, 250], [132, 313, 250, 275, 290, 305, 315], [150, 344, 275, 305, 315, 335, 345], [185, 396, 330, 365, 405, 405, 415],
+];
+/** Réduction de la pointe de démarrage par rapport au démarrage direct (le groupe doit encore fournir la marche) */
+const GEN_START: Record<StartId, number> = { direct: 1, etoile: 0.8, progressif: 0.7, variateur: 0.8 };
+export interface GenSize { kva: number; dieselKw: number; why: string }
+export function genSize(kw: number, start: StartId, nRun = 1, altitude = 0): GenSize {
+  // Interpolation entre les deux lignes du tableau qui encadrent la puissance (proportionnel au-delà)
+  const T = GEN_TABLE, hi = T.findIndex((r) => r[0] >= kw - 1e-6);
+  const row: number[] = hi === 0 ? T[0].map((v) => v)
+    : hi < 0 ? T[T.length - 1].map((v, n) => (n === 0 ? kw : v * (kw / T[T.length - 1][0])))
+    : T[hi].map((v, n) => { const lo = T[hi - 1], t = (kw - lo[0]) / (T[hi][0] - lo[0]); return n === 0 ? kw : lo[n] + (v - lo[n]) * t; });
+  const scale = 1;
+  // Variateur : harmoniques → le groupe ne descend pas sous 1,5 × la puissance appelée (≈ 1,25 kVA par kW)
+  const k = GEN_START[start];
+  const startKva = row[1] * scale * k;
+  const runKva = (kw * 1.25) / 0.8; // marche : moteur chargé + cos φ 0,8
+  const minRun = start === 'variateur' ? runKva * 1.5 : runKva * 1.1;
+  const others = runKva * Math.max(0, nRun - 1); // les autres pompes tournent quand la dernière démarre
+  const kva = Math.ceil(Math.max(startKva, minRun) + others);
+  // Moteur diesel : 30 → 40 °C et 150 → 750 m d'altitude (interpolation, prolongée au-delà)
+  const a = Math.max(0, (altitude - 150) / 600);
+  const d40 = row[4] + (row[6] - row[4]) * a;
+  const dieselKw = Math.ceil(d40 * scale * (Math.max(startKva, minRun) / Math.max(1e-6, row[1] * scale)) + others * 0.8);
+  const why = `tableau Grundfos : ${f1(kw)} kW → ${f0(row[1])} kVA en démarrage direct${hi < 0 ? ' (extrapolé)' : ''}${k < 1 ? `, × ${String(k).replace('.', ',')} en ${start === 'etoile' ? 'étoile-triangle' : start === 'progressif' ? 'démarreur progressif' : 'variateur'}` : ''}${nRun > 1 ? ` + ${f1(others, 0)} kVA pour les ${nRun - 1} autre(s) pompe(s) en marche` : ''}`;
+  return { kva, dieselKw, why };
+}
+
 export const motorEff = (kw: number) => Math.min(0.94, 0.78 + 0.045 * Math.log(kw + 1));
 const isMono = (e: Elec) => e.supply === 'mono';
 /** Le moteur est alimenté en monophasé seulement sur réseau mono sans variateur mono→tri. */
@@ -63,6 +98,7 @@ export interface ElecResult {
   secRec: number; cores: string; cableType: string;
   breaker: string; vfdKw: number; vfdA: number; filter: string | null;
   genKva: number;
+  gen: GenSize; // groupe électrogène conseillé (détail)
   vfdSpeed: { s: number; hz: number; pNow: number; pNew: number; saving: number } | null;
   vessel: VesselResult | null;
   pSet: number; // consigne de pression (variateur + capteur)
@@ -289,9 +325,8 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
   const vfdKw = Math.max(i.pump.motorKw, Math.ceil(i.pump.motorKw * 1.1 * 10) / 10);
   const vfdA = inom * 1.1;
   const filter = start === 'variateur' && len > 50 ? (immersed ? 'filtre sinus' : 'filtre dU/dt') : start === 'variateur' && immersed && len > 30 ? 'filtre dU/dt' : null;
-  const genFactor: Record<StartId, number> = { direct: 3, etoile: 2.2, progressif: 2, variateur: 1.5 };
-  // Groupe : démarrage de la dernière pompe pendant que les autres tournent
-  const genKva = Math.ceil(((i.pump.motorKw * genFactor[start]) + i.pump.motorKw * 1.25 * (h.n - 1)) / 0.8 / 5) * 5;
+  const gen = genSize(i.pump.motorKw, start, h.n, i.geo.altitude);
+  const genKva = gen.kva;
   const vs = start === 'variateur' && e.supply !== 'solaire' ? vfdSpeed(i, h) : null;
   const ves = vessel(i, h);
   const sol = solar(i, h);
@@ -342,11 +377,11 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
   if (e.supply === 'groupe') {
     if (e.genKva > 0 && e.genKva < genKva) {
       add({ id: 'gen', sev: e.genKva < genKva * 0.7 ? 'critical' : 'warning', cat: 'electricite', title: 'Groupe électrogène sous-dimensionné',
-        detail: `${f0(e.genKva)} kVA installés ; il faut environ ${f0(genKva)} kVA pour démarrer ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()}.`,
+        detail: `${f0(e.genKva)} kVA installés ; il faut environ ${f0(genKva)} kVA pour démarrer ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()} (${gen.why}).`,
         consequences: ['Le groupe cale au démarrage', 'Tension et fréquence instables qui abîment le moteur'], parts: ['moteur', 'coffret'],
         solutions: [`Groupe d'au moins ${f0(genKva)} kVA`, 'Ou démarreur progressif / variateur pour réduire la pointe'] });
     } else if (e.genKva === 0) {
-      add({ id: 'gen0', sev: 'info', cat: 'electricite', title: `Groupe électrogène conseillé : ${f0(genKva)} kVA`, detail: `Pour ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()}.`, consequences: [], parts: [], solutions: [`Groupe de ${f0(genKva)} kVA minimum`] });
+      add({ id: 'gen0', sev: 'info', cat: 'electricite', title: `Groupe électrogène conseillé : ${f0(genKva)} kVA`, detail: `Pour ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()} : ${gen.why}. Moteur diesel d'au moins ${f0(gen.dieselKw)} kW (${f0(Math.max(150, i.geo.altitude))} m d'altitude, 40 °C).`, consequences: [], parts: [], solutions: [`Groupe de ${f0(genKva)} kVA minimum, régulation électronique de tension (AVR)`] });
     } else goods.push(`Groupe électrogène suffisant (${f0(e.genKva)} kVA)`);
   }
 
@@ -444,5 +479,5 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
     const fsec = SECTIONS.find((sec) => ampacity(sec, 'cu') >= rating && dropPct(flen, iTot, sec, { ...e, cableMat: 'cu' }) <= 3 && dropPct(flen, iStartTot, sec, { ...e, cableMat: 'cu' }, 0.35) <= 8) ?? 120;
     feed = { iTot, rating, sec: fsec, drop: dropPct(flen, iTot, fsec, { ...e, cableMat: 'cu' }), len: flen };
   }
-  return { r: { inom, irun, istart, start, dropRun, dropStart, amp, secRec, cores, cableType, breaker, vfdKw, vfdA, filter, genKva, vfdSpeed: vs, vessel: ves, pSet: ves?.pOn ?? Math.ceil((pressNeed(i) + 0.2) * 10) / 10, solar: sol, feed }, issues, goods };
+  return { r: { inom, irun, istart, start, dropRun, dropStart, amp, secRec, cores, cableType, breaker, vfdKw, vfdA, filter, genKva, gen, vfdSpeed: vs, vessel: ves, pSet: ves?.pOn ?? Math.ceil((pressNeed(i) + 0.2) * 10) / 10, solar: sol, feed }, issues, goods };
 }
