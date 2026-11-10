@@ -51,9 +51,9 @@ function Pipe({ pts, mat, dn, flow }: { pts: Pt[]; mat: keyof typeof PIPE_MATS; 
   );
 }
 
-function Dim({ x, y1, y2, label, side = 1 }: { x: number; y1: number; y2: number; label: string; side?: 1 | -1 }) {
+function Dim({ x, y1, y2, label, side = 1, at = 0.5 }: { x: number; y1: number; y2: number; label: string; side?: 1 | -1; at?: number }) {
   if (Math.abs(y2 - y1) < 6) return null;
-  const m = (y1 + y2) / 2;
+  const m = y1 + (y2 - y1) * at;
   return (
     <g className="r-dim">
       <path d={`M${x} ${y1} V${y2} M${x - 5} ${y1} H${x + 5} M${x - 5} ${y2} H${x + 5}`} />
@@ -424,6 +424,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   const [ax, ay] = ref[ref.length - 1];
   const destG = G;
   const destEls: ReactNode[] = [];
+  let destInY: number | null = null; // cote réelle d'arrivée (haut du château d'eau)
   const qr = live ? Math.max(0, Math.min(1.6, live.r.q / Math.max(0.1, i.duty.qReq))) : flow ? 1 : 0; // débit relatif
   // Eau disponible aux robinets : la pompe débite, ou le réservoir à vessie contient encore de l'eau sous pression
   // (le réservoir de secours, lui, se raccorde en aval, juste avant la maison : la vessie ne débite plus quand il alimente)
@@ -514,12 +515,33 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
     );
   } else if (dest === 'reservoir') {
     // Château d'eau / grande bâche : arrivée par le haut, niveau, flotteur, départ vers le réseau
+    // Château d'eau : cuve sur une tour dont la hauteur suit la cote d'arrivée (on « sent » la hauteur)
     const big = i.app === 'forage' || i.app === 'transfert';
-    const tw = big ? 170 : 120, th = big ? 96 : 80;
-    const tx = ax + 10, ty = ay - th + 34;
+    const tw = big ? 104 : 92, th = big ? 60 : 54;
+    const tx = ax + 26;
+    const tower = Math.max(56, Math.min(destG - th - 58, 34 + Math.max(0, i.geo.hRef) * 3.4));
+    const ty = destG - tower - th;
+    destInY = ty - 14;
+    const lx1 = tx + 14, lx2 = tx + tw - 14, fx1 = tx - 2, fx2 = tx + tw + 2; // pieds (haut / bas, évasés)
+    const nb = Math.max(1, Math.floor(tower / 42)); // étages de contreventement
+    const at = (k: number) => ty + th + 6 + ((destG - ty - th - 6) * k) / nb;
+    const lxAt = (y: number, l: number, f: number) => l + ((f - l) * (y - ty - th - 6)) / Math.max(1, destG - ty - th - 6);
     destEls.push(
-      <path key="legs" d={`M${tx + 20} ${ty + th} L${tx + 8} ${destG} M${tx + tw - 20} ${ty + th} L${tx + tw - 8} ${destG} ${ty + th + 50 < destG ? `M${tx + 16} ${ty + th + 50} H${tx + tw - 16}` : ''}`} className="r-legs" />,
-      <rect key="t" x={tx} y={ty} width={tw} height={th} rx={10} className="r-tank" />,
+      <g key="tower" className="r-tower">
+        <path d={`M${lx1} ${ty + th + 6} L${fx1} ${destG} M${lx2} ${ty + th + 6} L${fx2} ${destG}`} className="r-legs" />
+        {Array.from({ length: nb }).map((_, k) => {
+          const y1 = at(k), y2 = at(k + 1);
+          return <path key={k} d={`M${lxAt(y1, lx1, fx1)} ${y1} L${lxAt(y2, lx2, fx2)} ${y2} M${lxAt(y1, lx2, fx2)} ${y1} L${lxAt(y2, lx1, fx1)} ${y2} M${lxAt(y2, lx1, fx1)} ${y2} H${lxAt(y2, lx2, fx2)}`} className="r-brace" />;
+        })}
+        {/* Échelle d'accès */}
+        <path d={`M${lx2 + 7} ${ty + th + 6} L${fx2 + 7} ${destG} M${lx2 + 15} ${ty + th + 6} L${fx2 + 15} ${destG}`} className="r-ladder" />
+        {Array.from({ length: Math.floor((destG - ty - th - 6) / 9) }).map((_, k) => { const y = ty + th + 10 + k * 9; return <path key={`r${k}`} d={`M${lxAt(y, lx2, fx2) + 7} ${y} h8`} className="r-ladder" />; })}
+        {/* Passerelle et toit */}
+        <rect x={tx - 8} y={ty + th + 2} width={tw + 16} height={5} rx={1} className="r-gallery" />
+        <path d={`M${tx - 3} ${ty + 6} Q${tx + tw / 2} ${ty - 16} ${tx + tw + 3} ${ty + 6} Z`} className="r-roof" />
+        <rect x={tx + tw / 2 - 4} y={ty - 12} width={8} height={6} rx={1} className="r-roof" />
+      </g>,
+      <rect key="t" x={tx} y={ty} width={tw} height={th} rx={8} className="r-tank" />,
       <clipPath key="dc" id={`dest${uid}`}><rect x={tx + 6} y={ty + 6} width={tw - 12} height={th - 12} rx={6} /></clipPath>,
     );
     const fill = live && live.kind === 'tank' ? Math.min(1.04, live.x) : 0.7;
@@ -1057,8 +1079,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   }
 
   // Cotes
-  const refEndY = ref[ref.length - 1][1];
-  dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Ref ${fm(i.geo.hRef)}`} side={-1} />);
+  const refEndY = destInY ?? ref[ref.length - 1][1];
+  dims.push(<Dim key="dref" x={ax - 22} y1={forage ? G : pumpXY[1]} y2={refEndY} label={forage ? `${fm(i.geo.hRef)} au-dessus du sol` : `Ref ${fm(i.geo.hRef)}`} side={-1} at={destInY != null ? 0.18 : 0.5} />);
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68, ['--flow-t' as string]: `${flowT}s` }} className={`realview${live?.faults?.includes('ensablement') ? ' sandy' : ''}`} role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>

@@ -1555,3 +1555,11 @@ html, body { overflow-x: clip; }
 .r-insul { fill: #c9d1d8; stroke: #5b6772; stroke-width: 1; }
 .r-transfo { fill: #8a96a3; stroke: #4a545e; stroke-width: 1.2; }
 @media (prefers-reduced-motion: reduce) { .r-gen.on .r-gencase { animation: none; } }
+
+/* Château d'eau */
+.r-tower .r-legs { stroke: #6f7b85; stroke-width: 5; stroke-linecap: round; }
+.r-brace { stroke: #8a96a3; stroke-width: 1.6; fill: none; }
+.r-ladder { stroke: #9aa4ad; stroke-width: 1.4; fill: none; }
+.r-gallery { fill: #7b8791; }
+.r-roof { fill: #a8b3bc; stroke: #6f7b85; stroke-width: 1.4; }
+@media (prefers-color-scheme: dark) { .r-roof { fill: #3d4c58; } .r-gallery { fill: #5b6772; } }
