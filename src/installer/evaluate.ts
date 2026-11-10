@@ -2,7 +2,7 @@ import { aquiferOf, withAquifer } from './aquifer';
 import { fireCfg } from './fire';
 import { FORMATIONS, screenCalc, screenOf } from './borehole';
 import { isForage as isForageI } from './hydraulics';
-import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, nextDn, pipeCompat, pipeFor, pressNet, withPipe, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
+import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES, freeOutlet, nextDn, pipeCompat, pipeFor, pressNet, withPipe, pumpCompat, withPipesFor, refLen, refStatic } from './catalog';
 import { isForage, losses, nRun, patm, pressureHead, pumpHead, pumpNpshr, solve, speedFor, staticHead, suctionZ, vaporPressure, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, vessel as vesselCalc, vfdSet, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
@@ -739,13 +739,12 @@ export function evaluate(input: Installation): Evaluation {
       goods.push(`Crépine ${f0(scr.top)}–${f0(scr.bottom)} m, fentes ${f1(scr.slot, 2)} mm adaptées au terrain, vitesse d'entrée ${cm(c.vIn)} cm/s, pompe ${f1(c.gap)} m au-dessus : crépine noyée, moteur bien refroidi`);
   }
 
-  // ---------- Poste de relevage / drainage : rejet libre et alimentation ----------
+  // ---------- Rejet libre (réservoir rempli par le haut, cuve, regard) : la pression demandée ne compte pas ----------
+  if (freeOutlet(i) && i.duty.pRes > 0.05) add({ id: 'pres_libre', sev: 'info', cat: 'hydraulique', title: 'Pression demandée sans effet : l\'eau se déverse à l\'air libre',
+    detail: `${f1(i.duty.pRes)} bar sont saisis à l'arrivée, mais l'eau tombe librement dans ${APPS[i.app].dest === 'regard' ? 'le regard' : APPS[i.app].dest === 'cuve' ? 'la cuve' : 'le réservoir'} : il n'y a aucune pression à fournir. Les calculs utilisent 0 bar.`,
+    consequences: ['Une pompe choisie avec cette pression serait trop puissante'], parts: [],
+    solutions: ['Mettre la pression à l\'arrivée à 0 bar'], fix: { label: 'Pression à l\'arrivée : 0 bar', apply: (x) => ({ ...x, duty: { ...x.duty, pRes: 0 } }) } });
   if (APPS[i.app].dest === 'regard') {
-    if (i.duty.pRes > 0.3) add({ id: 'pres_regard', sev: 'warning', cat: 'energie', title: 'Pression demandée inutile : rejet libre dans un regard',
-      detail: `${f1(i.duty.pRes)} bar (${f0(i.duty.pRes * 10.2)} m) sont demandés à l'arrivée, alors que l'eau se déverse à l'air libre dans le regard. Ces mètres sont ajoutés à la hauteur de la pompe pour rien.`,
-      consequences: ['Pompe plus grosse et plus chère que nécessaire', 'Énergie gaspillée à chaque cycle'], parts: [],
-      solutions: ['Pression résiduelle à 0 bar (rejet libre), puis pompe adaptée'],
-      fix: { label: 'Pression à l\'arrivée : 0 bar', apply: (x) => ({ ...x, duty: { ...x.duty, pRes: 0 } }) } });
     if (i.elec.supply === 'solaire') add({ id: 'pit_solar', sev: i.app === 'relevage' ? 'critical' : 'warning', cat: 'electricite', title: i.app === 'relevage' ? 'Relevage sur panneaux solaires sans batterie : débordement la nuit' : 'Épuisement sur panneaux solaires : arrêt la nuit',
       detail: i.app === 'relevage' ? 'Les eaux usées arrivent jour et nuit (pointes le soir et le matin). Sans soleil la pompe ne peut pas tourner : la fosse se remplit et déborde chaque nuit.' : 'La pompe ne tourne que de jour : l\'eau d\'infiltration s\'accumule la nuit.',
       consequences: i.app === 'relevage' ? ['Débordement d\'eaux usées (risque sanitaire)', 'Refoulement dans les logements'] : ['Fouille ou cave inondée le matin'], parts: [],

@@ -263,3 +263,8 @@ export function withPipe(i: Installation, side: 'asp' | 'ref', dn: number): Inst
 
 /** Réseaux pilotés en pression (pressostat / variateur possibles) — mêmes applications que la simulation. */
 export const pressNet = (i: Installation) => ['surpression', 'incendie', 'forage', 'irrigation', 'transfert'].includes(i.app);
+
+/** Rejet à l'air libre : remplissage d'un réservoir par le haut, d'une cuve, ou déversement dans un regard
+ *  (sans pressostat ni régulation de pression) — aucune pression résiduelle n'est à fournir à l'arrivée. */
+export const freeOutlet = (i: Installation) => ['reservoir', 'regard', 'cuve'].includes(APPS[i.app].dest)
+  && !(i.acc.pressostat?.on && i.acc.vessie?.on) && !(i.acc.variateur?.on && i.acc.capteur_p?.on);

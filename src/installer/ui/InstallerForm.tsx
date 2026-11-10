@@ -9,6 +9,7 @@ import { fluidAt, solve } from '../hydraulics';
 import { aquiferOf, withAquifer } from '../aquifer';
 import { fireCfg } from '../fire';
 import { FORMATIONS, SLOTS, screenCalc, screenProposal, type FormationId } from '../borehole';
+import { freeOutlet } from '../catalog';
 import { PRESETS, autoEquip, blank, fluidForPump, makeFluid } from '../presets';
 import { BORE_SIZES, sizeOf } from '../borepump';
 import { fitBore } from '../sizing';
@@ -201,7 +202,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
       <Section n={imm ? 6 : 7} title="Besoin et énergie" summary={`${i.duty.qReq} m³/h · ${i.duty.pRes} bar`}>
         <div className="igrid">
           <NumField label="Débit demandé" unit="m³/h" value={i.duty.qReq} onChange={(v) => v > 0 && duty({ qReq: v })} dflt={D('duty.qReq')} />
-          <NumField label="Pression au point d'utilisation" unit="bar" value={i.duty.pRes} onChange={(v) => duty({ pRes: v })} dflt={D('duty.pRes')} />
+          <NumField label="Pression au point d'utilisation" unit="bar" value={i.duty.pRes} onChange={(v) => duty({ pRes: v })} dflt={D('duty.pRes')} hint={freeOutlet(i) ? 'Rejet à l\'air libre (réservoir, regard) : sans effet, les calculs prennent 0 bar' : undefined} />
           <NumField label="Fonctionnement" unit="h/jour" value={i.duty.hoursPerDay} onChange={(v) => duty({ hoursPerDay: Math.min(24, v) })} />
           <NumField label="Prix du kWh" unit={i.duty.currency} value={i.duty.pricePerKwh} onChange={(v) => duty({ pricePerKwh: v })} />
           <SelField label="Devise" value={i.duty.currency} options={['FCFA', 'KES', 'EUR', 'USD', 'MAD', 'GNF', 'CDF', 'XAF'].map((c) => ({ v: c, l: c }))} onChange={(v) => duty({ currency: v })} />

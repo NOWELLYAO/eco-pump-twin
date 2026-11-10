@@ -1,7 +1,7 @@
 import { etaAt, npshrAt } from '../engine/physics';
 import { fitCurve, type Fit } from './pumpcurve';
 import type { PumpSpec } from '../engine/types';
-import { ACC, ACCESSORIES, FLUIDS, PIPE_MATS, refLen, refStatic } from './catalog';
+import { ACC, ACCESSORIES, FLUIDS, PIPE_MATS, freeOutlet, refLen, refStatic } from './catalog';
 import type { FluidId, Installation, PipeRun } from './types';
 import { backupCalc, backupMode, backupOf } from './backup';
 
@@ -174,6 +174,8 @@ export function speedFor(i: Installation, q: number, hTarget: number) {
 export const pressureHead = (i: Installation) => {
   const b = backupOf(i);
   if (b && backupMode(b) === 'serie') return backupCalc(i, b).headTop * 1e5 / (i.fluid.rho * G) - Math.max(0, i.geo.hRef);
+  // Eau qui se déverse à l'air libre (réservoir rempli par le haut, regard) : la pression demandée ne s'applique pas
+  if (freeOutlet(i)) return 0;
   return (i.duty.pRes * 1e5) / (i.fluid.rho * G);
 };
 export const systemHeadAt = (i: Installation, q: number) => staticHead(i) + pressureHead(i) + losses(i, q).total;
