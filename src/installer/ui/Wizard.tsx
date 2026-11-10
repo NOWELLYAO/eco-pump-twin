@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, FileImage, MapPin, Wand2, X } from 'lucide-react';
 import { ACCESSORIES, APPS, DN_LIST, FLUIDS, MODES, NEED_LABEL, PIPE_MATS, PUMP_TYPES, withPipesFor } from '../catalog';
 import { evaluate, withPipe } from '../evaluate';
-import { ensureElec, SUPPLY_LABEL, START_LABEL } from '../electrical';
+import { ensureElec, GEN_SIZES, SUPPLY_LABEL, START_LABEL } from '../electrical';
 import { fluidAt, staticHead, systemHeadAt, vel } from '../hydraulics';
 import { posAdvice } from '../positions';
 import { autoEquip, empty, fluidForPump, makeFluid, sanitizeAcc } from '../presets';
@@ -476,7 +476,7 @@ export function Wizard({ onClose, onDone }: { onClose: () => void; onDone: (i: I
               </div>
             )}
             <NumField label="Longueur de câble coffret → moteur" unit="m" value={d.elec.cableLen} onChange={(v) => elec({ cableLen: v })} wide hint={forage ? 'Profondeur de pose + trajet jusqu\'au coffret' : undefined} />
-            {d.elec.supply === 'groupe' && <NumField label="Groupe électrogène installé" unit="kVA" value={d.elec.genKva} onChange={(v) => elec({ genKva: v })} hint={`Conseillé : ${ev.elec.genKva} kVA`} wide />}
+            {d.elec.supply === 'groupe' && <SelField label="Groupe électrogène" value={d.elec.genKva} options={[{ v: 0, l: 'À choisir' }, ...[...new Set([...GEN_SIZES, d.elec.genKva])].filter((g) => g > 0).sort((a, b) => a - b).map((g) => ({ v: g, l: `${g} kVA${g === ev.elec.genKva ? ' (conseillé)' : ''}` }))]} onChange={(v: number) => elec({ genKva: v })} hint={`Conseillé : ${ev.elec.genKva} kVA (besoin ${ev.elec.gen.need.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} kVA)`} wide />}
             {solar && (
               <>
                 <NumField label="Eau nécessaire par jour" unit="m³/j" value={d.elec.solar.dailyM3} onChange={(v) => v > 0 && set((x) => ({ ...x, elec: { ...x.elec, solar: { ...x.elec.solar, dailyM3: v } } }))} />

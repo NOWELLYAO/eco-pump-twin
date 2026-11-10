@@ -44,7 +44,9 @@ const GEN_TABLE: [number, number, number, number, number, number, number][] = [
 ];
 /** Réduction de la pointe de démarrage par rapport au démarrage direct (le groupe doit encore fournir la marche) */
 const GEN_START: Record<StartId, number> = { direct: 1, etoile: 0.8, progressif: 0.7, variateur: 0.8 };
-export interface GenSize { kva: number; dieselKw: number; why: string }
+/** Puissances de groupes électrogènes diesel courantes sur le marché (kVA, en puissance continue « prime ») */
+export const GEN_SIZES = [3, 5, 6, 7, 9, 11, 13, 15, 16, 20, 22, 27, 30, 33, 40, 45, 50, 60, 66, 75, 80, 90, 100, 110, 125, 150, 165, 200, 220, 250, 275, 300, 330, 350, 400, 450, 500, 550, 630, 700, 800, 900, 1000, 1100, 1250, 1400, 1650, 2000];
+export interface GenSize { kva: number; need: number; dieselKw: number; why: string }
 export function genSize(kw: number, start: StartId, nRun = 1, altitude = 0): GenSize {
   // Interpolation entre les deux lignes du tableau qui encadrent la puissance (proportionnel au-delà)
   const T = GEN_TABLE, hi = T.findIndex((r) => r[0] >= kw - 1e-6);
@@ -58,13 +60,14 @@ export function genSize(kw: number, start: StartId, nRun = 1, altitude = 0): Gen
   const runKva = (kw * 1.25) / 0.8; // marche : moteur chargé + cos φ 0,8
   const minRun = start === 'variateur' ? runKva * 1.5 : runKva * 1.1;
   const others = runKva * Math.max(0, nRun - 1); // les autres pompes tournent quand la dernière démarre
-  const kva = Math.ceil(Math.max(startKva, minRun) + others);
+  const need = Math.max(startKva, minRun) + others;
+  const kva = GEN_SIZES.find((g) => g >= need - 0.05) ?? Math.ceil(need / 50) * 50; // groupe du commerce immédiatement au-dessus
   // Moteur diesel : 30 → 40 °C et 150 → 750 m d'altitude (interpolation, prolongée au-delà)
   const a = Math.max(0, (altitude - 150) / 600);
   const d40 = row[4] + (row[6] - row[4]) * a;
   const dieselKw = Math.ceil(d40 * scale * (Math.max(startKva, minRun) / Math.max(1e-6, row[1] * scale)) + others * 0.8);
   const why = `tableau Grundfos : ${f1(kw)} kW → ${f0(row[1])} kVA en démarrage direct${hi < 0 ? ' (extrapolé)' : ''}${k < 1 ? `, × ${String(k).replace('.', ',')} en ${start === 'etoile' ? 'étoile-triangle' : start === 'progressif' ? 'démarreur progressif' : 'variateur'}` : ''}${nRun > 1 ? ` + ${f1(others, 0)} kVA pour les ${nRun - 1} autre(s) pompe(s) en marche` : ''}`;
-  return { kva, dieselKw, why };
+  return { kva, need, dieselKw, why: `${why} → besoin ${f1(need)} kVA, groupe du commerce ${kva} kVA` };
 }
 
 export const motorEff = (kw: number) => Math.min(0.94, 0.78 + 0.045 * Math.log(kw + 1));
@@ -375,13 +378,14 @@ export function electrical(i: Installation, h: Hydro): { r: ElecResult; issues: 
     }
   }
   if (e.supply === 'groupe') {
-    if (e.genKva > 0 && e.genKva < genKva) {
-      add({ id: 'gen', sev: e.genKva < genKva * 0.7 ? 'critical' : 'warning', cat: 'electricite', title: 'Groupe électrogène sous-dimensionné',
-        detail: `${f0(e.genKva)} kVA installés ; il faut environ ${f0(genKva)} kVA pour démarrer ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()} (${gen.why}).`,
+    if (e.genKva > 0 && e.genKva < gen.need - 0.05) {
+      add({ id: 'gen', sev: e.genKva < gen.need * 0.7 ? 'critical' : 'warning', cat: 'electricite', title: 'Groupe électrogène sous-dimensionné',
+        detail: `${f0(e.genKva)} kVA installés pour démarrer ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()} — ${gen.why}.`,
         consequences: ['Le groupe cale au démarrage', 'Tension et fréquence instables qui abîment le moteur'], parts: ['moteur', 'coffret'],
-        solutions: [`Groupe d'au moins ${f0(genKva)} kVA`, 'Ou démarreur progressif / variateur pour réduire la pointe'] });
+        solutions: [`Groupe de ${f0(genKva)} kVA`, 'Ou démarreur progressif / variateur pour réduire la pointe'],
+        fix: { label: `Groupe de ${f0(genKva)} kVA`, apply: (x) => ({ ...x, elec: { ...x.elec, genKva } }) } });
     } else if (e.genKva === 0) {
-      add({ id: 'gen0', sev: 'info', cat: 'electricite', title: `Groupe électrogène conseillé : ${f0(genKva)} kVA`, detail: `Pour ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()} : ${gen.why}. Moteur diesel d'au moins ${f0(gen.dieselKw)} kW (${f0(Math.max(150, i.geo.altitude))} m d'altitude, 40 °C).`, consequences: [], parts: [], solutions: [`Groupe de ${f0(genKva)} kVA minimum, régulation électronique de tension (AVR)`] });
+      add({ id: 'gen0', sev: 'info', cat: 'electricite', title: `Groupe électrogène conseillé : ${f0(genKva)} kVA`, detail: `Pour ${f1(i.pump.motorKw)} kW en ${START_LABEL[start].toLowerCase()} : ${gen.why}. Moteur diesel d'au moins ${f0(gen.dieselKw)} kW (${f0(Math.max(150, i.geo.altitude))} m d'altitude, 40 °C).`, consequences: [], parts: [], solutions: [`Groupe de ${f0(genKva)} kVA, régulation électronique de tension (AVR)`], fix: { label: `Groupe de ${f0(genKva)} kVA`, apply: (x) => ({ ...x, elec: { ...x.elec, genKva } }) } });
     } else goods.push(`Groupe électrogène suffisant (${f0(e.genKva)} kVA)`);
   }
 
