@@ -148,6 +148,19 @@ function partState(p0: EPart, L: ELive | undefined): 'off' | 'on' | 'trip' | 'fa
 
 /* =============================== Coffret ================================= */
 const MOD = 20; // largeur d'un pôle (module 18 mm)
+/** Encombrement réel d'un appareil sur le rail (mêmes règles que son dessin). */
+function modGeo(p: EPart, x: number, y: number) {
+  const big = p.kind === 'vfd' || p.kind === 'mppt' || p.kind === 'soft';
+  const w = Math.max(1, p.poles) * MOD;
+  const W = big ? Math.max(w, 86) : p.kind === 'transfo' ? 62 : p.kind === 'cap' ? 30 : w;
+  const h = big ? 112 : p.kind === 'transfo' ? 64 : 80;
+  const yy = big ? y - 16 : y;
+  // Bornes : une par pôle, en haut (arrivée) et en bas (départ)
+  const n = Math.max(1, p.poles);
+  const tx = (k: number) => (big || p.kind === 'transfo' || p.kind === 'cap' ? x + (W * (k + 1)) / (n + 1) : x + MOD * (k + 0.5));
+  return { x, y: yy, W, h, n, tx, top: yy + 5, bot: yy + h - 5 };
+}
+export const POWER_KINDS = new Set(['switch', 'dcswitch', 'spd', 'rcd', 'mcb', 'mpcb', 'contactor', 'vfd', 'mppt', 'soft', 'filter', 'cap', 'terminal']);
 
 function Module({ p, x, y, st, sel, hl, onPick, hz }: { p: EPart; x: number; y: number; st: string; sel: boolean; hl?: boolean; onPick: (id: string) => void; hz?: number }) {
   const w = Math.max(1, p.poles) * MOD;
@@ -187,7 +200,11 @@ function Module({ p, x, y, st, sel, hl, onPick, hz }: { p: EPart; x: number; y: 
   return (
     <g className={`mod ${sel ? 'sel' : ''} ${hl ? 'hl' : ''} ${st}`} onClick={(e) => { e.stopPropagation(); onPick(p.id); }}>
       <rect x={x} y={yy} width={W} height={h} rx={4} className={`m-body ${p.kind === 'vfd' || p.kind === 'mppt' ? 'dark' : ''}`} />
+      {/* Bornes à vis (arrivée en haut, départ en bas) */}
+      {p.kind !== 'terminal' && Array.from({ length: modGeo(p, x, y).n }).flatMap((_, k) => { const g = modGeo(p, x, y); return [<circle key={`t${k}`} cx={g.tx(k)} cy={g.top} r={2.6} className="m-screw" />, <circle key={`b${k}`} cx={g.tx(k)} cy={g.bot} r={2.6} className="m-screw" />]; })}
       {body}
+      {/* Repère sur étiquette blanche (les fils de départ passent derrière) */}
+      <rect x={x + W / 2 - (p.tag.length * 4 + 5)} y={yy + h + 2} width={p.tag.length * 8 + 10} height={15} rx={3} className="m-tagbg" />
       <text x={x + W / 2} y={yy + h + 13} textAnchor="middle" className="m-tag">{p.tag}</text>
       {st === 'trip' && <text x={x + W / 2} y={yy - 4} textAnchor="middle" className="m-tripTxt">DÉCLENCHÉ</text>}
       {st === 'fault' && <text x={x + W / 2} y={yy - 4} textAnchor="middle" className="m-tripTxt">DÉFAUT</text>}
@@ -390,6 +407,118 @@ export function CabinetHmi({ i, ev, cfg, L }: { i: Installation; ev: Evaluation;
   );
 }
 
+/** Câblage du coffret : câbles d'arrivée et de départ par presse-étoupes, conducteurs repérés par couleur
+ *  (L1 marron, L2 noir, L3 gris, N bleu, PE vert-jaune ; commande 24 V rouge / bleu foncé), barrette de terre,
+ *  ventilation du variateur. En simulation : conducteurs sous tension éclairés, courant moteur animé. */
+function cabWiring({ i, ev, cfg, live, geos, rowY, W }: {
+  i: Installation; ev: Evaluation; cfg: ECfg; live?: ELive; W: number; rowY: number[];
+  geos: { p: EPart; g: ReturnType<typeof modGeo>; st: string; r: 0 | 1 | 2 }[];
+}) {
+  const under: ReactNode[] = [], over: ReactNode[] = [], top: ReactNode[] = [];
+  // Couleurs normalisées : courant continu des panneaux (+ rouge / − noir), puis alternatif (L1 marron, L2 noir, L3 gris, N bleu)
+  const AC = cfg.mono ? ['#8a5a2b', '#2f6fd1'] : ['#8a5a2b', '#1d1d1d', '#8e969d', '#2f6fd1'];
+  const DC = ['#c0392b', '#1d1d1d'];
+  const col = (k: number, n: number, r = 1) => { if (cfg.solar && r === 0) return DC[k % 2]; return n >= 4 && k === 3 && !cfg.mono ? AC[3] : AC[k % (cfg.mono ? 2 : 3)]; };
+  const powered = !!live?.powered || (cfg.solar && (live?.pv ?? 0) > 0.05);
+  const running = !!live?.on && !live?.trip;
+  const get = (id: string) => geos.find((x) => (x.p.base ?? x.p.id) === id);
+  const isOn = (id: string) => { const x = get(id); return !!x && x.st === 'on'; };
+  // Amont de chaque rangée sous tension ?
+  const row0Out = powered && (cfg.solar ? isOn('qdc') : isOn('q0') && (!get('q2') || isOn('q2')));
+  let key = 0;
+  const wire = (d: string, color: string, on: boolean, o: { thin?: boolean; flow?: boolean; layer?: ReactNode[] } = {}) => {
+    (o.layer ?? under).push(<path key={`w${key++}`} d={d} className={`cw${o.thin ? ' thin' : ''}${live ? (on ? ' on' : ' off') : ''}${o.flow ? ' flow' : ''}`} style={{ stroke: color }} />);
+  };
+  const ductTop = (r: number) => rowY[r] + 112, ductBot = (r: number) => rowY[r] + 128;
+  // ---- Presse-étoupes en bas du coffret ----
+  const feedSec = ev.elec.feed?.sec ?? 6;
+  const glands: { id: string; x: number; label: string; sub: string; cores: string[] }[] = [];
+  glands.push({ id: 'in', x: 70, label: cfg.solar ? 'Champ PV' : i.elec.supply === 'groupe' ? 'Groupe' : 'Réseau', sub: cfg.solar ? 'câble solaire' : `${cfg.mono ? '3G' : '5G'} ${String(feedSec).replace('.', ',')} mm²`, cores: cfg.solar ? ['#c0392b', '#1d1d1d'] : cfg.mono ? ['#8a5a2b', '#2f6fd1', 'pe'] : ['#8a5a2b', '#1d1d1d', '#8e969d', '#2f6fd1', 'pe'] });
+  const motorX = Math.min(W - 150, Math.max(200, (get('x1')?.g.x ?? 220) + 10));
+  glands.push({ id: 'mot', x: motorX, label: 'Moteur', sub: `${ev.elec.cores} ${String(i.elec.cableSec).replace('.', ',')} mm²`, cores: cfg.mono ? ['#8a5a2b', '#2f6fd1', 'pe'] : ['#8a5a2b', '#1d1d1d', '#8e969d', 'pe'] });
+  const auto = cfg.auto === 'pressostat' ? 'Pressostat' : cfg.auto === 'capteur' ? 'Capteur 4-20 mA' : cfg.auto === 'flotteurs' ? 'Flotteurs' : cfg.auto === 'flotteur_res' ? 'Flotteur' : cfg.auto === 'soleil' ? 'Sondes' : 'Commande';
+  glands.push({ id: 'cmd', x: motorX + 92, label: auto, sub: cfg.dryRelay ? '+ électrodes' : 'câble 24 V', cores: ['#c0392b', '#1f3a93'] });
+  for (const gl of glands) {
+    // Câble gainé qui sort sous le coffret
+    top.push(<g key={`gl-${gl.id}`}>
+      <rect x={gl.x - 7} y={550} width={14} height={34} rx={3} className="cab-sheath" />
+      <path d={`M${gl.x - 10} 540 h20 l-2 10 h-16 Z`} className="cab-gland" />
+      <text x={gl.x} y={600} textAnchor="middle" className="cab-gl1">{gl.label}</text>
+      <text x={gl.x} y={614} textAnchor="middle" className="cab-gl2">{gl.sub}</text>
+    </g>);
+  }
+  // ---- Arrivée : conducteurs qui montent par la goulotte de gauche jusqu'aux bornes du sectionneur ----
+  const head = cfg.solar ? get('qdc') : get('q0');
+  const inG = glands[0];
+  const inCores = inG.cores.filter((c) => c !== 'pe');
+  if (head) {
+    inCores.forEach((c, k) => { void c;
+      const tx = head.g.tx(Math.min(k, head.g.n - 1));
+      wire(`M${inG.x - 6 + k * 3} 540 V${520 - k * 2} H${36 + k * 2} V${57 + k * 0.6} H${tx} V${head.g.top}`, inCores[k], powered);
+    });
+  }
+  // PE de l'arrivée → barrette de terre
+  const peX = 60, peY = 524;
+  top.push(<g key="pebar"><rect x={peX} y={peY - 5} width={110} height={10} rx={2} className="cab-pebar" />{Array.from({ length: 7 }).map((_, k) => <circle key={k} cx={peX + 8 + k * 15} cy={peY} r={2.6} className="m-screw" />)}<text x={peX + 116} y={peY + 4} className="cab-gl2">PE</text></g>);
+  wire(`M${inG.x + 6} 540 V${peY}`, '#3fae3f', false, { layer: top });
+  wire(`M${inG.x + 6} 540 V${peY}`, '#e1c300', false, { layer: top, thin: true });
+  // ---- Entre rangées : départs (bas des appareils) → goulotte → arrivées (haut des appareils suivants) ----
+  for (const { p, g, st, r } of geos) {
+    const id = p.base ?? p.id;
+    const power = POWER_KINDS.has(p.kind as string) || (cfg.solar && r === 0);
+    const n = g.n;
+    // Fils d'arrivée (haut) : depuis la goulotte au-dessus (rangée précédente) — sauf le sectionneur d'arrivée
+    if (!(head && head.p.id === p.id)) {
+      const fromY = r === 0 ? 64 : ductBot(r - 1);
+      const upLive = r === 0 ? powered : row0Out && (r === 1 || !!live?.powered);
+      for (let k = 0; k < n; k++) {
+        if (p.kind === 'terminal' && k === n - 1) continue; // borne PE : câblée à part
+        const c = power ? col(k, n, r) : k % 2 ? '#1f3a93' : '#c0392b';
+        wire(`M${g.tx(k)} ${fromY} V${g.top}`, c, upLive, { thin: !power });
+      }
+    }
+    // Fils de départ (bas) vers la goulotte en dessous
+    const outLive = st === 'on' || (id === 'q1' && st !== 'trip' && row0Out);
+    const motorPath = ['q1', 'km1', 'km2', 'km3', 'u1', 'flt', 'x1'].includes(id);
+    for (let k = 0; k < n; k++) {
+      if (p.kind === 'terminal' && k === n - 1) continue;
+      const c = power ? col(k, n, r) : k % 2 ? '#1f3a93' : '#c0392b';
+      if (p.kind === 'terminal' && r === 2) continue; // départ moteur : câblé vers le presse-étoupe plus bas
+      wire(`M${g.tx(k)} ${g.bot} V${ductTop(r)}`, c, outLive, { thin: !power, flow: running && motorPath });
+    }
+    // Bornier : câble moteur (U V W + PE) vers le presse-étoupe moteur, repères sur les fils
+    if (id === 'x1') {
+      const mg = glands[1];
+      const cores = mg.cores;
+      cores.forEach((c, k) => {
+        const tk = c === 'pe' ? n - 1 : Math.min(k, n - 2);
+        const tx = g.tx(tk), gx = mg.x - 6 + k * 4;
+        const d = `M${tx} ${g.bot} V${g.bot + 32} C ${tx} ${g.bot + 52}, ${gx} ${g.bot + 46}, ${gx} 540`;
+        if (c === 'pe') { wire(d, '#3fae3f', false, { layer: top }); wire(d, '#e1c300', false, { layer: top, thin: true }); }
+        else wire(d, c, running || !!live?.on, { layer: top, flow: running });
+        if (c !== 'pe') top.push(<g key={`mk${k}`}><rect x={tx - 7} y={g.bot + 22} width={14} height={9} rx={2} className="cab-marker" /><text x={tx} y={g.bot + 29} textAnchor="middle" className="cab-mk">{cfg.mono ? ['L', 'N'][k] ?? '' : ['U', 'V', 'W'][k] ?? ''}</text></g>);
+      });
+      // Pince ampèremétrique sur la phase L1 du câble moteur (simulation)
+      if (live) {
+        const cx = g.tx(0), cy = g.bot + 44;
+        top.push(<g key="clamp" className="cab-clamp"><path d={`M${cx - 9} ${cy} a 9 9 0 1 1 18 0`} className="cab-jaw" /><rect x={cx - 34} y={cy + 2} width={30} height={22} rx={3} className="cab-clampbody" /><text x={cx - 19} y={cy + 17} textAnchor="middle" className="cab-clamptxt">{fmt(live.amps, 1)}</text><text x={cx - 37} y={cy + 17} textAnchor="end" className="cab-gl2">A</text></g>);
+      }
+      // PE du bornier → barrette de terre
+      const px = g.tx(n - 1);
+      wire(`M${px} ${g.bot} V${g.bot + 8} H${peX + 100} V${peY}`, '#3fae3f', false, { layer: top });
+      // Câble de commande (automatisme) → bornes de commande du bornier
+      const cg = glands[2];
+      wire(`M${cg.x - 3} 540 V${g.bot + 26} H${g.tx(Math.max(0, n - 2)) + 6} V${g.bot}`, '#c0392b', !!live?.powered, { layer: top, thin: true });
+      wire(`M${cg.x + 3} 540 V${g.bot + 30} H${g.tx(Math.max(0, n - 2)) + 10} V${g.bot}`, '#1f3a93', !!live?.powered, { layer: top, thin: true });
+    }
+  }
+  // ---- Faisceau vers la porte (voyants, sélecteur, ampèremètre) : boucle souple côté charnière ----
+  wire(`M${W - 20} ${rowY[2] + 120} C ${W + 6} ${rowY[2] + 140}, ${W + 6} ${rowY[2] + 60}, ${W - 4} ${rowY[2] - 40}`, '#c0392b', !!live?.powered, { thin: true, layer: top });
+  wire(`M${W - 24} ${rowY[2] + 120} C ${W + 2} ${rowY[2] + 146}, ${W + 2} ${rowY[2] + 56}, ${W - 8} ${rowY[2] - 40}`, '#1f3a93', !!live?.powered, { thin: true, layer: top });
+  top.push(<text key="tdoor" x={W - 6} y={rowY[2] - 46} textAnchor="end" className="cab-gl2">vers la porte</text>);
+  return { under, over, top };
+}
+
 export function CabinetView({ i, ev, live, print }: { i: Installation; ev: Evaluation; live?: ELive; print?: boolean }) {
   const cfg = elecConfig(i, ev);
   const [sel, setSel] = useState<string | null>(null);
@@ -399,40 +528,57 @@ export function CabinetView({ i, ev, live, print }: { i: Installation; ev: Evalu
   const faultyPump = live?.isolated ? 1 : (live?.running ?? [])[0] ?? 1;
   const hl = new Set(cfg.parts.filter((p) => (p.pump == null || p.pump === faultyPump) && p.faults?.some((f) => live?.faults.includes(f))).map((p) => p.id));
   const placed: ReactNode[] = [];
+  const geos: { p: EPart; g: ReturnType<typeof modGeo>; st: string; r: 0 | 1 | 2 }[] = [];
   let maxX = 0;
   rows.forEach((r) => {
-    let x = 46;
+    let x = 56; // 46 → 56 : place pour la goulotte verticale de gauche
     for (const p of cfg.parts.filter((q) => q.row === r)) {
-      const big = p.kind === 'vfd' || p.kind === 'mppt' || p.kind === 'soft';
-      const w = big ? Math.max(p.poles * MOD, 86) : p.kind === 'transfo' ? 62 : p.kind === 'cap' ? 30 : p.poles * MOD;
-      placed.push(<Module key={p.id} p={p} x={x} y={rowY[r]} st={partState(p, live)} sel={sel === p.id} hl={hl.has(p.id)} onPick={setSel} hz={live?.hz} />);
-      x += w + 12;
+      const g = modGeo(p, x, rowY[r]);
+      const st = partState(p, live);
+      geos.push({ p, g, st, r });
+      placed.push(<Module key={p.id} p={p} x={x} y={rowY[r]} st={st} sel={sel === p.id} hl={hl.has(p.id)} onPick={setSel} hz={live?.hz} />);
+      x += g.W + 12;
     }
     maxX = Math.max(maxX, x);
   });
-  const W = Math.max(520, maxX + 30);
+  const W = Math.max(540, maxX + 30);
+  const wiring = cabWiring({ i, ev, cfg, live, geos, rowY, W });
   const door = cfg.parts.filter((p) => p.row === 'door');
   const cur = cfg.parts.find((p) => p.id === sel);
   return (
     <div className="cabinet">
       {!print && <CabinetHmi i={i} ev={ev} cfg={cfg} L={live} />}
       <div className="cab-wrap" onClick={() => setSel(null)}>
-        <svg viewBox={`0 0 ${W + 20} 560`} className="cab-in" role="img" aria-label="Intérieur du coffret électrique">
+        <svg viewBox={`0 0 ${W + 20} 640`} className="cab-in" role="img" aria-label="Intérieur du coffret électrique">
           <rect x={10} y={10} width={W} height={540} rx={10} className="cab-box" />
           <rect x={24} y={24} width={W - 28} height={512} rx={4} className="cab-plate" />
-          {rows.map((r) => (
-            <g key={r}>
-              <text x={34} y={rowY[r] - 26} className="cab-row">{titles[r]}</text>
-              <rect x={30} y={rowY[r] + 30} width={W - 40} height={18} className="cab-rail" />
-              <rect x={30} y={rowY[r] + 112} width={W - 40} height={16} rx={2} className="cab-duct" />
-            </g>
-          ))}
-          <text x={W / 2 + 10} y={548} textAnchor="middle" className="cab-foot">Presse-étoupes : alimentation · câble moteur {ev.elec.cores} {String(i.elec.cableSec).replace('.', ',')} mm² · flotteurs / capteurs</text>
+          {rows.map((r) => <rect key={`rail${r}`} x={48} y={rowY[r] + 30} width={W - 58} height={18} className="cab-rail" />)}
+          {wiring.under}
+          {/* Goulottes à peigne : verticale à gauche, horizontales entre les rangées (les fils y circulent, cachés) */}
+          <rect x={28} y={50} width={18} height={480} rx={2} className="cab-duct v" />
+          <rect x={48} y={50} width={W - 58} height={14} rx={2} className="cab-duct" />
+          {rows.map((r) => <rect key={`duct${r}`} x={48} y={rowY[r] + 112} width={W - 58} height={16} rx={2} className="cab-duct" />)}
+          {/* Étiquettes collées sur le couvercle des goulottes (comme sur un vrai coffret) */}
+          {rows.map((r) => <text key={`t${r}`} x={W - 44} y={rowY[r] + 124} textAnchor="end" className="cab-duct-lbl">▲ {titles[r]}</text>)}
+          {wiring.over}
           {placed}
+          {wiring.top}
         </svg>
-        <svg viewBox={`0 0 190 ${60 + Math.ceil(door.length / 2) * 92}`} className="cab-doorsvg" role="img" aria-label="Façade du coffret">
-          <rect x={4} y={4} width={182} height={52 + Math.ceil(door.length / 2) * 92} rx={10} className="cab-door" />
+        <svg viewBox={`0 0 190 ${60 + Math.ceil(door.length / 2) * 92 + (cfg.vfd ? 64 : 0)}`} className="cab-doorsvg" role="img" aria-label="Façade du coffret">
+          <rect x={4} y={4} width={182} height={52 + Math.ceil(door.length / 2) * 92 + (cfg.vfd ? 64 : 0)} rx={10} className="cab-door" />
           <text x={95} y={36} textAnchor="middle" className="cab-row">Porte (façade)</text>
+          {cfg.vfd && (() => {
+            // Ventilateur + grille filtrante sur la porte (variateur / contrôleur : il chauffe)
+            const fy = 52 + Math.ceil(door.length / 2) * 92 + 22, on = !!live?.on && !live?.trip;
+            return (
+              <g className={`cab-fan${on ? ' on' : ''}`}>
+                <rect x={60} y={fy - 20} width={70} height={40} rx={4} className="cab-grille" />
+                {Array.from({ length: 6 }).map((_, k) => <path key={k} d={`M64 ${fy - 14 + k * 6} h62`} className="cab-slot" />)}
+                <g className="cab-fanrot" style={{ transformOrigin: `95px ${fy}px` }}>{[0, 120, 240].map((a) => <path key={a} d={`M95 ${fy} q 9 -3 11 -11 q -7 -2 -11 11`} transform={`rotate(${a} 95 ${fy})`} className="cab-blade" />)}</g>
+                <text x={95} y={fy + 32} textAnchor="middle" className="m-tag">Ventilation</text>
+              </g>
+            );
+          })()}
           {door.map((p, k) => (
             <DoorItem key={p.id} p={p} x={57 + (k % 2) * 76} y={84 + Math.floor(k / 2) * 92} st={partState(p, live)} L={live} sel={sel === p.id} onPick={setSel} inom={ev.elec.inom} />
           ))}

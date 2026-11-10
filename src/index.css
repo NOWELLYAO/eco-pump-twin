@@ -1563,3 +1563,31 @@ html, body { overflow-x: clip; }
 .r-gallery { fill: #7b8791; }
 .r-roof { fill: #a8b3bc; stroke: #6f7b85; stroke-width: 1.4; }
 @media (prefers-color-scheme: dark) { .r-roof { fill: #3d4c58; } .r-gallery { fill: #5b6772; } }
+
+/* Coffret : câblage réaliste */
+.cab-duct.v { opacity: .7; }
+.cw { fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+.cw.thin { stroke-width: 1.6; }
+.cw.off { opacity: .45; }
+.cw.on { opacity: 1; filter: drop-shadow(0 0 1.5px rgba(255, 210, 60, .9)); }
+.cw.flow { stroke-dasharray: 7 4; animation: cwflow .6s linear infinite; }
+@keyframes cwflow { to { stroke-dashoffset: -11; } }
+.m-screw { fill: #c8ced3; stroke: #5d6b78; stroke-width: .8; }
+.cab-sheath { fill: #2b2f33; }
+.cab-gland { fill: #5d6b78; stroke: #2b2f33; }
+.cab-gl1 { font-size: 11px; font-weight: 800; fill: #17242e; }
+.cab-gl2 { font-size: 9.5px; font-weight: 700; fill: #5b6772; }
+.cab-pebar { fill: #c9a24a; stroke: #7a5a12; }
+.cab-marker { fill: #fff; stroke: #8a96a3; stroke-width: .6; }
+.cab-mk { font-size: 7.5px; font-weight: 800; fill: #17242e; }
+.cab-grille { fill: #3a4650; stroke: #1b232a; }
+.cab-blade { fill: #c8ced3; }
+.cab-fan.on .cab-fanrot { animation: spin .35s linear infinite; }
+@media (prefers-color-scheme: dark) { .cab-gl1 { fill: #e7eef3; } .cab-gl2 { fill: #a9b4bd; } }
+@media (prefers-reduced-motion: reduce) { .cw.flow { animation-duration: 2.4s; } }
+.cab-duct-lbl { font-size: 9.5px; font-weight: 800; fill: #f3f1ea; letter-spacing: .06em; text-transform: uppercase; }
+.cab-slot { stroke: #1b232a; stroke-width: 1.5; }
+.m-tagbg { fill: #fff; stroke: #b9c2c9; stroke-width: .8; }
+.cab-jaw { fill: none; stroke: #e0a400; stroke-width: 4; stroke-linecap: round; }
+.cab-clampbody { fill: #f0c419; stroke: #8a6a00; }
+.cab-clamptxt { font-family: ui-monospace, monospace !important; font-size: 10px; font-weight: 800; fill: #17242e; }
