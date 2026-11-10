@@ -212,6 +212,8 @@ export interface GenState {
   hot?: boolean; // arrêté sur défaut température, en attente de refroidissement
   stallUntil?: number; // calé (filtre à gasoil) jusqu'à t, redémarrage automatique
   runS?: number; // temps de marche depuis le dernier calage (s)
+  idleT?: number; // temps depuis l'arrêt de la pompe, groupe en marche (s)
+  crank?: number; // démarrage du groupe en cours (s)
   hz: number; v: number; // fréquence et tension délivrées
   lph: number; // consommation instantanée (L/h)
   why?: string | null; // raison de l'arrêt
@@ -325,7 +327,7 @@ export function initSim(ctx: SimCtx): SimState {
   return {
     t: 6 * 3600, master: true, on: false, x, q: 0, s: 1, pv: 0, vol: 0, kwh: 0, starts: 0, dry: false, overflow: false, cav: false, events: [], series: [],
     bk: backupOf(ctx.i) ? 1 : undefined,
-    gen: ctx.i.elec.supply === 'groupe' ? { run: true, fuel: genSpec(ctx.i, er).tank, tank: genSpec(ctx.i, er).tank, temp: 70, hz: 50, v: 400, lph: 0, why: null } : undefined,
+    gen: ctx.i.elec.supply === 'groupe' ? { run: !!ctx.i.elec.genManual, fuel: genSpec(ctx.i, er).tank, tank: genSpec(ctx.i, er).tank, temp: 70, hz: 50, v: 400, lph: 0, why: null } : undefined,
     trip: null, tripKind: null, recent: {}, hum: false, primed: true, noFlow: false, runT: 0, outageUntil: 0, dd: 0, startLog: [], runaway: false, blocked: false, backDrop: false, isolated: null,
   };
 }
@@ -507,7 +509,7 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const sunOk = () => (!solarPit || sunKw(ctx, hourOf(st.t)) >= 0.35 * pFullPit) && genUp();
   // Groupe électrogène : il faut qu'il tourne pour qu'il y ait du courant
   const isGen = i.elec.supply === 'groupe';
-  if (isGen && !st.gen) st.gen = { run: true, fuel: genSpec(i, er).tank, tank: genSpec(i, er).tank, temp: 70, hz: 50, v: 400, lph: 0, why: null };
+  if (isGen && !st.gen) st.gen = { run: !!i.elec.genManual, fuel: genSpec(i, er).tank, tank: genSpec(i, er).tank, temp: 70, hz: 50, v: 400, lph: 0, why: null };
   const genUp = () => !isGen || !!st.gen?.run;
   const start = () => {
     if (st.on) return;
@@ -569,12 +571,26 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       const battery = fx.gen === 'battery';
       if (g.stallUntil != null && st.t >= g.stallUntil) { g.stallUntil = undefined; g.runS = 0; newEv.push({ t: st.t, sev: 'info', text: 'Le groupe a redémarré', target: 'gen' }); }
       if (g.hot && g.temp < 72) { g.hot = false; if (!battery) newEv.push({ t: st.t, sev: 'info', text: 'Groupe refroidi : redémarrage', target: 'gen' }); }
-      // Marche si : demandé (automatisme actif), du gasoil, pas calé, pas en surchauffe, batterie bonne
-      const want = st.master;
-      g.run = want && g.fuel > 0 && g.stallUntil == null && !g.hot && !battery;
-      g.why = !want ? 'arrêt manuel' : g.fuel <= 0 ? 'plus de gasoil' : battery ? 'ne démarre pas (batterie)' : g.hot ? 'surchauffe' : g.stallUntil != null ? 'calé (filtre à gasoil)' : null;
+      // Démarrage / arrêt du groupe :
+      //  - automatique (coffret avec module de démarrage) : il démarre quand la pompe est appelée (≈ 8 s de lancement),
+      //    et s'arrête après une temporisation sans demande (5 min ; 15 min avec pressostat, qui relance souvent) ;
+      //  - manuel : démarré une fois et laissé en marche tant que l'installation est en service.
+      const manual = !!i.elec.genManual;
+      const hold = kind === 'vessel' || kind === 'vfd' ? 15 * 60 : 5 * 60;
+      const callPump = st.on || (st.blocked && !st.trip && st.t >= st.outageUntil);
+      if (g.run && !st.on) g.idleT = (g.idleT ?? 0) + sub; else g.idleT = 0;
+      const want = st.master && (manual || callPump || (g.run && (g.idleT ?? 0) < hold));
+      const can = g.fuel > 0 && g.stallUntil == null && !g.hot;
+      if (!g.run && want && can) {
+        if (battery) { g.crank = 0; }
+        else { g.crank = (g.crank ?? 0) + sub; if (g.crank >= 8) { g.run = true; g.crank = 0; g.runS = 0; } }
+      } else if (g.run && (!want || !can)) {
+        if (!want && st.master && !manual && (g.idleT ?? 0) >= hold) newEv.push({ t: st.t, sev: 'info', text: `Groupe arrêté automatiquement : pompe à l'arrêt depuis ${Math.round(hold / 60)} min`, target: 'gen' });
+        g.run = false; g.crank = 0;
+      }
+      g.why = !st.master ? 'arrêt manuel' : g.fuel <= 0 ? 'plus de gasoil' : battery && want ? 'ne démarre pas (batterie)' : g.hot ? 'surchauffe' : g.stallUntil != null ? 'calé (filtre à gasoil)' : !g.run && !want ? 'en attente (pompe à l\'arrêt)' : null;
       if (was && !g.run && g.fuel <= 0) { seen('gen_jauge_vide', 'pas_de_tension'); newEv.push({ t: st.t, sev: 'critical', text: 'Le groupe cale : réservoir de gasoil vide', target: 'gen' }); }
-      if (battery && !st.flags!.genBatt) { st.flags!.genBatt = true; seen('gen_demarreur', 'pas_de_tension'); newEv.push({ t: st.t, sev: 'critical', text: 'Groupe arrêté puis relancé : le démarreur cliquette sans lancer le moteur (batterie à plat)', target: 'gen' }); }
+      if (battery && want && !g.run && !st.flags!.genBatt) { st.flags!.genBatt = true; seen('gen_demarreur', 'pas_de_tension'); newEv.push({ t: st.t, sev: 'critical', text: 'La pompe appelle le groupe : le démarreur cliquette sans lancer le moteur (batterie à plat)', target: 'gen' }); }
       if (!battery) st.flags!.genBatt = false;
       // Charge électrique et consommation de gasoil (0,07 × Pr à vide + 0,28 L/kWh)
       const loadKw = st.on && !st.hum ? Math.min(gs.pr * 1.1, h.pElec * Math.max(0.3, st.q > 0 && h.q > 0 ? Math.min(1.1, st.q / h.q) : 0.6)) : 0;
@@ -589,10 +605,10 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       // Filtre à gasoil colmaté : le régime galope et le groupe cale toutes les ~75 min de marche
       if (g.run && fx.gen === 'fuelFilter') { seen('freq_instable'); if ((g.runS ?? 0) > 75 * 60) { g.run = false; g.stallUntil = st.t + 120; seen('pas_de_tension'); newEv.push({ t: st.t, sev: 'warning', text: 'Le groupe cale (manque de gasoil sous charge : filtre colmaté)', target: 'gen' }); } }
       if (g.run && fx.gen === 'airFilter') seen('gen_fumee_noire');
-      g.why = !st.master ? 'arrêt manuel' : g.fuel <= 0 ? 'plus de gasoil' : battery ? 'ne démarre pas (batterie)' : g.hot ? 'surchauffe' : g.stallUntil != null ? 'calé (filtre à gasoil)' : null;
+      g.why = !st.master ? 'arrêt manuel' : g.fuel <= 0 ? 'plus de gasoil' : battery && want ? 'ne démarre pas (batterie)' : g.hot ? 'surchauffe' : g.stallUntil != null ? 'calé (filtre à gasoil)' : !g.run && !want ? 'en attente (pompe à l\'arrêt)' : !g.run ? 'démarrage…' : null;
       g.hz = !g.run ? 0 : fx.gen === 'fuelFilter' ? 50 + 2.8 * Math.sin(st.t / 6.3) : fx.gen === 'airFilter' && loadKw > 0 ? 48.6 : 50;
       g.v = !g.run ? 0 : fx.gen === 'avr' ? 340 : 400;
-      if (!was && g.run && st.t > 6 * 3600 + 60 && !st.flags!.genStart) { st.flags!.genStart = true; newEv.push({ t: st.t, sev: 'ok', text: 'Groupe démarré', target: 'gen' }); }
+      if (!was && g.run && !st.flags!.genStart) { st.flags!.genStart = true; newEv.push({ t: st.t, sev: 'ok', text: manual ? 'Groupe démarré (marche continue)' : 'Groupe démarré automatiquement : la pompe est appelée', target: 'gen' }); }
       if (!g.run) st.flags!.genStart = false;
       st.gen = g;
     }
@@ -1004,7 +1020,9 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
     }
     if (st.backDrop) seen('pression_tombe_arret');
     if (st.on && st.noFlow) seen('debit_nul', 'marche_a_sec');
-    if (st.blocked && !st.on && !st.trip) seen('ne_demarre_pas'); // après un déclenchement, c'est la protection qui empêche le démarrage
+    // (groupe en cours de démarrage automatique : quelques secondes d'attente normales, pas un symptôme)
+    const genStarting = !!st.gen && !st.gen.run && st.gen.fuel > 0 && !st.gen.hot && st.gen.stallUntil == null && fx.gen !== 'battery';
+    if (st.blocked && !st.on && !st.trip && !genStarting) seen('ne_demarre_pas'); // après un déclenchement, c'est la protection qui empêche le démarrage
     // ----- Déclenchement thermique / défaut -----
     if (st.on && st.hum && st.flags?.jam && st.runT >= 10) {
       st.flags = { ...st.flags, jam: false };
@@ -1082,7 +1100,7 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const rn = readings(normal.i, normal.h, true, normal.er, kind === 'vessel' || kind === 'vfd' ? Math.max(0.1, st.q) : solarQ ? Math.max(0.1, solarQ.q) : undefined, kind === 'vfd' || kind === 'solar' ? st.s : 1);
   if (st.t < st.outageUntil) { o.add('pas_de_tension'); o.add('ne_demarre_pas'); }
   // Groupe électrogène à l'arrêt alors que l'installation est en marche
-  if (st.gen && st.master && !st.gen.run) {
+  if (st.gen && st.master && !st.gen.run && st.gen.why !== 'en attente (pompe à l\'arrêt)' && st.gen.why !== 'démarrage…') {
     o.add('pas_de_tension'); o.add('ne_demarre_pas');
     if (st.gen.fuel <= 0) o.add('gen_jauge_vide');
     if (st.gen.hot) o.add('gen_surchauffe');

@@ -102,6 +102,7 @@ export interface Elec {
   cableSec: number; // mm²
   cableMat: 'cu' | 'al';
   genKva: number; // groupe électrogène installé (kVA)
+  genManual?: boolean; // groupe démarré à la main et laissé en marche (sinon : démarrage / arrêt automatiques commandés par le coffret)
   feedLen?: number; // câble d'alimentation du coffret : compteur / TGBT → coffret (m)
   solar: Solar;
 }

@@ -236,6 +236,7 @@ export function InstallerForm({ inst, set, needs, er }: { inst: Installation; se
             Section conseillée : <b>{er.cores} {String(er.secRec).replace('.', ',')} mm²</b>{er.secRec !== i.elec.cableSec && <> </>}{er.secRec !== i.elec.cableSec && <button type="button" className="link" onClick={() => elec({ cableSec: er.secRec })}>appliquer</button>}
           </p>
           {i.elec.supply === 'groupe' && <SelField label="Puissance du groupe" value={i.elec.genKva} options={[{ v: 0, l: 'À choisir' }, ...[...new Set([...GEN_SIZES, i.elec.genKva])].filter((g) => g > 0).sort((a, b) => a - b).map((g) => ({ v: g, l: `${g} kVA${g === er.genKva ? ' (conseillé)' : ''}` }))]} onChange={(v: number) => elec({ genKva: v })} hint={`Conseillé : ${er.genKva} kVA (besoin ${er.gen.need.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} kVA)`} wide />}
+          {i.elec.supply === 'groupe' && <Toggle label="Groupe en marche continue (démarré à la main) — sinon démarrage et arrêt automatiques par le coffret" checked={!!i.elec.genManual} onChange={(v) => elec({ genManual: v })} />}
         </div>
         {solar && (
           <>

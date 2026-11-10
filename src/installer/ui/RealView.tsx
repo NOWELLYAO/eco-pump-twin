@@ -549,11 +549,13 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       </g>,
     );
     // départ vers le réseau (consommation)
-    const outY = ty + th - 12;
     const usingOut = live ? use > 0.05 && fill > 0.03 : true;
-    destEls.push(<path key="out" d={`M${tx + tw} ${outY} H${tx + tw + 40} V${destG + 18} H${W}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />);
-    if (usingOut) destEls.push(<path key="outf" d={`M${tx + tw} ${outY} H${tx + tw + 40} V${destG + 18} H${W}`} className="r-flow slow" strokeWidth={2.5} />);
-    destEls.push(<text key="outl" x={tx + tw + 46} y={destG + 12} className="r-label">vers le réseau</text>);
+    // Départ par le fond du réservoir, descend jusque sous le sol puis part vers le village (à gauche, sous terre)
+    const oX = tx + tw - 30;
+    const outD = `M${oX} ${ty + th} V${destG + 16} H${tx - 40}`;
+    destEls.push(<path key="out" d={outD} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />);
+    if (usingOut) destEls.push(<path key="outf" d={outD} className="r-flow slow" strokeWidth={2.5} />);
+    destEls.push(<text key="outl" x={tx - 46} y={destG + 20} textAnchor="end" className="r-label">{usingOut && live ? `vers le réseau · ${(Math.max(0, use) * i.duty.qReq * 0.55).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h` : 'vers le réseau'}</text>);
     if (on('flotteur_res')) {
       // Flotteur à bras : la boule suit la surface ; bras horizontal = réservoir plein, arrêt
       const px = tx + tw - 22, py = yTop + 4, L = 30;
