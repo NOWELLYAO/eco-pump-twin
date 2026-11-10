@@ -284,9 +284,9 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -10 }}>
                   <CartesianGrid stroke={c.grid} vertical={false} />
-                  <XAxis dataKey="label" stroke={c.axis} fontSize={11} tickLine={false} minTickGap={40} />
+                  <XAxis dataKey="t" type="number" scale="linear" domain={['dataMin', 'dataMax']} stroke={c.axis} fontSize={11} tickLine={false} minTickGap={40} tickFormatter={(t) => clock(Number(t)).slice(3)} />
                   <YAxis stroke={c.axis} fontSize={11} tickLine={false} width={44} domain={['auto', 'auto']} tickFormatter={(x) => fmt(x, 1)} />
-                  <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.grid}`, borderRadius: 10, color: c.ink, fontSize: 13 }} formatter={(x) => [`${fmt(Number(x), 2)} ${sl.unit}`, sl.a]} />
+                  <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.grid}`, borderRadius: 10, color: c.ink, fontSize: 13 }} formatter={(x) => [`${fmt(Number(x), 2)} ${sl.unit}`, sl.a]} labelFormatter={(t) => clock(Number(t))} />
                   {kind === 'vessel' && v && <ReferenceLine y={v.pOn} stroke={c.axis} strokeDasharray="4 4" label={{ value: 'Marche', position: 'insideBottomRight', fontSize: 11, fill: c.axis }} />}
                   {kind === 'vessel' && v && <ReferenceLine y={v.pOff} stroke={c.axis} strokeDasharray="4 4" label={{ value: 'Arrêt', position: 'insideTopRight', fontSize: 11, fill: c.axis }} />}
                   {kind === 'pit' && <ReferenceLine y={50} stroke={c.axis} strokeDasharray="4 4" label={{ value: 'Flotteur marche', position: 'insideTopRight', fontSize: 11, fill: c.axis }} />}
@@ -302,9 +302,9 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -10 }}>
                   <CartesianGrid stroke={c.grid} vertical={false} />
-                  <XAxis dataKey="label" stroke={c.axis} fontSize={11} tickLine={false} minTickGap={40} />
+                  <XAxis dataKey="t" type="number" scale="linear" domain={['dataMin', 'dataMax']} stroke={c.axis} fontSize={11} tickLine={false} minTickGap={40} tickFormatter={(t) => clock(Number(t)).slice(3)} />
                   <YAxis stroke={c.axis} fontSize={11} tickLine={false} width={44} tickFormatter={(x) => fmt(x, 0)} />
-                  <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.grid}`, borderRadius: 10, color: c.ink, fontSize: 13 }} formatter={(x, n) => [`${fmt(Number(x), 1)} m³/h`, n]} />
+                  <Tooltip contentStyle={{ background: c.surface, border: `1px solid ${c.grid}`, borderRadius: 10, color: c.ink, fontSize: 13 }} formatter={(x, n) => [`${fmt(Number(x), 1)} m³/h`, n]} labelFormatter={(t) => clock(Number(t))} />
                   <Legend iconType="plainline" wrapperStyle={{ fontSize: 12 }} />
                   <Line name="Pompe" dataKey="b" stroke={c.s1} strokeWidth={2} dot={false} isAnimationActive={false} type="stepAfter" />
                   {sl.c && <Line name={sl.c} dataKey="c" stroke={c.s2} strokeWidth={2} dot={false} isAnimationActive={false} />}

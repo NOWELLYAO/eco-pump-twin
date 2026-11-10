@@ -1049,7 +1049,11 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
   const hr = hourOf(st.t);
   const a = kind === 'vessel' || kind === 'vfd' ? st.x : kind === 'pit' ? st.x * 100 : kind === 'solar' ? st.pv : kind === 'tank' ? st.x * 100 : liveReadings(ctx, st).pRef;
   const c = kind === 'vessel' || kind === 'vfd' ? use(ctx, hr) * i.duty.qReq : kind === 'pit' ? (0.15 + 0.75 * use(ctx, hr)) * i.duty.qReq * 0.55 : kind === 'tank' ? use(ctx, hr) * i.duty.qReq * 0.55 : null;
-  st.series = [...prev.series, { t: st.t, a, b: st.q, c }].slice(-240);
+  // Débit de la pompe : moyenne sur le pas de temps (volume pompé / durée). En accéléré, un relevé instantané
+  // tomberait au hasard sur « marche » ou « arrêt » et dessinerait des barres trompeuses.
+  const span = Math.max(1, st.t - prev.t);
+  const qMean = span > 90 ? Math.max(0, ((st.vol - prev.vol) * 3600) / span) : st.q;
+  st.series = [...prev.series, { t: st.t, a, b: qMean, c }].slice(-240);
   if (newEv.length) st.events = [...newEv.reverse(), ...prev.events].slice(0, 80);
   return st;
 }
