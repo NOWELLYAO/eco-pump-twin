@@ -22,7 +22,7 @@ function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boole
       <ol>{f.checks.map((x) => <li key={x}>{x}</li>)}</ol>
       <h6>Réparation</h6>
       <ul className="fix">{f.fix.map((x) => <li key={x}><Wrench size={13} aria-hidden /> {x}</li>)}</ul>
-      {f.parts.length > 0 && <div className="parts">{f.parts.map((p) => <span key={p} className="part">{PARTS[p] ?? p}</span>)}</div>}
+      {f.parts.length > 0 && <div className="parts"><span className="small muted">Pièces touchées ou usées plus vite :</span> {f.parts.map((p) => <span key={p} className="part">{PARTS[p] ?? p}</span>)}</div>}
       <div className="row">
         <button type="button" className="btn sm" onClick={() => onShow(f.target)}><Eye size={14} aria-hidden /> Voir sur le schéma</button>
         {active && onRepair && <button type="button" className="btn sm primary" onClick={onRepair}><Wrench size={14} aria-hidden /> Réparer</button>}

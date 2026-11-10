@@ -121,7 +121,7 @@ export const FAULTS: FaultDef[] = [
     applies: () => true, effect: { inst: (i) => scale(i, 0.75, 0.75, 0.8), ampsK: 0.92 , vib: 2.2, noise: 'balourd' },
     sig: ['debit_bas', 'pression_basse', 'bruit', 'vibrations', 'cognements'], field: ['Vibrations', 'Débit nettement plus faible qu\'à la mise en service'],
     checks: ['Comparer pression vanne fermée avec la courbe (elle est plus basse)', 'Ouvrir le corps de pompe et inspecter la roue'],
-    fix: ['Nettoyer la roue', 'Installer ou nettoyer la crépine / le préfiltre'], parts: ['roue', 'roulements'],
+    fix: ['Nettoyer la roue', 'Nettoyer ou ajouter la protection en amont (crépine, préfiltre, panier ou dégrilleur)'], parts: ['roue', 'roulements'],
   },
   {
     id: 'vanne_fermee', cat: 'hydraulique', label: 'Vanne de refoulement fermée par erreur', target: 'acc:vanne_ref',

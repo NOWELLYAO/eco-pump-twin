@@ -108,16 +108,18 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   const refuel = () => setSim((st) => (st.gen ? note('ok', `Plein de gasoil fait (${Math.round(st.gen.tank)} L)`, 'gen')({ ...st, gen: { ...st.gen, fuel: st.gen.tank } }) : st));
   const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_sous_charge: undefined, decl_variateur: undefined } }));
   const startMystery = () => {
-    const cands = FAULTS.filter((f) => f.applies(iSim, kind) && !mods.faults.includes(f.id));
+    const cands = FAULTS.filter((f) => f.applies(iSim, kind));
     if (!cands.length) return;
     const f = cands[Math.floor(Math.random() * cands.length)];
     // Leurres : de préférence des pannes aux symptômes voisins
     const others = cands.filter((x) => x.id !== f.id).map((x) => ({ x, k: x.sig.filter((y) => f.sig.includes(y)).length + Math.random() })).sort((a, b) => b.k - a.k).slice(0, 3).map((o) => o.x.id);
     const options = [f.id, ...others].sort(() => Math.random() - 0.5);
+    // Une seule panne à la fois : les pannes déjà présentes sont réparées et les symptômes passés effacés,
+    // sinon ils se mélangeraient à ceux de la panne mystère (ex. « moteur qui ronfle » d'une panne précédente).
     setMystery({ id: f.id, answer: null, options });
-    setMods((m) => ({ ...m, faults: [...m.faults, f.id] }));
-    setFaultT((ft) => ({ ...ft, [f.id]: sim.t }));
-    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject({ ...st, faultT: { ...(st.faultT ?? {}), [f.id]: st.t } }, f.effect)));
+    setMods((m) => ({ ...m, faults: [f.id] }));
+    setFaultT({ [f.id]: sim.t });
+    setSim((st) => note('warning', 'Anomalie signalée par l\'exploitant : une panne s\'est produite. À vous de la diagnostiquer.')(inject({ ...cleared({ ...st, outageUntil: 0 }), startLog: [], faultT: { [f.id]: st.t } }, f.effect)));
     setPlaying(true);
   };
   const hasVfd = s.inst.acc.variateur?.on || s.inst.elec.supply === 'solaire';
