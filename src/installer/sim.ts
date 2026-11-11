@@ -113,7 +113,7 @@ function pumpReasonRaw(ctx: SimCtx, st: SimState): string | null {
   if (serie && bc) {
     const lvl = `${Math.round((st.bk ?? 0) * 100)} %`;
     const vwS = (p: number) => vt * (1 - (v.pre + 1) / (Math.max(p, v.pre) + 1));
-    const durS = (h: number) => (h * 60 < 1 ? 'moins d\'1 min' : h * 60 < 90 ? `${Math.round(h * 60)} min` : `${f(h, 1)} h`);
+    const durS = (h: number) => (h * 60 < 1 ? 'moins d\'1 min' : h * 60 < 90 ? `≈ ${Math.round(h * 60)} min` : `≈ ${f(h, 1)} h`);
     if ((st.bk ?? 0) <= 0.002) return `réservoir VIDE : la maison n'a plus d'eau${st.on ? ', la pompe le remplit' : ''}`;
     if (st.on && st.q > 0) {
       if (fx.bkFloatStuck && (st.bk ?? 0) >= 0.999) return `marche continue ANORMALE : réservoir plein mais le robinet à flotteur ne ferme pas, ${f(fill)} m³/h partent au trop-plein`;
@@ -125,7 +125,7 @@ function pumpReasonRaw(ctx: SimCtx, st: SimState): string | null {
       if ((st.bk ?? 1) < 0.9 && st.x <= bc.headTop + 0.05 && v.pOn < bc.headTop) return `ANORMALE : flotteur ouvert mais la pression reste à ${f(bc.headTop)} bar (charge du réservoir), au-dessus du redémarrage ${f(v.pOn)} bar : la pompe ne repartira pas`;
       return `réservoir ${lvl}, robinet à flotteur fermé : la pompe attend${diff ? ` que le niveau descende à ${Math.round(floatLow(bkp) * 100)} %` : ''} ; la maison est servie par le réservoir (${f(house)} m³/h, ${f(bc.pHouse)} bar)`;
     }
-    return `le niveau baisse (${lvl}), le flotteur s'ouvre : la vessie se vide dans le réservoir (${f(fill)} m³/h), redémarrage à ${f(v.pOn)} bar dans ≈ ${durS(Math.max(0, vwS(st.x) - vwS(v.pOn)) / Math.max(0.05, fill))}`;
+    return `le niveau baisse (${lvl}), le flotteur s'ouvre : la vessie se vide dans le réservoir (${f(fill)} m³/h), redémarrage à ${f(v.pOn)} bar dans ${durS(Math.max(0, vwS(st.x) - vwS(v.pOn)) / Math.max(0.05, fill))}`;
   }
   const vw = (p: number) => vt * (1 - (v.pre + 1) / (Math.max(p, v.pre) + 1));
   // Débit de la pompe à la pression d'arrêt
@@ -134,16 +134,16 @@ function pumpReasonRaw(ctx: SimCtx, st: SimState): string | null {
   for (let it = 0; it < 24; it++) { const m = (lo + hi) / 2; if (pumpHead(i, m) - losses(i, m).total > hNeed) lo = m; else hi = m; }
   const qOff = lo;
   const dem = house + fill + (fx.leak ?? 0) * i.duty.qReq;
-  const dur = (h: number) => (h * 60 < 1 ? 'moins d\'1 min' : h * 60 < 90 ? `${Math.round(h * 60)} min` : `${f(h, 1)} h`);
+  const dur = (h: number) => (h * 60 < 1 ? 'moins d\'1 min' : h * 60 < 90 ? `≈ ${Math.round(h * 60)} min` : `≈ ${f(h, 1)} h`);
   if (!st.on) {
     if (dem < 0.02) return `pression ${f(st.x)} bar, personne ne puise : redémarrage à ${f(v.pOn)} bar`;
-    return `réseau à ${f(st.x)} bar, la maison prend ${f(house)} m³/h${fillTxt} : redémarrage à ${f(v.pOn)} bar dans ≈ ${dur(Math.max(0, vw(st.x) - vw(v.pOn)) / dem)}`;
+    return `réseau à ${f(st.x)} bar, la maison prend ${f(house)} m³/h${fillTxt} : redémarrage à ${f(v.pOn)} bar dans ${dur(Math.max(0, vw(st.x) - vw(v.pOn)) / dem)}`;
   }
   if (st.q <= 0) return null;
   if (dem >= qOff * 0.97 && fill > 0.05 && fx.bkFloatStuck && (st.bk ?? 0) >= 0.999) return `marche continue ANORMALE : la maison prend ${f(house)} m³/h mais ${f(fill)} m³/h partent au trop-plein du réservoir de secours (robinet à flotteur qui ne ferme pas)`;
   if (dem >= qOff * 0.97 && dem - house - fill > 0.2 * dem) return `marche continue ANORMALE : la maison prend ${f(house)} m³/h, ${f(dem - house - fill)} m³/h se perdent (fuite)`;
   if (dem >= qOff * 0.97) return `marche continue normale en pointe : la maison prend ${f(house)} m³/h${fillTxt}, la pompe ne donne que ${f(qOff)} m³/h à ${f(v.pOff)} bar (arrêt) : elle ne peut pas l'atteindre tant que la consommation reste aussi forte`;
-  return `remonte la pression ${f(st.x)} → ${f(v.pOff)} bar : la pompe donne ${f(st.q)} m³/h, la maison prend ${f(house)}${fillTxt} — arrêt dans ≈ ${dur(Math.max(0, vw(v.pOff) - vw(st.x)) / Math.max(0.05, st.q - dem))}`;
+  return `remonte la pression ${f(st.x)} → ${f(v.pOff)} bar : la pompe donne ${f(st.q)} m³/h, la maison prend ${f(house)}${fillTxt} — arrêt dans ${dur(Math.max(0, vw(v.pOff) - vw(st.x)) / Math.max(0.05, st.q - dem))}`;
 }
 
 /** Temps de réponse de la nappe (s) : le niveau rejoint le niveau dynamique en ~3 τ après le démarrage */

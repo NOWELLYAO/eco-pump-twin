@@ -1648,3 +1648,5 @@ html, body { overflow-x: clip; }
 .tc-sum.ok { color: var(--good-ink); }
 .tlog-h .row { display: inline-flex; align-items: center; gap: 6px; }
 .tlog-h h5 small { font-weight: 600; }
+/* Installation en automatique, pompe à l'arrêt (attend le pressostat, le flotteur…) : vert plus doux */
+.power.on.wait { background: linear-gradient(135deg, #3f8f55, #2f7444); box-shadow: 0 4px 12px rgba(12, 120, 40, .2); }

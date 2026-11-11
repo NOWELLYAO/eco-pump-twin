@@ -191,9 +191,9 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
     <div className="page-sim">
       <aside className="sim-side">
         <section className="card simctl">
-          <button className={`power ${sim.trip ? 'fault' : sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
+          <button className={`power ${sim.trip ? 'fault' : sim.master ? (sim.on ? 'on' : 'on wait') : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
             <Power size={26} aria-hidden />
-            <span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.gen && sim.master && !sim.gen.run ? `groupe arrêté : ${sim.gen.why ?? 'défaut'}` : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'la pompe tourne') : 'arrêtée par l\'automatisme') : 'cliquez pour démarrer'}</small></span>
+            <span><b>{!sim.master ? 'À L\'ARRÊT' : sim.on ? 'POMPE EN MARCHE' : 'EN ATTENTE'}</b><small>{sim.trip ? 'DÉFAUT — protection déclenchée' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.gen && sim.master && !sim.gen.run ? `groupe arrêté : ${sim.gen.why ?? 'défaut'}` : sim.master ? (sim.on ? (sim.hum ? 'moteur bloqué !' : sim.noFlow ? 'tourne sans débit !' : 'installation en automatique') : 'installation en automatique, la pompe attend sa commande') : 'cliquez pour mettre en service'}</small></span>
           </button>
           {why && <p className={`why-run${/ANORMALE/.test(why) ? ' bad' : ''}`}><b>Pourquoi ?</b> {why.charAt(0).toUpperCase() + why.slice(1)}</p>}
           <button type="button" className={`btn full sndbtn${snd ? ' on' : ''}`} onClick={toggleSnd}>{snd ? '🔇 Couper le son' : '🔊 Écouter la pompe'}</button>
@@ -258,8 +258,8 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
 
       <div className="sim-main">
         <div className="mpower">
-          <button className={`power ${sim.trip ? 'fault' : sim.master ? 'on' : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
-            <Power size={22} aria-hidden /><span><b>{sim.master ? 'EN MARCHE' : 'À L\'ARRÊT'}</b><small>{clock(sim.t)} · {sim.trip ? 'DÉFAUT' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.gen && sim.master && !sim.gen.run ? 'groupe arrêté' : sim.on ? (sim.hum ? 'moteur bloqué' : sim.noFlow ? 'sans débit' : 'la pompe tourne') : 'pompe arrêtée'}</small></span>
+          <button className={`power ${sim.trip ? 'fault' : sim.master ? (sim.on ? 'on' : 'on wait') : 'off'}`} onClick={toggle} aria-pressed={sim.master}>
+            <Power size={22} aria-hidden /><span><b>{!sim.master ? 'À L\'ARRÊT' : sim.on ? 'POMPE EN MARCHE' : 'EN ATTENTE'}</b><small>{clock(sim.t)} · {sim.trip ? 'DÉFAUT' : sim.t < sim.outageUntil ? 'coupure secteur' : sim.gen && sim.master && !sim.gen.run ? 'groupe arrêté' : sim.on ? (sim.hum ? 'moteur bloqué' : sim.noFlow ? 'sans débit' : 'la pompe tourne') : 'pompe arrêtée'}</small></span>
           </button>
           <button className="icon-btn" onClick={() => setPlaying(!playing)} aria-label={playing ? 'Pause' : 'Lecture'}>{playing ? <Pause size={18} /> : <Play size={18} />}</button>
         </div>
