@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, FileImage, RotateCcw, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { calOk, sample, toVal, trace, yAt, type AxisCal, type Px } from '../digitize';
@@ -204,12 +204,13 @@ export function CurveImport({ onApply, onClose }: { onApply: (r: CurveImportResu
             )}
 
             {waitingVal && (
-              <div className="cimp-val">
+              <div className="cimp-val" data-x={last?.x} data-y={last?.y}>
                 <div className="cimp-nudge">
-                  <button type="button" className="icon-btn sm" onClick={() => nudge(0, -1)} aria-label="Monter"><ArrowUp size={14} /></button>
-                  <button type="button" className="icon-btn sm" onClick={() => nudge(0, 1)} aria-label="Descendre"><ArrowDown size={14} /></button>
-                  <button type="button" className="icon-btn sm" onClick={() => nudge(-1, 0)} aria-label="Gauche"><ArrowLeft size={14} /></button>
-                  <button type="button" className="icon-btn sm" onClick={() => nudge(1, 0)} aria-label="Droite"><ArrowRight size={14} /></button>
+                  <HoldBtn onStep={(k) => nudge(0, -k)} label="Monter"><ArrowUp size={14} /></HoldBtn>
+                  <HoldBtn onStep={(k) => nudge(0, k)} label="Descendre"><ArrowDown size={14} /></HoldBtn>
+                  <HoldBtn onStep={(k) => nudge(-k, 0)} label="Gauche"><ArrowLeft size={14} /></HoldBtn>
+                  <HoldBtn onStep={(k) => nudge(k, 0)} label="Droite"><ArrowRight size={14} /></HoldBtn>
+                  <small className="cimp-hold">maintenir pour déplacer en continu</small>
                 </div>
                 <label>Valeur à ce repère <input autoFocus inputMode="decimal" value={val} onChange={(e) => setVal(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && confirmVal()} />
                   <span>{step === 'qx' ? 'm³/h' : step === 'ey' ? '%' : 'm'}</span></label>
@@ -253,3 +254,32 @@ export function CurveImport({ onApply, onClose }: { onApply: (r: CurveImportResu
       </div>
     </div>, document.body);
 }
+
+/** Flèche de réglage : un appui déplace d'1 pixel ; en maintenant, le repère avance en continu de plus en plus vite. */
+function HoldBtn({ onStep, label, children }: { onStep: (k: number) => void; label: string; children: ReactNode }) {
+  const timer = useRef<number | null>(null);
+  const t0 = useRef(0);
+  const cb = useRef(onStep);
+  cb.current = onStep;
+  const stop = () => { if (timer.current != null) { window.clearTimeout(timer.current); timer.current = null; } };
+  useEffect(() => stop, []);
+  const tick = () => {
+    const held = Date.now() - t0.current;
+    cb.current(held > 2200 ? 4 : held > 1100 ? 2 : 1); // accélère après 1 s puis 2 s
+    timer.current = window.setTimeout(tick, 45);
+  };
+  const start = (e: PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    stop(); t0.current = Date.now(); cb.current(1);
+    timer.current = window.setTimeout(tick, 380); // petite attente : un appui bref = un seul pas
+  };
+  return (
+    <button type="button" className="icon-btn sm hold" aria-label={label} title={`${label} (maintenir pour continuer)`}
+      onPointerDown={start} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} onContextMenu={(e) => e.preventDefault()}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); cb.current(1); } }}>
+      {children}
+    </button>
+  );
+}
+
