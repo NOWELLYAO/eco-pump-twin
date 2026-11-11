@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertOctagon, Droplets, Gauge, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
+import { AlertOctagon, Droplets, Gauge, LineChart as QhIcon, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
+import { LiveQH } from './LiveQH';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
 import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, faultSymptoms, genSpec, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
@@ -117,6 +118,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
     tc, log: tlog, clear: () => setTlog([]),
     run: (id) => { const t = resolveTest(id, tc); if (!t) return; const res = t.run(tc); setTlog((l) => [{ key: Date.now() + Math.random(), t: sim.t, test: t, res }, ...l.filter((x) => x.test.id !== t.id)].slice(0, 12)); },
   };
+  const [showQH, setShowQH] = useState(false);
   const [busy, setBusy] = useState(false);
   const startMystery = () => {
     setBusy(true);
@@ -272,7 +274,9 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
         <div className={`livescore lv-${liveLvl}`}>
           <b>{liveScore}<small>/100</small></b>
           <span><strong>Note en service</strong><small>Conception {s.ev.score}/100{evSim.score !== s.ev.score ? ` · conditions simulées ${evSim.score}` : ''}{penalty ? ` · symptômes −${penalty}` : ''}</small></span>
+          <button type="button" className={`qhbtn${showQH ? ' on' : ''}`} onClick={() => setShowQH(!showQH)} aria-pressed={showQH} title="Courbe Q/H du réseau en temps réel"><QhIcon size={16} aria-hidden /> Q/H</button>
         </div>
+        {showQH && <LiveQH ctx={ctx} st={sim} onClose={() => setShowQH(false)} />}
         <div className="livekpis">
           <div className={sim.on ? 'on' : ''}><small><Droplets size={13} aria-hidden /> Débit</small><b>{fmt(r.q, 1)}<span>m³/h</span></b></div>
           <div><small><Gauge size={13} aria-hidden /> Refoulement</small><b>{fmt(kind === 'vessel' || kind === 'vfd' ? sim.x : r.pRef, 2)}<span>bar</span></b></div>
