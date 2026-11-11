@@ -142,7 +142,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
   // Vibrations visibles du groupe (px) : rien en zone A, léger en B, net en C, fort en D
   const vibA = live?.ac && live.on ? (live.ac.vib < 1.4 ? 0 : live.ac.vib < 2.8 ? 0.5 : live.ac.vib < 4.5 ? 1.1 : 2) : 0;
   // Seule la soupape de circulation débite (vanne fermée, lances fermées) : pas d'écoulement dans le réseau
-  const flow = live ? live.on && live.r.q > 0.05 && !live.circOnly : h.ok && h.q > 0.05;
+  // (pompe incendie lancée sans lance ouverte : l'eau tourne pompe → soupape → réserve, le débitmètre du réseau lit 0)
+  const circ = !!live && (!!live.circOnly || (live.on && i.app === 'incendie' && !!i.acc.soupape_circ?.on && (live.use ?? 0) < 0.02));
+  const flow = live ? live.on && live.r.q > 0.05 && !circ : h.ok && h.q > 0.05;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
   const pick = (t: string) => (onPick ? { onClick: (e: MouseEvent) => { e.stopPropagation(); onPick(t); }, className: 'pickable' } : {});
   const forage = i.pumpType === 'immergee_forage';
@@ -381,9 +383,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
       if (on('soupape_circ')) {
         const sx = vertical ? px + 80 : px, sy = vertical ? axisY - 60 : axisY - 70;
         els.push(
-          live?.circOnly ? <path key="sc-f" d={`M${vertical ? px + 30 : px} ${vertical ? axisY : axisY - 38} V${sy} H${sx + 16}`} className="r-flow" strokeWidth={2} /> : null,
+          circ ? <path key="sc-f" d={`M${vertical ? px + 30 : px} ${vertical ? axisY : axisY - 38} V${sy} H${sx + 16}`} className="r-flow" strokeWidth={2} /> : null,
           <g key="sc" className="r-obst" transform={`translate(${sx + 16},${sy})`}><RealGlyph kind="relief" /></g>,
-          <text key="sc-l" x={sx + 30} y={sy + 4} className="r-label small">{live?.circOnly ? 'Soupape de circulation · ouverte (débit mini → réserve)' : 'Soupape de circulation'}</text>,
+          <text key="sc-l" x={sx + 30} y={sy + 4} className="r-label small">{circ ? 'Soupape de circulation · ouverte (débit mini → réserve)' : 'Soupape de circulation'}</text>,
         );
       }
       if (on('essai')) {

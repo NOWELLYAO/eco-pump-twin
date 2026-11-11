@@ -672,7 +672,9 @@ export function stepSim(ctx: SimCtx, prev: SimState, dt: number): SimState {
       // Soupape de circulation (incendie) : même vanne fermée, la pompe débite un petit filet vers la réserve et ne chauffe pas
       if (circQ > 0 && st.on && !st.hum && !st.noFlow) {
         const pC = Math.max(0, ((pumpHead(i, circQ) - losses(i, circQ).total + pressZ(i) - dL) * rhoG) / 1e5);
-        if (st.q < circQ && st.x >= pC - 0.05) { st.q = circQ; st.x = Math.min(st.x, pC); st.circOnly = true; }
+        // Aucune lance ouverte (réseau seulement maintenu en pression) : tout le débit de la pompe passe par la soupape
+        const netQ = houseNet + leakQ + fireLeak;
+        if ((st.q < circQ && st.x >= pC - 0.05) || netQ < 0.05 * i.duty.qReq) { st.q = circQ; st.x = Math.min(st.x, pC); st.circOnly = true; }
       }
       if (!st.on && fx.backflow) { vw -= (0.25 * i.duty.qReq / 3600) * sub; st.backDrop = true; }
       vw += ((st.q + jkQ - qd) / 3600) * sub;
@@ -1101,7 +1103,11 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   const { i, kind, fx, er } = ctx;
   const o = new Set<Sym>();
   const r0 = liveReadings(ctx, st);
-  const running = st.on && !st.hum && !st.noFlow;
+  const running0 = st.on && !st.hum && !st.noFlow;
+  // Pompe incendie (arrêt manuel) lancée : elle tient sa pression maxi et ne débite que dans la soupape de circulation
+  // tant qu'aucune lance n'est ouverte — c'est son fonctionnement normal, pas un défaut de débit, de pression ou de courant
+  const fireRun = i.app === 'incendie' && !!i.acc.coffret_inc?.on && st.on;
+  const running = running0 && !(fireRun && st.circOnly);
   // Forage : la nappe met du temps à descendre (ou remonter) jusqu'au niveau dynamique ; ce transitoire normal
   // change la pression en tête, mais ce n'est pas un défaut — on compare à niveau d'eau égal.
   const r = isForage(i) && running ? { ...r0, pRef: r0.pRef + (i.fluid.rho * G * (i.geo.staticLevel + (st.aqS ?? 0) - i.geo.dynamicLevel)) / 1e5 } : r0;
@@ -1174,7 +1180,6 @@ export function observe(ctx: SimCtx, normal: SimCtx, st: SimState): Sym[] {
   if (kind === 'vessel' && running && st.runT > 120 && (qRef ?? 0) > 0.5 && st.q < 0.6 * (qRef ?? 0)) o.add(st.q < 0.06 * Math.max(0.1, normal.h.q) ? 'debit_nul' : 'debit_bas');
   // Pompe incendie (arrêt manuel) : une fois lancée elle reste en marche et monte à sa pression maximale, c'est normal ;
   // l'anomalie, c'est qu'elle ait démarré alors qu'aucune lance n'est ouverte
-  const fireRun = i.app === 'incendie' && !!i.acc.coffret_inc?.on && st.on;
   if (fireRun && use(ctx, hourOf(st.t)) < 0.02) o.add('demarrage_intempestif');
   if (kind === 'vessel' && ctx.er.vessel) {
     const v = ctx.er.vessel;
