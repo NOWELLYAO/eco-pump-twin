@@ -291,7 +291,7 @@ export const FIELD_TESTS: FieldTest[] = [
       { k: 'Débit', v: `${f1(c.run.q)} m³/h`, ref: `${f1(c.runN.q)} m³/h`, lvl: ok(c.run.q >= c.runN.q * 0.9, c.run.q >= c.runN.q * 0.8) },
       { k: 'Pression au refoulement', v: `${f1(c.run.pRef)} bar`, ref: `${f1(c.runN.pRef)} bar`, lvl: ok(Math.abs(c.run.pRef - c.runN.pRef) <= Math.max(0.2, c.runN.pRef * 0.1), Math.abs(c.run.pRef - c.runN.pRef) <= Math.max(0.4, c.runN.pRef * 0.2)) },
       { k: 'Courant', v: `${f1(c.run.amps)} A`, ref: `${f1(c.runN.amps)} A`, lvl: ok(Math.abs(c.run.amps - c.runN.amps) <= c.runN.amps * 0.12, Math.abs(c.run.amps - c.runN.amps) <= c.runN.amps * 0.25) },
-    ], note: forcedNote(c) }),
+    ], note: [forcedNote(c), hydroSameAmpsUp(c)].filter(Boolean).join(' ') || undefined }),
   },
   {
     id: 'compteur_nuit', cat: 'hydro', label: 'Relever le compteur la nuit (aucun puisage)', tool: 'Compteur, 2 relevés à 1 h d\'écart',
@@ -651,6 +651,13 @@ export const FIELD_TESTS: FieldTest[] = [
       return { lines: [{ k: 'Groupe installé', v: `${f1(kva, 0)} kVA` }, { k: 'Conseillé pour ce moteur', v: `${f1(rec, 0)} kVA`, lvl: ok(kva >= rec * 0.98, kva >= rec * 0.8) }] }; },
   },
 ];
+
+/** Débit et pression normaux mais courant élevé : même travail hydraulique, l'énergie en plus part en pertes. */
+function hydroSameAmpsUp(c: TCtx) {
+  const qOk = c.run.q >= c.runN.q * 0.9, pOk = Math.abs(c.run.pRef - c.runN.pRef) <= Math.max(0.2, c.runN.pRef * 0.1);
+  if (!qOk || !pOk || c.run.amps <= c.runN.amps * 1.12) return undefined;
+  return 'Débit et pression normaux : la pompe fait le même travail hydraulique. Le courant en plus part donc en pertes, mécaniques (frottements) ou électriques (tension basse ou déséquilibrée, moteur en surcharge).';
+}
 
 /** Inspection de la pompe démontée (ou remontée du forage / de la fosse). */
 function inspectLines(c: TCtx, imm: boolean): TestLine[] {
