@@ -112,7 +112,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le clapet anti-retour laisse revenir l\'eau vers la pompe quand elle est arrêtée.',
     applies: (i, k) => on(i, 'clapet_ar') && (k === 'vessel' || k === 'tank'), effect: { backflow: true },
     sig: ['pression_tombe_arret', 'cycles_courts', 'pression_basse'], field: ['La pompe redémarre sans que personne ne puise', 'Bruit d\'écoulement à l\'arrêt', 'La pompe tourne parfois à l\'envers juste après l\'arrêt'],
-    checks: ['Fermer la vanne après le clapet pompe arrêtée : si la pression tient, le clapet fuit', 'Observer le manomètre pompe arrêtée'],
+    checks: ['Pompe arrêtée, fermer la vanne juste après le clapet : si le réseau tient alors que le côté pompe se vide, l\'eau repartait par le clapet', 'Observer le manomètre 10 minutes pompe arrêtée, sans puisage', 'Démonter et inspecter le clapet (siège, joint, ressort)'],
     fix: ['Démonter et nettoyer le clapet', 'Remplacer le clapet (ou son joint)'], parts: ['clapet', 'moteur', 'coffret'],
   },
   {
@@ -195,7 +195,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Les seuils du pressostat ont dérivé de 1 bar vers le bas. La pression de marche passe alors sous la précharge du réservoir à vessie : le réservoir ne stocke presque plus d\'eau et la pompe redémarre beaucoup plus souvent.',
     applies: (i, k) => k === 'vessel' && on(i, 'pressostat'), effect: { pswitch: 'drift' },
     sig: ['pression_basse', 'cycles_courts'], field: ['Faible pression aux étages', 'Les usagers du haut se plaignent'],
-    checks: ['Relever pression de marche et d\'arrêt au manomètre', 'Comparer aux réglages prévus'],
+    checks: ['Relever les pressions de marche et d\'arrêt au manomètre et les comparer aux réglages prévus'],
     fix: ['Régler le pressostat (vis de marche puis d\'écart)', 'Ajuster la précharge du réservoir'], parts: [],
   },
   {
@@ -285,7 +285,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le réseau ne délivre que 85 % de la tension nominale : le moteur absorbe plus de courant pour la même puissance.',
     applies: (i) => i.elec.supply === 'mono' || i.elec.supply === 'tri', effect: { ampsK: 1.2, tripAfter: 50 * 60, tripMsg: 'Disjoncteur moteur déclenché (surchauffe par sous-tension)', tripKind: 'decl_thermique' },
     sig: ['tension_basse', 'courant_haut', 'decl_thermique'], field: ['Lumières qui baissent au démarrage', 'Moteur chaud au toucher'],
-    checks: ['Mesurer la tension au coffret, moteur en marche', 'Mesurer la chute de tension dans le câble'],
+    checks: ['Mesurer la tension au coffret et aux bornes du moteur, moteur en marche (chute de tension dans le câble)'],
     fix: ['Signaler au distributeur', 'Augmenter la section du câble', 'Régulateur de tension ou variateur'], parts: ['moteur', 'coffret', 'cable'],
   },
   // ---------------- Groupe électrogène ----------------
@@ -310,7 +310,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le filtre à air est bouché (poussière, harmattan) : combustion incomplète, fumée noire, le groupe perd de la puissance et chauffe.',
     applies: GEN, effect: { gen: 'airFilter', inst: (i) => scale(i, 0.97, 0.94) },
     sig: ['gen_fumee_noire', 'debit_bas', 'pression_basse', 'courant_bas'], field: ['Fumée noire à l\'échappement', 'Le groupe « peine » au démarrage de la pompe', 'Consommation de gasoil en hausse'],
-    checks: ['Indicateur de colmatage du filtre à air (rouge)', 'Sortir la cartouche et la regarder à la lumière'],
+    checks: ['Regarder l\'indicateur de colmatage (rouge ?) puis la cartouche à la lumière'],
     fix: ['Souffler ou remplacer la cartouche', 'Préfiltre cyclonique en zone poussiéreuse'], parts: ['filtre à air'],
   },
   {
@@ -318,7 +318,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le radiateur est encrassé ou la courroie du ventilateur a cassé : le moteur diesel monte en température et le groupe s\'arrête en sécurité, puis repart une fois refroidi.',
     applies: GEN, effect: { gen: 'overheat' },
     sig: ['gen_surchauffe', 'pas_de_tension', 'ne_demarre_pas'], field: ['Voyant température allumé sur le groupe', 'Radiateur brûlant, ventilateur à l\'arrêt', 'Le groupe s\'arrête après ¾ d\'heure de marche'],
-    checks: ['Niveau de liquide de refroidissement (moteur froid)', 'Tension et état de la courroie', 'Faisceau du radiateur bouché (poussière, insectes)'],
+    checks: ['Moteur froid : niveau du liquide de refroidissement, tension et état de la courroie, propreté du faisceau du radiateur'],
     fix: ['Remplacer la courroie', 'Nettoyer le radiateur à l\'air comprimé ou à l\'eau basse pression', 'Compléter le liquide de refroidissement'], parts: ['courroie', 'radiateur'],
   },
   {
@@ -326,7 +326,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le groupe a été arrêté (la nuit, pour l\'entretien) et sa batterie est à plat : au redémarrage, le démarreur ne lance pas le moteur.',
     applies: GEN, effect: { gen: 'battery' },
     sig: ['gen_demarreur', 'pas_de_tension', 'ne_demarre_pas'], field: ['Cliquetis du relais de démarreur, pas de rotation', 'Voyants du tableau du groupe faibles'],
-    checks: ['Tension batterie : < 12 V (ou < 24 V) au repos = déchargée', 'Cosses oxydées ou desserrées', 'Chargeur de batterie / alternateur de charge'],
+    checks: ['Tension de la batterie au repos (< 12,4 V = déchargée), état des cosses, fonctionnement du chargeur'],
     fix: ['Recharger ou remplacer la batterie', 'Nettoyer et serrer les cosses', 'Chargeur de maintien sur le groupe'], parts: ['batterie'],
   },
   {
@@ -334,7 +334,7 @@ export const FAULTS: FaultDef[] = [
     what: 'Le régulateur de tension de l\'alternateur ne tient plus la consigne : le groupe ne donne que 340 V, le moteur de la pompe absorbe plus de courant et chauffe.',
     applies: GEN, effect: { gen: 'avr', ampsK: 1.2, tripAfter: 50 * 60, tripMsg: 'Disjoncteur moteur déclenché (surchauffe : tension du groupe trop basse)', tripKind: 'decl_thermique' },
     sig: ['tension_basse', 'courant_haut', 'decl_thermique', 'moteur_chaud'], field: ['Voltmètre du groupe à 340 V au lieu de 400 V', 'Lampes faibles', 'Moteur de pompe chaud'],
-    checks: ['Mesurer la tension à vide puis en charge au groupe', 'Contrôler le réglage et les fusibles de l\'AVR'],
+    checks: ['Mesurer la tension du groupe à vide puis en charge, contrôler le réglage et les fusibles de l\'AVR'],
     fix: ['Régler ou remplacer l\'AVR', 'Vérifier les diodes tournantes de l\'alternateur'], parts: ['AVR'],
   },
   // ---------------- Pompe / moteur ----------------
@@ -414,7 +414,7 @@ export const FAULTS: FaultDef[] = [
   {
     id: 'lingettes', cat: 'equipement', label: 'Lingettes / chiffons dans la roue', target: 'pump',
     what: 'Des lingettes, chiffons ou fibres se sont enroulés dans la roue : elle est freinée et débite moins.',
-    applies: (i) => i.pumpType === 'submersible_relevage' || ['eaux_usees', 'boues'].includes(i.fluid.type), effect: { inst: (i) => scale(i, 0.6, 0.8, 0.7), ampsK: 1.35, tripAfter: 3 * 3600, tripMsg: 'Disjoncteur moteur déclenché (roue freinée par des fibres)', tripKind: 'decl_thermique' , vib: 2.2, noise: 'balourd' },
+    applies: (i) => i.pumpType === 'submersible_relevage' || ['eaux_usees', 'boues'].includes(i.fluid.type), effect: { inst: (i) => scale(i, 0.6, 0.8, 0.7), ampsK: 1.7, tripAfter: 3 * 3600, tripMsg: 'Disjoncteur moteur déclenché (roue freinée par des fibres)', tripKind: 'decl_thermique' , vib: 2.2, noise: 'balourd' },
     sig: ['debit_bas', 'courant_haut', 'bruit', 'decl_thermique', 'cognements', 'vibrations'], field: ['Temps de vidange de la fosse plus long', 'Vibrations, bruit sourd', 'Fosse qui monte plus haut qu\'avant'],
     checks: ['Mesurer le courant en marche : supérieur à l\'habitude', 'Chronométrer une vidange de la fosse', 'Remonter la pompe sur ses barres et inspecter la roue'],
     fix: ['Nettoyer la roue', 'Pompe dilacératrice ou vortex à grand passage', 'Grille / panier en amont, sensibiliser les usagers'], parts: ['roue', 'garniture', 'roulements'],

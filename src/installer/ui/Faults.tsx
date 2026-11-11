@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
-import { CheckCircle2, ChevronDown, Fuel, Eye, HelpCircle, RotateCcw, Shuffle, Stethoscope, Wrench, XCircle, Zap } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Fuel, Eye, Gauge, HelpCircle, RotateCcw, Shuffle, Stethoscope, Wrench, XCircle, Zap } from 'lucide-react';
 import { FAULTS, FAULT_CAT, SYM_LABEL, diagnose, faultById, type FaultCat, type FaultDef, type Sym } from '../faults';
 import { PARTS } from '../catalog';
+import { CHECK_TESTS, resolveTest } from '../fieldtests';
+import { FieldKit, TestCard, type TestsApi } from './FieldKit';
 import type { SimKind } from '../sim';
 import type { Installation, Issue } from '../types';
 
@@ -12,14 +14,27 @@ const SEV_SYM: Partial<Record<Sym, 'crit'>> = {
   ronfle: 'crit', debit_nul: 'crit', ne_s_arrete_pas: 'crit', pas_de_tension: 'crit',
 };
 
-function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boolean; onShow: (t: string) => void; onRepair?: () => void }) {
+function FaultInfo({ f, active, onShow, onRepair, tests }: { f: FaultDef; active: boolean; onShow: (t: string) => void; onRepair?: () => void; tests?: TestsApi }) {
   return (
     <div className="fi">
       <p className="fi-what">{f.what}</p>
       <h6>Constats sur le terrain</h6>
       <ul>{f.field.map((x) => <li key={x}>{x}</li>)}</ul>
       <h6>Comment le vérifier</h6>
-      <ol>{f.checks.map((x) => <li key={x}>{x}</li>)}</ol>
+      <ol className="checks">{f.checks.map((x, k) => {
+        // Dans la simulation : chaque vérification se fait d'un clic ; celles qui ne concernent pas cette installation
+        // (« Pompe de surface : … » sur une pompe immergée, « Forage : … » sur une bâche) sont masquées
+        const t = tests ? resolveTest(CHECK_TESTS[f.id]?.[k] ?? '', tests.tc) : undefined;
+        if (tests && t && !t.applies(tests.tc)) return null;
+        const last = t && tests ? tests.log.find((l) => l.test.id === t.id) : undefined;
+        return (
+          <li key={x}>
+            <span>{x}</span>
+            {t && tests && <button type="button" className="btn sm ttest" onClick={() => tests.run(t.id)}><Gauge size={13} aria-hidden /> {last ? 'Refaire le test' : 'Faire le test'}</button>}
+            {last && <TestCard r={last} compact />}
+          </li>
+        );
+      })}</ol>
       <h6>Réparation</h6>
       <ul className="fix">{f.fix.map((x) => <li key={x}><Wrench size={13} aria-hidden /> {x}</li>)}</ul>
       {f.parts.length > 0 && <div className="parts"><span className="small muted">Pièces touchées ou usées plus vite :</span> {f.parts.map((p) => <span key={p} className="part">{PARTS[p] ?? p}</span>)}</div>}
@@ -31,12 +46,12 @@ function FaultInfo({ f, active, onShow, onRepair }: { f: FaultDef; active: boole
   );
 }
 
-export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, genEmpty, onRefuel, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow, busy }: {
+export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFix, genEmpty, onRefuel, trip, isolated, spare, outageLeft, mystery, onToggle, onMystery, onAnswer, onRepair, onRepairAll, onRearm, onShow, busy, tests }: {
   inst: Installation; kind: SimKind; active: string[]; obs: Sym[];
   design?: Issue[]; onIssue?: (x: Issue) => void; onFix?: (x: Issue) => void;
   genEmpty?: boolean; onRefuel?: () => void; trip: string | null; isolated?: string | null; spare?: boolean; outageLeft: number;
   mystery: Mystery | null;
-  onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void; busy?: boolean;
+  onToggle: (id: string) => void; onMystery: () => void; onAnswer: (id: string) => void; busy?: boolean; tests?: TestsApi;
   onRepair: (id: string) => void; onRepairAll: () => void; onRearm: () => void; onShow: (t: string) => void;
 }) {
   const cands = useMemo(() => FAULTS.filter((f) => f.applies(inst, kind)), [inst, kind]);
@@ -85,7 +100,7 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
           <h4><HelpCircle size={16} aria-hidden /> Panne mystère</h4>
           {mystery.answer == null ? (
             <>
-              <p className="small">Une panne s'est produite. Observez les symptômes, le schéma, la console et le journal (accélérez le temps si besoin), puis choisissez la cause :</p>
+              <p className="small">Une panne s'est produite. Observez les symptômes, le schéma, la console et le journal (accélérez le temps si besoin), faites les tests sur le terrain ci-dessous, puis choisissez la cause :</p>
               <div className="qopts">
                 {mystery.options.map((id) => <button key={id} type="button" className="btn qopt" onClick={() => onAnswer(id)}>{faultById(id)?.label}</button>)}
               </div>
@@ -94,11 +109,14 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
             <>
               <p className="verdict">{mystery.answer === mystery.id ? <><CheckCircle2 size={18} aria-hidden /> Bon diagnostic !</> : <><XCircle size={18} aria-hidden /> Ce n'était pas « {faultById(mystery.answer)?.label} ».</>}</p>
               <p>La panne était : <b>{faultById(mystery.id)?.label}</b></p>
-              {faultById(mystery.id) && <FaultInfo f={faultById(mystery.id)!} active={active.includes(mystery.id)} onShow={onShow} onRepair={() => onRepair(mystery.id)} />}
+              {faultById(mystery.id) && <FaultInfo f={faultById(mystery.id)!} active={active.includes(mystery.id)} onShow={onShow} onRepair={() => onRepair(mystery.id)} tests={tests} />}
             </>
           )}
         </div>
       )}
+
+      {/* Boîte à outils : mesures et contrôles de terrain */}
+      {tests && <FieldKit tests={tests} />}
 
       {/* Causes probables */}
       {!hidden && obs.length > 0 && (
@@ -133,7 +151,7 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
                     <span className="ctxt"><b>{f.label}</b><small>{Math.round(score * 100)} % · {FAULT_CAT[f.cat]} · explique : {match.map((m) => SYM_LABEL[m].toLowerCase()).join(', ')}</small></span>
                     <ChevronDown size={18} aria-hidden className="chev" />
                   </button>
-                  {open === f.id && <FaultInfo f={f} active={active.includes(f.id)} onShow={onShow} onRepair={() => onRepair(f.id)} />}
+                  {open === f.id && <FaultInfo f={f} active={active.includes(f.id)} onShow={onShow} onRepair={() => onRepair(f.id)} tests={tests} />}
                 </li>
               ))}
             </ul>

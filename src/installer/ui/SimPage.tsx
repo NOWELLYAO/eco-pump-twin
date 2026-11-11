@@ -5,6 +5,8 @@ import { evaluate } from '../evaluate';
 import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, faultSymptoms, genSpec, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
 import { FAULTS, SYM_LABEL, SYM_WEIGHT, faultById } from '../faults';
 import { FaultPanel, type Mystery } from './Faults';
+import { resolveTest, testCtx } from '../fieldtests';
+import type { TestLog, TestsApi } from './FieldKit';
 import { LevelIcon } from '../../ui/Status';
 import { fmt, money, useChartColors } from '../../ui/util';
 import { DiagramPanel } from './DiagramPanel';
@@ -100,6 +102,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
     setSim((st) => note('ok', `Réparé : ${f?.label ?? id} — installation réarmée`)(cleared({ ...st, outageUntil: f?.effect.outage ? 0 : st.outageUntil })));
   };
   const repairAll = () => {
+    setTlog([]);
     setMods((m) => ({ ...m, faults: [] }));
     setMystery(null);
     setFaultT({});
@@ -107,6 +110,13 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   };
   const refuel = () => setSim((st) => (st.gen ? note('ok', `Plein de gasoil fait (${Math.round(st.gen.tank)} L)`, 'gen')({ ...st, gen: { ...st.gen, fuel: st.gen.tank } }) : st));
   const rearm = () => setSim((st) => note('info', 'Protection réarmée par l\'opérateur', 'cable')({ ...st, isolated: null, trip: null, tripKind: null, bkLatch: null, bkLowT: 0, recent: { ...st.recent, decl_thermique: undefined, decl_diff: undefined, decl_manque_eau: undefined, decl_sous_charge: undefined, decl_variateur: undefined } }));
+  // Tests de terrain : faits sur l'installation simulée telle qu'elle est à cet instant
+  const [tlog, setTlog] = useState<TestLog[]>([]);
+  const tc = useMemo(() => testCtx(ctx, sim, nctx), [ctx, nctx, sim]);
+  const tests: TestsApi = {
+    tc, log: tlog, clear: () => setTlog([]),
+    run: (id) => { const t = resolveTest(id, tc); if (!t) return; const res = t.run(tc); setTlog((l) => [{ key: Date.now() + Math.random(), t: sim.t, test: t, res }, ...l.filter((x) => x.test.id !== t.id)].slice(0, 12)); },
+  };
   const [busy, setBusy] = useState(false);
   const startMystery = () => {
     setBusy(true);
@@ -136,6 +146,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
     const t0 = f.effect.progressive ? sim.t - 8 * 3600 : sim.t;
     // Une seule panne à la fois : les pannes déjà présentes sont réparées et les symptômes passés effacés,
     // sinon ils se mélangeraient à ceux de la panne mystère (ex. « moteur qui ronfle » d'une panne précédente).
+    setTlog([]);
     setMystery({ id: f.id, answer: null, options });
     setMods((m) => ({ ...m, faults: [f.id] }));
     setFaultT({ [f.id]: t0 });
@@ -159,7 +170,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
   // Vue réelle de la page Conception : la même simulation, en direct
   useEffect(() => { onLive?.({ live, i: iView, ev: evSim, playing, setPlaying, clock: clock(sim.t), rate }); }, [sim, iView, evSim, playing, rate]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = () => setSim((st) => stepSim(ctx, { ...st, master: !st.master }, 5));
-  const reset = () => { setFaultT({}); setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
+  const reset = () => { setTlog([]); setFaultT({}); setMods(base); setMystery(null); setSim(initSim(makeCtx(applyMods(s.inst, base)))); };
   const hours = Math.max(0.01, (sim.t - 6 * 3600) / 3600);
   const sl = SERIES_LABEL[kind];
   const data = sim.series.map((p) => ({ ...p, label: clock(p.t).slice(3) }));
@@ -295,7 +306,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
         )}
         <FaultPanel inst={iSim} kind={kind} active={mods.faults} obs={obs} trip={sim.trip} isolated={sim.isolated} spare={(s.inst.pump.standby ?? 0) > 0} outageLeft={Math.max(0, sim.outageUntil - sim.t)} mystery={mystery} genEmpty={!!sim.gen && sim.gen.fuel <= 0 && !mods.faults.includes('gen_gasoil')} onRefuel={refuel}
           design={s.ev.issues.filter((x) => x.sev === 'critical')} onIssue={(x) => s.selectIssue(x)} onFix={(x) => { const fx = x.fix; if (fx) { s.set((i) => fx.apply(i)); rearm(); } }}
-          onToggle={toggleFault} onMystery={startMystery} busy={busy} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
+          onToggle={toggleFault} onMystery={startMystery} busy={busy} tests={tests} onAnswer={(id) => setMystery((m) => (m ? { ...m, answer: id } : m))}
           onRepair={(id) => { repair(id); if (mystery?.id === id) setMystery(null); }} onRepairAll={repairAll} onRearm={rearm}
           onShow={(t) => { s.pick(t); document.getElementById('diagram')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} />
 
