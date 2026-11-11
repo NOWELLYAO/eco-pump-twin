@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
-import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceDot, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, ReferenceArea, ReferenceDot, ReferenceLine, ResponsiveContainer, Scatter, Tooltip, XAxis, YAxis } from 'recharts';
 import { MONTHS, effectiveStart } from '../electrical';
-import { losses, pumpHead, speedFor, systemHeadAt } from '../hydraulics';
+import { cavZones, losses, pumpHead, speedFor, systemHeadAt } from '../hydraulics';
 import type { Evaluation } from '../evaluate';
 import type { Installation } from '../types';
 import { fmt, money, useChartColors } from '../../ui/util';
@@ -49,6 +49,8 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
   const h1 = (q: number) => { const v = pumpHead(one, q); return v > 0 ? v : null; };
   const data = h.curve.map((p) => ({ ...p, ...(vfdOk ? { hv: hv(p.q) } : {}), ...(multi ? { h1: h1(p.q) } : {}), ...(spare > 0 ? { ha: hAll(p.q) } : {}) }));
   const qMax = h.curve[h.curve.length - 1]?.q ?? 1;
+  // Plages de débit où la pompe cavite (rouge) ou est à la limite (orange) — pompes de surface seulement
+  const cz = cavZones(i, qMax);
   // Curseur maison : la valeur est calculée exactement au débit pointé (doigt ou souris)
   const [hq, setHq] = useState<number | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -94,6 +96,8 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
           <XAxis dataKey="q" type="number" domain={[0, 'dataMax']} {...axis} tickFormatter={(v) => fmt(v, 0)} />
           <YAxis domain={[0, Math.ceil(top / 5) * 5]} allowDataOverflow {...axis} width={44} tickFormatter={(v) => fmt(v, 0)} />
           <Legend iconType="plainline" wrapperStyle={{ fontSize: 12.5 }} />
+          {cz.risk.map(([a, b], k) => <ReferenceArea key={`rz${k}`} x1={a} x2={b} fill="#fab219" fillOpacity={0.13} stroke="none" ifOverflow="hidden" />)}
+          {cz.cav.map(([a, b], k) => <ReferenceArea key={`cz${k}`} x1={a} x2={b} fill="#d03b3b" fillOpacity={0.15} stroke="none" ifOverflow="hidden" label={k === 0 ? { value: 'Cavitation', position: 'insideTop', fill: '#b42626', fontSize: 11, fontWeight: 700 } : undefined} />)}
           <Line name={`${multi ? `${h.n} pompes en parallèle` : total > 1 ? '1 pompe en service' : 'Ce que la pompe fournit'}${vfdOk ? ' (50 Hz)' : ''}`} dataKey="hp" stroke={c.s1} strokeWidth={2.5} dot={false} activeDot={false} isAnimationActive={false} />
           {spare > 0 && <Line name={`${total} pompes ensemble (secours comprise)`} dataKey="ha" stroke={c.s1} strokeWidth={1.5} strokeDasharray="8 5" strokeOpacity={0.6} dot={false} activeDot={false} isAnimationActive={false} />}
           {multi && <Line name="1 pompe seule" dataKey="h1" stroke={c.s1} strokeWidth={1.5} strokeDasharray="3 4" dot={false} activeDot={false} isAnimationActive={false} />}
@@ -110,6 +114,13 @@ export function InstCurve({ i, ev }: { i: Installation; ev: Evaluation }) {
         </ComposedChart>
       </ResponsiveContainer>
       </div>
+      {(cz.cav.length > 0 || cz.risk.length > 0) && (
+        <p className="small curnote cavnote">
+          <span className="cz cav" /> Zone rouge : la pompe <b>cavite</b> (NPSH disponible inférieur au NPSH requis)
+          {cz.risk.length > 0 && <> · <span className="cz risk" />{' '}zone orange : marge NPSH sous 1 m, à éviter</>}.
+          {cz.cav.some(([a]) => a > 0.01) ? ' Elle apparaît à fort débit : l\'aspiration ne suit plus.' : ''}
+        </p>
+      )}
 
       <div className="howto">
         <h5>Comment lire ce graphique</h5>

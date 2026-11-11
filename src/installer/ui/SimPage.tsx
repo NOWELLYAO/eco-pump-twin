@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertOctagon, Droplets, Gauge, LineChart as QhIcon, Pause, Play, Power, RotateCcw, Thermometer, Timer, Zap } from 'lucide-react';
 import { LiveQH } from './LiveQH';
+import { npshMarginAt } from '../hydraulics';
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { evaluate } from '../evaluate';
 import { KIND_LABEL, NO_MODS, SERIES_LABEL, applyMods, clock, acoustics, faultSymptoms, genSpec, initSim, liveReadings, makeCtx, observe, progressiveWear, pumpReason, relaySetting, simKind, stepSim, type Mods, type SimState } from '../sim';
@@ -285,7 +286,7 @@ export function SimPage({ s, visible = true, onLive }: { s: Shared; visible?: bo
             : kind === 'pit' ? <div><small>Niveau dans la fosse</small><b>{fmt(sim.x * 100, 0)}<span>cm</span></b><em>marche à 50 cm · arrêt à 0</em></div> : null}
           <div><small><Zap size={13} aria-hidden /> Courant</small><b>{fmt(r.amps, 1)}<span>A</span></b></div>
           <div><small>Puissance</small><b>{fmt(r.kw, 2)}<span>kW</span></b></div>
-          {ctx.i.mode !== 'immergee' && <div className={sim.on && ctx.h.margin < 1 ? 'bad' : ''}><small>Marge NPSH</small><b>{fmt(ctx.h.margin, 1)}<span>m</span></b></div>}
+          {ctx.i.mode !== 'immergee' && (() => { const m = sim.on && sim.q > 0.05 ? npshMarginAt(ctx.i, sim.q, kind === 'vfd' || kind === 'solar' ? sim.s : 1, sim.dd ?? 0) : ctx.h.margin; return <div className={sim.on && m < 0 ? 'bad' : sim.on && m < 1 ? 'warn' : ''} title="NPSH disponible − NPSH requis au point de fonctionnement du moment (cavitation sous 0)"><small>Marge NPSH</small><b>{fmt(m, 1)}<span>m</span></b></div>; })()}
           <div><small>Volume pompé</small><b>{fmt(sim.vol, 1)}<span>m³</span></b></div>
           <div><small>Énergie</small><b>{fmt(sim.kwh, 1)}<span>kWh</span></b><em>{money(sim.kwh * s.inst.duty.pricePerKwh, s.inst.duty.currency)}</em></div>
           <div className={sim.starts / hours > s.inst.pump.maxStarts ? 'bad' : ''}><small>Démarrages</small><b>{sim.starts}</b><em>{fmt(sim.starts / hours, 1)} /h (maxi {s.inst.pump.maxStarts})</em></div>

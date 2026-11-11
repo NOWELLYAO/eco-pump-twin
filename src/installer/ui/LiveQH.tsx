@@ -1,5 +1,5 @@
 import { X as XIcon } from 'lucide-react';
-import { isForage, losses, pressZ, pumpHead, systemHeadAt } from '../hydraulics';
+import { cavZones, isForage, losses, npshMarginAt, pressZ, pumpHead, systemHeadAt } from '../hydraulics';
 import type { SimCtx, SimState } from '../sim';
 
 const G = 9.81;
@@ -33,6 +33,12 @@ export function LiveQH({ ctx, st, onClose }: { ctx: SimCtx; st: SimState; onClos
   const qOp = running ? st.q : 0, hOp = running ? pump(qOp) : 0;
   const ticks = (max: number, n = 4) => { const step = niceStep(max / n); return Array.from({ length: Math.floor(max / step) + 1 }, (_, k) => k * step); };
   const qReq = i.duty.qReq;
+  // Cavitation (pompe de surface) : plages de débit où le NPSH disponible ne couvre plus le NPSH requis, à la vitesse
+  // et au niveau d'eau du moment
+  const dz = i.mode === 'aspiration' || i.mode === 'charge' ? st.dd ?? 0 : 0;
+  const cz = cavZones(i, qMax, s, dz);
+  const mOp = running && i.mode !== 'immergee' ? npshMarginAt(i, Math.max(qOp, 1e-3), s, dz) : null;
+  const seg = (a: number, b: number) => { const ks = qs.map((q, k) => ({ q, k })).filter((p) => p.q >= a - 1e-9 && p.q <= b + 1e-9 && hp[p.k] >= 0); return ks.map((p, j) => `${j ? 'L' : 'M'}${X(p.q).toFixed(1)},${Y(hp[p.k]).toFixed(1)}`).join(''); };
   return (
     <div className="lqh" role="dialog" aria-label="Courbe Q/H en direct">
       <div className="lqh-h">
@@ -44,8 +50,11 @@ export function LiveQH({ ctx, st, onClose }: { ctx: SimCtx; st: SimState; onClos
         {ticks(qMax).map((q) => <g key={`q${q}`}><line x1={X(q)} x2={X(q)} y1={T} y2={H - B} className="lqh-grid" /><text x={X(q)} y={H - B + 12} textAnchor="middle" className="lqh-t">{fr(q, q < 10 ? 1 : 0)}</text></g>)}
         <text x={W - R} y={H - 3} textAnchor="end" className="lqh-t">Q (m³/h)</text>
         <text x={L - 30} y={T + 2} className="lqh-t">H (m)</text>
+        {cz.risk.map(([a, b], k) => <rect key={`r${k}`} x={X(a)} y={T} width={Math.max(1, X(b) - X(a))} height={H - T - B} className="lqh-risk" />)}
+        {cz.cav.map(([a, b], k) => <rect key={`c${k}`} x={X(a)} y={T} width={Math.max(1, X(b) - X(a))} height={H - T - B} className="lqh-cav" />)}
         <path d={line(hn)} className="lqh-net" />
         <path d={pumpD} className="lqh-pump" />
+        {cz.cav.map(([a, b], k) => <path key={`cp${k}`} d={seg(a, b)} className="lqh-pcav" />)}
         {qReq > 0 && <g className="lqh-req"><line x1={X(qReq)} x2={X(qReq)} y1={T} y2={H - B} /><text x={X(qReq) + 3} y={T + 9} className="lqh-t">besoin</text></g>}
         {running && <g className="lqh-op"><line x1={X(qOp)} x2={X(qOp)} y1={Y(hOp)} y2={H - B} /><line x1={L} x2={X(qOp)} y1={Y(hOp)} y2={Y(hOp)} /><circle cx={X(qOp)} cy={Y(hOp)} r={5} /></g>}
       </svg>
@@ -53,6 +62,9 @@ export function LiveQH({ ctx, st, onClose }: { ctx: SimCtx; st: SimState; onClos
         <li><i className="lqh-k pump" />Pompe{s < 0.995 ? ` à ${fr(s * 50, 1)} Hz` : ''}{(ctx.h.n || 1) > 1 ? ` (${ctx.h.n} en parallèle)` : ''}</li>
         <li><i className="lqh-k net" />Réseau maintenant{press ? ` (${fr(st.x, 2)} bar)` : ''}</li>
         <li><i className="lqh-k op" />{running ? <>Point de fonctionnement : <b>{fr(qOp, 1)} m³/h</b> à <b>{fr(hOp, 1)} m</b></> : <span className="muted">{st.on ? 'La pompe tourne sans débiter' : 'Pompe à l\'arrêt'}</span>}</li>
+        {cz.cav.length > 0 && <li><i className="lqh-k zone" />Zone de cavitation (NPSH disponible &lt; requis)</li>}
+        {cz.risk.length > 0 && <li><i className="lqh-k zone risk" />Zone limite (marge NPSH &lt; 1 m)</li>}
+        {mOp != null && <li className={mOp < 0 ? 'lqh-bad' : mOp < 1 ? 'lqh-warn' : ''}><span>Marge NPSH au point : <b>{fr(mOp, 1)} m</b>{mOp < 0 ? ' — la pompe cavite' : mOp < 1 ? ' — à la limite' : ''}</span></li>}
       </ul>
     </div>
   );

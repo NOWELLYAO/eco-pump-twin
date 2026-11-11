@@ -185,6 +185,32 @@ export function shaftPower(i: Installation, q: number, h: number) {
   return { eta, kw: (i.fluid.rho * G * (q / 3600) * h) / eta / 1000 };
 }
 
+/** Marge NPSH (NPSH disponible − NPSH requis, m) au débit q, à la vitesse relative s, avec dz mètres d'eau en moins
+ *  au-dessus de l'aspiration (bâche qui baisse). Sans objet pour une pompe immergée (toujours en charge). */
+export function npshMarginAt(i: Installation, q: number, s = 1, dz = 0) {
+  const rhoG = i.fluid.rho * G;
+  const npsha = ((patm(i.geo.altitude) - vaporPressure(i)) * 1000) / rhoG + suctionZ(i) - dz - losses(i, q).asp;
+  const n = nRun(i), ss = Math.max(0.2, s);
+  const npshr = ss * ss * pumpNpshr(i, q / n / ss);
+  return npsha - npshr;
+}
+/** Plages de débit où la pompe cavite (marge < 0) ou est à la limite (marge < 1 m), jusqu'à qMax. */
+export function cavZones(i: Installation, qMax: number, s = 1, dz = 0): { risk: [number, number][]; cav: [number, number][] } {
+  const out = { risk: [] as [number, number][], cav: [] as [number, number][] };
+  if (i.mode === 'immergee' || qMax <= 0) return out;
+  const N = 80;
+  const push = (arr: [number, number][], on: boolean, q: number, dq: number) => {
+    const last = arr[arr.length - 1];
+    if (on) { if (last && Math.abs(last[1] - (q - dq)) < 1e-9) last[1] = q; else arr.push([Math.max(0, q - dq / 2), q]); }
+  };
+  for (let k = 0; k <= N; k++) {
+    const q = (qMax * k) / N, dq = qMax / N, m = npshMarginAt(i, Math.max(q, 1e-3), s, dz);
+    push(out.cav, m < 0, q, dq);
+    push(out.risk, m < 1, q, dq);
+  }
+  return out;
+}
+
 export interface Hydro {
   ok: boolean;
   q: number; h: number; x: number;

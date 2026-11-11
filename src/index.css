@@ -1671,3 +1671,14 @@ html, body { overflow-x: clip; }
 .lqh-k.net { border-top: 2.5px dashed #e07b1a; }
 .lqh-k.op { width: 9px; height: 9px; border: 0; border-radius: 50%; background: var(--good); flex: 0 0 9px; }
 @media (max-width: 700px) { .lqh { top: auto; bottom: 80px; right: 12px; left: 12px; width: auto; } }
+.lqh-risk { fill: #fab219; opacity: .14; }
+.lqh-cav { fill: #d03b3b; opacity: .16; }
+.lqh-pcav { fill: none; stroke: var(--crit); stroke-width: 3.2; }
+.lqh-k.zone { width: 14px; height: 10px; border: 0; background: rgba(208, 59, 59, .35); flex: 0 0 14px; }
+.lqh-leg li.lqh-bad b { color: var(--crit-ink); }
+.lqh-leg li.lqh-warn b { color: var(--warn-ink); }
+.lqh-k.zone.risk { background: rgba(250, 178, 25, .45); }
+.cavnote { display: block; }
+.cz { display: inline-block; width: 12px; height: 10px; border-radius: 2px; vertical-align: -1px; }
+.cz.cav { background: rgba(208, 59, 59, .4); }
+.cz.risk { background: rgba(250, 178, 25, .5); }
