@@ -3,7 +3,7 @@ import { aquiferOf, withAquifer } from './aquifer';
 import { screenCalc, screenOf } from './borehole';
 import { backupCalc, backupMode, backupOf, floatKind, floatLow } from './backup';
 import { effectiveStart, electrical, vfdSet, solar as solarCalc, type ElecResult } from './electrical';
-import { isForage, losses, nRun, pressZ, pumpHead, shaftPower, solve, speedFor, surgeHead, suctionZ, systemHeadAt, type Hydro } from './hydraulics';
+import { isForage, losses, nRun, pressZ, pumpEta, pumpHead, shaftPower, solve, speedFor, surgeHead, suctionZ, systemHeadAt, viscCorr, type Hydro } from './hydraulics';
 import type { Installation } from './types';
 import { LOCAL_FAULTS, applyFaults, combined, faultById, type FaultEffect, type NoiseKind, type Sym } from './faults';
 
@@ -172,7 +172,7 @@ export function readings(i: Installation, h: Hydro, on: boolean, er: ElecResult,
   // (et non une règle de trois sur le point de calcul, fausse quand ce point est presque nul — vanne fermée)
   const nP = nRun(i);
   const kw = speed < 0.995 && q > 0
-    ? (rhoG * (q / 3600) * Math.max(0, hq)) / Math.max(0.25, h.eta) / 1000 / 0.88
+    ? (rhoG * (q / 3600) * Math.max(0, hq)) / Math.max(0.25, pumpEta(i, q / nP / sp) * viscCorr(i.fluid.nu).ceta) / 1000 / 0.88 // rendement au point homologue (similitude)
     : qOverride != null
       ? Math.max(0.3 * (i.pump.motorKw / 0.88) * nP * h.n / nP, (shaftPower(i, q / nP, hq).kw * nP) / 0.88)
       : h.pElec * Math.max(0.3, ratio);
