@@ -1636,3 +1636,15 @@ html, body { overflow-x: clip; }
 .mystery .fkit { margin: 4px 0 10px; }
 .mystery .mgo { margin: 4px 0 6px; }
 .mystery .qopts + .btn.sm { margin-top: 8px; }
+.fold { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: 0 0 28px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); padding: 0; }
+.fold:hover { border-color: var(--brand); color: var(--brand-ink); }
+.tcard .tc-h { flex-direction: row; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.tc-t { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.tcard.closed .tc-h { margin-bottom: 0; }
+.tcard.compact .tc-t b { font-size: .8rem; }
+.tc-sum { font-weight: 700; }
+.tc-sum.bad { color: var(--crit-ink); }
+.tc-sum.warn { color: var(--warn-ink); }
+.tc-sum.ok { color: var(--good-ink); }
+.tlog-h .row { display: inline-flex; align-items: center; gap: 6px; }
+.tlog-h h5 small { font-weight: 600; }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ClipboardList, Gauge, Trash2 } from 'lucide-react';
+import { ChevronDown, ClipboardList, Gauge, Minus, Plus, Trash2 } from 'lucide-react';
 import { FIELD_TESTS, TEST_CAT, type FieldTest, type TCtx, type TestCat, type TestResult } from '../fieldtests';
 import { clock } from '../sim';
 
@@ -8,21 +8,47 @@ export interface TestsApi { tc: TCtx; log: TestLog[]; run: (id: string) => void;
 
 const LVL_TXT = { ok: 'normal', warn: 'à surveiller', bad: 'anormal' } as const;
 
-/** Résultat d'un test : valeur mesurée, valeur attendue, et un repère de couleur (avec un mot, pas seulement la couleur). */
-export function TestCard({ r, compact, id }: { r: TestLog; compact?: boolean; id?: string }) {
+/** Bouton +/- pour déplier ou replier. */
+function Fold({ open, onClick, what }: { open: boolean; onClick: () => void; what: string }) {
   return (
-    <div className={`tcard${compact ? ' compact' : ''}`} id={id}>
-      {!compact && <div className="tc-h"><b>{r.test.label}</b><small>{r.test.tool} · {clock(r.t)}</small></div>}
-      {r.res.how && <p className="tc-how">{r.res.how}</p>}
-      <dl className="tc-lines">
-        {r.res.lines.map((l, k) => (
-          <div key={k} className={`tc-l ${l.lvl ?? ''}`}>
-            <dt>{l.k}</dt>
-            <dd><span className="tc-v">{l.v}</span>{l.lvl && <span className="tc-tag">{LVL_TXT[l.lvl]}</span>}{l.ref && <small className="tc-ref">attendu : {l.ref}</small>}</dd>
-          </div>
-        ))}
-      </dl>
-      {r.res.note && <p className="tc-note">{r.res.note}</p>}
+    <button type="button" className="fold" onClick={onClick} aria-expanded={open} aria-label={`${open ? 'Replier' : 'Déplier'} ${what}`} title={open ? 'Replier' : 'Déplier'}>
+      {open ? <Minus size={14} aria-hidden /> : <Plus size={14} aria-hidden />}
+    </button>
+  );
+}
+
+/** Bilan d'un test en quelques mots (visible même replié). */
+function verdict(r: TestLog) {
+  const n = (l: 'bad' | 'warn') => r.res.lines.filter((x) => x.lvl === l).length;
+  const b = n('bad'), w = n('warn');
+  return b ? { cls: 'bad', txt: `${b} anormal${b > 1 ? 's' : ''}` } : w ? { cls: 'warn', txt: `${w} à surveiller` } : r.res.lines.some((x) => x.lvl) ? { cls: 'ok', txt: 'normal' } : { cls: '', txt: 'relevé' };
+}
+
+/** Résultat d'un test : valeur mesurée, valeur attendue, et un repère de couleur (avec un mot, pas seulement la couleur). */
+export function TestCard({ r, compact, id, open: open0 = true }: { r: TestLog; compact?: boolean; id?: string; open?: boolean }) {
+  const [open, setOpen] = useState(open0);
+  useEffect(() => { setOpen(open0); }, [open0]); // un nouveau test arrive : l'ancien se replie
+  const v = verdict(r);
+  return (
+    <div className={`tcard${compact ? ' compact' : ''}${open ? '' : ' closed'}`} id={id}>
+      <div className="tc-h">
+        <div className="tc-t">{compact ? <b>Résultat</b> : <b>{r.test.label}</b>}<small>{compact ? '' : `${r.test.tool} · `}{clock(r.t)}{v.txt ? <> · <span className={`tc-sum ${v.cls}`}>{v.txt}</span></> : null}</small></div>
+        <Fold open={open} onClick={() => setOpen(!open)} what="le résultat" />
+      </div>
+      {open && (
+        <>
+          {r.res.how && <p className="tc-how">{r.res.how}</p>}
+          <dl className="tc-lines">
+            {r.res.lines.map((l, k) => (
+              <div key={k} className={`tc-l ${l.lvl ?? ''}`}>
+                <dt>{l.k}</dt>
+                <dd><span className="tc-v">{l.v}</span>{l.lvl && <span className="tc-tag">{LVL_TXT[l.lvl]}</span>}{l.ref && <small className="tc-ref">attendu : {l.ref}</small>}</dd>
+              </div>
+            ))}
+          </dl>
+          {r.res.note && <p className="tc-note">{r.res.note}</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -33,11 +59,12 @@ export function FieldKit({ tests }: { tests: TestsApi }) {
   const cats = (Object.keys(TEST_CAT) as TestCat[]).filter((c) => avail.some((t) => t.cat === c));
   // Le résultat d'un test lancé depuis la boîte à outils s'affiche dans le carnet, plus bas : on l'amène à l'écran
   const [want, setWant] = useState<string | null>(null);
+  const [logOpen, setLogOpen] = useState(true);
   const top = useRef<number | null>(null);
   useEffect(() => {
     const r = tests.log[0];
     if (!r || !want || r.test.id !== want || top.current === r.key) return;
-    top.current = r.key; setWant(null);
+    top.current = r.key; setWant(null); setLogOpen(true);
     document.getElementById(`tc-${r.key}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [tests.log, want]);
   return (
@@ -63,8 +90,15 @@ export function FieldKit({ tests }: { tests: TestsApi }) {
       </div>
       {tests.log.length > 0 && (
         <div className="tlog">
-          <div className="tlog-h"><h5><ClipboardList size={15} aria-hidden /> Carnet de mesures</h5><button type="button" className="btn sm" onClick={tests.clear}><Trash2 size={13} aria-hidden /> Effacer</button></div>
-          {tests.log.map((r) => <TestCard key={r.key} r={r} id={`tc-${r.key}`} />)}
+          <div className="tlog-h">
+            <h5><ClipboardList size={15} aria-hidden /> Carnet de mesures <small className="muted">({tests.log.length})</small></h5>
+            <span className="row">
+              <button type="button" className="btn sm" onClick={tests.clear}><Trash2 size={13} aria-hidden /> Effacer</button>
+              <Fold open={logOpen} onClick={() => setLogOpen(!logOpen)} what="le carnet de mesures" />
+            </span>
+          </div>
+          {/* Le plus récent déplié, les précédents repliés (un clic sur + pour les revoir) */}
+          {logOpen && tests.log.map((r, k) => <TestCard key={r.key} r={r} id={`tc-${r.key}`} open={k === 0} />)}
         </div>
       )}
     </div>
