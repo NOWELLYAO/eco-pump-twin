@@ -60,6 +60,9 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
   const hidden = !!mystery && mystery.answer == null;
   const cats = (Object.keys(FAULT_CAT) as FaultCat[]).filter((c) => cands.some((f) => f.cat === c));
   const shownActive = active.filter((id) => !(hidden && id === mystery?.id));
+  // Panne mystère : on observe, on teste, puis seulement on choisit la panne
+  const [ready, setReady] = useState<string | null>(null);
+  const step = !mystery || mystery.answer != null ? 2 : ready === mystery.id ? 2 : tests && tests.log.length ? 1 : 0;
 
   return (
     <section className="card faults">
@@ -100,10 +103,25 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
           <h4><HelpCircle size={16} aria-hidden /> Panne mystère</h4>
           {mystery.answer == null ? (
             <>
-              <p className="small">Une panne s'est produite. Observez les symptômes, le schéma, la console et le journal (accélérez le temps si besoin), faites les tests sur le terrain ci-dessous, puis choisissez la cause :</p>
-              <div className="qopts">
-                {mystery.options.map((id) => <button key={id} type="button" className="btn qopt" onClick={() => onAnswer(id)}>{faultById(id)?.label}</button>)}
-              </div>
+              <ol className="msteps">
+                <li className={step === 0 ? 'cur' : 'done'}><b>Observer</b> les symptômes ci-dessus, le schéma, la console et le journal (accélérez le temps si besoin).</li>
+                <li className={step === 1 ? 'cur' : step > 1 ? 'done' : ''}><b>Tester sur le terrain</b> : mesures et contrôles ci-dessous, comme un technicien.</li>
+                <li className={step === 2 ? 'cur' : ''}><b>Conclure</b> : choisir la panne.</li>
+              </ol>
+              {tests && <FieldKit tests={tests} />}
+              {step < 2 ? (
+                <button type="button" className="btn primary full mgo" onClick={() => setReady(mystery.id)}>
+                  <CheckCircle2 size={16} aria-hidden /> {tests && tests.log.length ? `J'ai mon diagnostic (${tests.log.length} test${tests.log.length > 1 ? 's' : ''} fait${tests.log.length > 1 ? 's' : ''}) : choisir la panne` : 'Répondre sans faire de test'}
+                </button>
+              ) : (
+                <>
+                  <p className="small"><b>Quelle est la panne ?</b> Vos mesures restent dans le carnet ci-dessus.</p>
+                  <div className="qopts">
+                    {mystery.options.map((id) => <button key={id} type="button" className="btn qopt" onClick={() => onAnswer(id)}>{faultById(id)?.label}</button>)}
+                  </div>
+                  <button type="button" className="btn sm" onClick={() => setReady(null)}>Revenir aux tests</button>
+                </>
+              )}
             </>
           ) : (
             <>
@@ -116,7 +134,7 @@ export function FaultPanel({ inst, kind, active, obs, design = [], onIssue, onFi
       )}
 
       {/* Boîte à outils : mesures et contrôles de terrain */}
-      {tests && <FieldKit tests={tests} />}
+      {tests && !hidden && <FieldKit tests={tests} />}
 
       {/* Causes probables */}
       {!hidden && obs.length > 0 && (

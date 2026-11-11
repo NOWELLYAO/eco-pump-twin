@@ -1628,3 +1628,11 @@ html, body { overflow-x: clip; }
   .tc-l { grid-template-columns: 1fr; }
   .tlist { grid-template-columns: 1fr; }
 }
+.msteps { margin: 6px 0 10px; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; font-size: .88rem; }
+.msteps li { color: var(--muted); }
+.msteps li.cur { color: var(--fg); }
+.msteps li.cur::marker { color: var(--brand); font-weight: 800; }
+.msteps li.done { color: var(--muted); text-decoration: none; }
+.mystery .fkit { margin: 4px 0 10px; }
+.mystery .mgo { margin: 4px 0 6px; }
+.mystery .qopts + .btn.sm { margin-top: 8px; }
