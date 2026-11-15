@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { focusTarget, type Target } from './installer/goto';
-import { BookOpen, ClipboardCheck, Wand2, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
+import { BookOpen, ClipboardCheck, Construction, Wand2, FileDown, FilePlus2, FlaskConical, Package, PencilRuler, Printer, Stethoscope, X } from 'lucide-react';
 import { APPS } from './installer/catalog';
 import { evaluate } from './installer/evaluate';
 import { ensureElec } from './installer/electrical';
@@ -20,12 +20,14 @@ const SimPage = lazy(() => import('./installer/ui/SimPage').then((m) => ({ defau
 const MaterialPage = lazy(() => import('./installer/ui/Pages').then((m) => ({ default: m.MaterialPage })));
 const CommissionPage = lazy(() => import('./installer/ui/CommissionPage').then((m) => ({ default: m.CommissionPage })));
 const Wizard = lazy(() => import('./installer/ui/Wizard').then((m) => ({ default: m.Wizard })));
+const BuildPage = lazy(() => import('./installer/ui/BuildPage').then((m) => ({ default: m.BuildPage })));
 const PrintReport = lazy(() => import('./ui/PrintReport').then((m) => ({ default: m.PrintReport })));
 const ProjectsModal = lazy(() => import('./ui/Projects').then((m) => ({ default: m.ProjectsModal })));
 
-type Page = 'design' | 'sim' | 'diag' | 'com' | 'mat';
+type Page = 'build' | 'design' | 'sim' | 'diag' | 'com' | 'mat';
 const PAGES: { id: Page; label: string; icon: typeof PencilRuler }[] = [
   { id: 'design', label: 'Conception', icon: PencilRuler },
+  { id: 'build', label: 'Chantier', icon: Construction },
   { id: 'sim', label: 'Simulation', icon: FlaskConical },
   { id: 'diag', label: 'Diagnostic', icon: Stethoscope },
   { id: 'com', label: 'Mise en service', icon: ClipboardCheck },
@@ -45,6 +47,7 @@ function Guide() {
   return (
     <div className="guide">
       <p><b>Conception guidée</b> : bouton « Nouvelle » → « Conception guidée » : l'application vous pose les questions une par une et dimensionne tout.</p>
+      <p><b>Chantier</b> : construisez l'installation en faisant glisser source, pompe, accessoires, destination et énergie (ou touchez-les : ils se posent à la bonne place). L'application refuse ce qui ne va pas, signale ce qui manque et l'ordre de montage, propose les réglages, puis crée le projet et lance la simulation.</p>
       <p><b>Conception</b> : décrivez l'installation étape par étape (ou partez d'un exemple). La vue réelle, le schéma P&ID et la note se mettent à jour à chaque saisie.</p>
       <p><b>Simulation</b> : mettez la pompe en marche ou à l'arrêt, faites défiler le temps et jouez sur la vanne, la vitesse, le niveau d'eau, le colmatage ou l'usure. Les instruments, les courbes, les alertes et le journal des événements réagissent en direct.</p>
       <p><b>Mes projets</b> (icône dossier) : tous vos projets sont enregistrés sur l'appareil ; ouvrez, dupliquez, exportez en fichier ou partagez un lien (WhatsApp).</p>
@@ -191,12 +194,13 @@ export default function App() {
       <main className="screen">
         <div className="page-title">
           <h1>{PAGES.find((p) => p.id === page)?.label}</h1>
-          <p className="muted">{inst.name}</p>
+          <p className="muted">{page === 'build' ? 'Construisez votre installation pièce par pièce' : inst.name}</p>
         </div>
         <Suspense fallback={<div className="chart-wait">Chargement…</div>}>
         {page === 'design' && <DesignPage s={s} goDiag={() => setPage('diag')} sim={simLive} goSim={() => setPage('sim')} />}
         {/* La simulation tourne aussi sur la page Conception : sa vue réelle est celle de la simulation, en direct */}
         {(page === 'sim' || page === 'design') && <SimPage s={s} visible={page === 'sim'} onLive={setSimLive} />}
+        {page === 'build' && <BuildPage current={inst} onCreate={(x) => { newProject(x, 'Projet créé depuis le chantier : il est enregistré dans « Mes projets ».'); setPage('sim'); }} />}
         {page === 'diag' && <DiagPage s={s} />}
         {page === 'com' && <CommissionPage i={inst} ev={ev} set={s.set} />}
         {page === 'mat' && <MaterialPage s={s} />}
