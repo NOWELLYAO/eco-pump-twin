@@ -147,6 +147,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
   const circ = !!live && (!!live.circOnly || (live.on && i.app === 'incendie' && !!i.acc.soupape_circ?.on && (live.use ?? 0) < 0.02));
   const flow = live ? live.on && live.r.q > 0.05 && !circ : h.ok && h.q > 0.05;
   const anchors: Record<string, { x: number; y: number; r?: number }> = {};
+  let forageTop = 0, forageMotor = 0; // forage : haut de la pompe et milieu du moteur (câble le long de la colonne)
   const pick = (t: string) => (onPick ? { onClick: (e: MouseEvent) => { e.stopPropagation(); onPick(t); }, className: 'pickable' } : {});
   const forage = i.pumpType === 'immergee_forage';
   const pit = i.mode === 'immergee' && !forage;
@@ -242,10 +243,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         <rect x={181} y={pTop} width={28} height={hL} rx={5} className="r-stainless" />
         {[1, 2, 3, 4].map((n) => <path key={n} d={`M181 ${pTop + (n * hL) / 5} H209`} className="r-seam" />)}
         <rect x={183} y={pTop + hL} width={24} height={mL} rx={5} className="r-motor" />
-        <path d={`M209 ${pTop + hL + 14} C 228 ${pTop + 40}, 226 ${G}, 226 ${G - 14}`} className="r-cablepath" />
       </g>,
     );
-    pumpXY = [195, pTop + hL / 2 + 2];
+    pumpXY = [195, pTop + hL / 2 + 2]; forageTop = pTop; forageMotor = pTop + hL + mL / 2;
     motorBox = { x: 183, y: pTop + hL, w: 24, h: mL }; impXY = [195, pTop + hL / 2];
     ref = [[195, pTop], [195, G - 40], [REF_END, G - 40]];
     refStart = polyLen(ref.slice(0, 2)) + 40;
@@ -301,7 +301,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         <rect x={160} y={floor - 42} width={74} height={42} rx={10} className="r-pumpbody" />
         <rect x={172} y={floor - 98} width={50} height={58} rx={8} className="r-motor" />
         <rect x={234} y={floor - 30} width={36} height={22} rx={3} className="r-plinth" />
-        <path d={`M198 ${floor - 98} C 190 ${G + 60}, 160 ${G + 30}, 150 ${G}`} className="r-cablepath" />
+        <path d={`M220 ${floor - 92} V${G - 3}`} className="r-cablepath" />{/* câble moteur : remonte droit le long des barres de guidage */}
       </g>,
     );
     pumpXY = [205, floor - 40];
@@ -811,7 +811,14 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
   const boxY = forage ? G - 34 : pit ? G - 52 : G - 34;
   if (on('coffret')) {
     anchors.cable = { x: boxX, y: boxY, r: 40 };
-    items.push(<g key="cof" {...pick('cable')}><path d={`M${boxX} ${boxY + 28} C ${boxX - 40} ${boxY + 60}, ${pxp + 60} ${pyp + 10}, ${pxp + (forage || pit ? 20 : 70)} ${pyp}`} className="r-cablepath" /><g className="r-obst" transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
+    // Forage : le câble sort du coffret, longe le sol jusqu'à la tête de forage, puis descend le long de la colonne,
+    // attaché par des colliers tous les 3 m environ, jusqu'au moteur
+    const tieN = forage ? Math.max(0, Math.floor((forageTop - 8 - (G + 8)) / 34)) : 0;
+    const cableD = forage
+      ? `M${boxX} ${boxY + 28} V${G - 19} H${186} V${forageTop - 6} Q 178 ${forageTop}, 178 ${forageTop + 10} V${forageMotor} H${183}`
+      : pit ? `M${boxX} ${boxY + 28} V${G - 3} H220` // posé sur la dalle jusqu'au regard, puis descend le long des barres
+      : `M${boxX} ${boxY + 28} V${G - 3} H${pxp + 70} V${pyp}`; // posé au sol, remonte au bornier de la pompe
+    items.push(<g key="cof" {...pick('cable')}><path d={cableD} className="r-cablepath" />{Array.from({ length: tieN }).map((_, k) => <rect key={`tie${k}`} x={184} y={G + 14 + k * 34} width={14} height={3} rx={1} className="r-tie" />)}{boxY + 28 < G - 4 && <path d={`M${boxX - 12} ${boxY + 28} V${G} M${boxX + 12} ${boxY + 28} V${G}`} className="r-pole" />}<g className="r-obst" transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
   }
   const isSolar = i.elec?.supply === 'solaire';
   const st = i.elec ? effectiveStart(i) : 'direct';
@@ -881,21 +888,21 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
   }
   // ---- Réseau électrique : poteau, transformateur, ligne aérienne jusqu'au coffret ----
   if (i.elec?.supply === 'tri' || i.elec?.supply === 'mono') {
-    const px = supX + 24, py = 8;
+    const px = forage ? boxX + 46 : pit ? boxX + 78 : boxX + 72, py = G - 112; // poteau planté à côté du coffret
     const v = live?.grid?.v;
     const off = live ? (v ?? 0) <= 0 : false;
     anchors.grid = { x: px + 34, y: py + 36, r: 60 };
     items.push(
       <g key="grid" {...pick('grid')}>
-        <path d={`M${px - 22} ${py + 12} C ${px - 60} ${py + 60}, ${boxX + 60} ${boxY - 90}, ${boxX + 10} ${boxY - 30}`} className={`r-acline${off ? ' off' : ''}`} />
+        <path d={`M${px - 22} ${py + 4} Q ${(px - 22 + boxX + 8) / 2} ${Math.max(py + 4, boxY - 30) + 14}, ${boxX + 8} ${boxY - 30}`} className={`r-acline${off ? ' off' : ''}`} />
         <g className="r-obst">
-          <path d={`M${px} ${py} V${py + 56}`} className="r-pole" />
+          <path d={`M${px} ${py} V${G}`} className="r-pole" />
           <path d={`M${px - 22} ${py + 6} H${px + 22}`} className="r-pole thin" />
           {(i.elec.supply === 'tri' ? [-18, 0, 18] : [-10, 10]).map((dx) => <circle key={dx} cx={px + dx} cy={py + 3} r={2.6} className="r-insul" />)}
           <rect x={px + 5} y={py + 16} width={18} height={22} rx={3} className="r-transfo" />
         </g>
         {off && <g className="r-tbadge crit"><rect x={px + 34} y={py + 44} width={80} height={18} rx={9} /><text x={px + 74} y={py + 57} textAnchor="middle">COUPURE</text></g>}
-        <text x={px + 34} y={py + 18} className="r-label">{`Réseau ${i.elec.supply === 'tri' ? '400 V tri' : '230 V mono'}`}</text>
+        <text x={px + 30} y={py - 4} className="r-label">{`Réseau ${i.elec.supply === 'tri' ? '400 V tri' : '230 V mono'}`}</text>
       </g>,
     );
   }

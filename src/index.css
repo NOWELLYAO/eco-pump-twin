@@ -1886,3 +1886,4 @@ html, body { overflow-x: clip; }
   .pagenav button { min-width: 0; overflow: hidden; font-size: .64rem; padding-left: 1px; padding-right: 1px; }
   .pagenav button span { max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
 }
+.r-tie { fill: #1f2a33; }
