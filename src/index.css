@@ -376,9 +376,9 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .r-pitin { fill: url(#ep-pitin) #b9a586; }
 .r-bore { fill: url(#ep-bore) #c4b08f; }
 .r-concrete { fill: url(#ep-concrete) #a7adb3; }
-.r-water { fill: url(#ep-water) #7cc0e8; opacity: .92; }
-.r-dirty { fill: url(#ep-dirty) #8d8a5e; opacity: .92; }
-.r-oil { fill: url(#ep-oil) #c9a043; opacity: .92; }
+.r-water { fill: url(#ep-water) #4fa6d8; }
+.r-dirty { fill: url(#ep-dirty) #8d8a5e; }
+.r-oil { fill: url(#ep-oil) #c9a043; }
 .r-level { stroke: #1f6fa3; stroke-width: 1.5; }
 .r-level.dashed { stroke-dasharray: 5 4; }
 .r-casing { stroke: #5b6670; stroke-width: 4; }
@@ -1872,3 +1872,12 @@ html, body { overflow-x: clip; }
 .r-lid { fill: url(#ep-steel) #c9d1d8; stroke: #6f7c87; stroke-width: 1.5; }
 .r-weld { stroke: rgba(80, 92, 104, .35); stroke-width: 1; fill: none; }
 @media (prefers-color-scheme: dark) { .r-l-top, .r-l-lat, .r-l-clay, .r-l-sand, .r-l-aq, .r-l-rock { opacity: .7; } }
+
+/* Liquides : surface ondulée, reflet, volume et lumière */
+.r-surf-band { fill: url(#ep-surf-band); }
+.r-surf .r-surface { fill: none; stroke: #e8f7ff; stroke-width: 2; opacity: .85; animation: none; }
+.r-liq-shade { fill: url(#ep-liq-shade); pointer-events: none; }
+.r-liq-light { fill: url(#ep-liq-light); pointer-events: none; }
+.r-dirty ~ .r-liq-light, .r-oil ~ .r-liq-light { opacity: .5; }
+@media (prefers-reduced-motion: no-preference) { .r-surf .r-surface { animation: wave 3.2s ease-in-out infinite; } }
+@keyframes wave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-4px); } }

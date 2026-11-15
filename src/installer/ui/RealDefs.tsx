@@ -28,7 +28,14 @@ export function RealDefs() {
       <pattern id="ep-concrete" width="26" height="26" patternUnits="userSpaceOnUse"><rect width="26" height="26" fill="#a9afb5" />{dots([[4, 5, 1.3, '#959ba1'], [13, 3, .8, '#c0c5ca'], [21, 9, 1.5, '#8f959b'], [8, 15, .9, '#c0c5ca'], [18, 20, 1.2, '#979da3'], [3, 22, .7, '#bcc1c6']])}</pattern>
       <pattern id="ep-pitin" width="30" height="30" patternUnits="userSpaceOnUse"><rect width="30" height="30" fill="#b3a083" />{dots([[5, 6, 1.1, '#9f8d70'], [19, 11, 1.4, '#c4b296'], [10, 23, 1, '#9f8d70'], [25, 25, .9, '#c4b296']])}</pattern>
       {/* Eaux */}
-      <linearGradient id="ep-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#a8dcf5" /><stop offset=".55" stopColor="#6fb6e3" /><stop offset="1" stopColor="#3f8fc4" /></linearGradient>
+      <linearGradient id="ep-water" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7cc6ea" /><stop offset=".25" stopColor="#4fa6d8" /><stop offset=".7" stopColor="#2b7fb8" /><stop offset="1" stopColor="#1a5f93" /></linearGradient>
+      {/* Liquide vu en coupe : bords plus sombres (volume du cylindre), rais de lumière, bande claire sous la surface */}
+      <linearGradient id="ep-liq-shade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#06304f" stopOpacity=".35" /><stop offset=".14" stopColor="#06304f" stopOpacity="0" /><stop offset=".8" stopColor="#06304f" stopOpacity="0" /><stop offset="1" stopColor="#06304f" stopOpacity=".4" /></linearGradient>
+      <pattern id="ep-liq-light" width="140" height="160" patternUnits="userSpaceOnUse">
+        <path d="M18 0 L40 0 L8 160 L-14 160 Z M78 0 L88 0 L58 160 L48 160 Z M118 0 L134 0 L104 160 L88 160 Z" fill="#ffffff" opacity=".09" />
+        <path d="M30 22 q8 -3 16 0 M86 48 q6 -2 12 0 M40 90 q9 -3 18 0 M104 120 q7 -2 14 0 M14 140 q6 -2 12 0" stroke="#d9f2ff" strokeWidth="1.2" fill="none" opacity=".35" />
+      </pattern>
+      <linearGradient id="ep-surf-band" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#ffffff" stopOpacity=".55" /><stop offset="1" stopColor="#ffffff" stopOpacity="0" /></linearGradient>
       <linearGradient id="ep-dirty" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#a7a473" /><stop offset="1" stopColor="#6b6842" /></linearGradient>
       <linearGradient id="ep-oil" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#e6c46e" /><stop offset="1" stopColor="#a87d22" /></linearGradient>
       {/* Métaux, cuves (cylindres éclairés de la gauche) */}

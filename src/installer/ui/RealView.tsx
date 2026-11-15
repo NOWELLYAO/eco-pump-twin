@@ -210,8 +210,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       <clipPath key="bc" id={`bore${uid}`}><rect x={152} y={G} width={86} height={bottomY - G} /></clipPath>,
       <g key="w" clipPath={`url(#bore${uid})`}>
         <g className="r-anim-level" style={{ transform: `translateY(${yNow - G}px)` }}>
-          <rect x={152} y={G} width={86} height={bottomY - G + 4} className={liquidCls} />
-          <rect x={152} y={G} width={86} height={3} className="r-surface" />
+          <rect x={152} y={G} width={86} height={bottomY - G + 4} className={liquidCls} /><LiquidFx x={152} y={G} w={86} h={bottomY - G + 4} />
+          <LiqSurface x={152} y={G} w={86} />
         </g>
       </g>,
       <path key="st" d={`M140 ${yS} H250`} className="r-level dashed" />,
@@ -275,8 +275,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       <clipPath key="pc" id={`pit${uid}`}><rect x={114} y={G} width={222} height={floor - G} /></clipPath>,
       <g key="liq" clipPath={`url(#pit${uid})`}>
         <g className="r-anim-level" style={{ transform: `translateY(${yWater - G}px)` }}>
-          <rect x={114} y={G} width={222} height={floor - G + 4} className={liquidCls} />
-          <rect x={114} y={G} width={222} height={3} className="r-surface" />
+          <rect x={114} y={G} width={222} height={floor - G + 4} className={liquidCls} /><LiquidFx x={114} y={G} w={222} h={floor - G + 4} />
+          <LiqSurface x={114} y={G} w={222} />
         </g>
       </g>,
       <rect key="lid" x={96} y={G - 10} width={258} height={10} rx={2} className="r-plinth" />,
@@ -347,8 +347,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         <clipPath key="bkc" id={`bank${uid}`}><path d={`M20 ${G} L60 ${bottomY} H280 L310 ${G} Z`} /></clipPath>,
         <g key="water" clipPath={`url(#bank${uid})`}>
           <g className="r-anim-level" style={{ transform: `translateY(${wl + ddPx - G}px)` }}>
-            <rect x={20} y={G} width={290} height={bottomY - G + 4} className={liquidCls} />
-            <rect x={20} y={G} width={290} height={3} className="r-surface" />
+            <rect x={20} y={G} width={290} height={bottomY - G + 4} className={liquidCls} /><LiquidFx x={20} y={G} w={290} h={bottomY - G + 4} />
+            <LiqSurface x={20} y={G} w={290} />
           </g>
         </g>,
       );
@@ -368,8 +368,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         <clipPath key="tc" id={`bache${uid}`}><rect x={46} y={tankTop + 6} width={178} height={G - tankTop - 12} rx={3} /></clipPath>,
         <g key="liq" clipPath={`url(#bache${uid})`}>
           <g className="r-anim-level" style={{ transform: `translateY(${wl + ddPx - tankTop}px)` }}>
-            <rect x={46} y={tankTop} width={178} height={G - tankTop} className={liquidCls} />
-            <rect x={46} y={tankTop} width={178} height={3} className="r-surface" />
+            <rect x={46} y={tankTop} width={178} height={G - tankTop} className={liquidCls} /><LiquidFx x={46} y={tankTop} w={178} h={G - tankTop} />
+            <LiqSurface x={46} y={tankTop} w={178} />
           </g>
         </g>,
       );
@@ -481,8 +481,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
           <clipPath id={`bk${uid}`}><rect x={tx + 5} y={yTop} width={tw - 10} height={yBot - yTop} rx={4} /></clipPath>
           <g clipPath={`url(#bk${uid})`}>
             <g className="r-anim-level" style={{ transform: `translateY(${yWb - yTop}px)` }}>
-              <rect x={tx + 5} y={yTop} width={tw - 10} height={yBot - yTop + 8} className="r-water" />
-              <rect x={tx + 5} y={yTop} width={tw - 10} height={3} className="r-surface" />
+              <rect x={tx + 5} y={yTop} width={tw - 10} height={yBot - yTop + 8} className="r-water" /><LiquidFx x={tx + 5} y={yTop} w={tw - 10} h={yBot - yTop + 8} />
+              <LiqSurface x={tx + 5} y={yTop} w={tw - 10} />
             </g>
           </g>
           {filling && stream('bks', tx + 12, ty + 14, yWb, 3)}
@@ -582,8 +582,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       flow ? <path key="inlf" d={`M${ax} ${ay} H${tx - 6} V${ty - 14} H${inX} V${ty + 8}`} className="r-flow" strokeWidth={3} /> : null,
       <g key="tw" clipPath={`url(#dest${uid})`}>
         <g className="r-anim-level" style={{ transform: `translateY(${yW - ty}px)` }}>
-          <rect x={tx + 6} y={ty} width={tw - 12} height={th + 8} className="r-water" />
-          <rect x={tx + 6} y={ty} width={tw - 12} height={3} className="r-surface" />
+          <rect x={tx + 6} y={ty} width={tw - 12} height={th + 8} className="r-water" /><LiquidFx x={tx + 6} y={ty} w={tw - 12} h={th + 8} />
+          <LiqSurface x={tx + 6} y={ty} w={tw - 12} />
           {flow && <circle cx={inX} cy={ty + 2} r={7} className="r-splash" />}
         </g>
         {flow && stream('ins', inX, ty + 8, yBot, 4 + 4 * Math.min(1, qr))}
@@ -714,7 +714,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       <path key="cvweld" d={`M${ax + 62} ${ay - 30} V${ay + 40} M${ax + 118} ${ay - 30} V${ay + 40}`} className="r-weld" />,
       <rect key="cvm" x={ax + 78} y={ay - 40} width={24} height={11} rx={2} className="r-lid" />,
       <clipPath key="cc" id={`cuve${uid}`}><rect x={ax + 16} y={ay - 24} width={148} height={58} rx={29} /></clipPath>,
-      <g key="cvw" clipPath={`url(#cuve${uid})`}><g className="r-anim-level" style={{ transform: `translateY(${58 * (1 - fill)}px)` }}><rect x={ax + 16} y={ay - 24} width={148} height={60} className={liquidCls} /><rect x={ax + 16} y={ay - 24} width={148} height={3} className="r-surface" /></g>{flow && stream('cvs', ax + 40, ay - 26, ay + 30, 4)}</g>,
+      <g key="cvw" clipPath={`url(#cuve${uid})`}><g className="r-anim-level" style={{ transform: `translateY(${58 * (1 - fill)}px)` }}><rect x={ax + 16} y={ay - 24} width={148} height={60} className={liquidCls} /><LiqSurface x={ax + 16} y={ay - 24} w={148} /></g>{flow && stream('cvs', ax + 40, ay - 26, ay + 30, 4)}</g>,
       <path key="cvi" d={`M${ax} ${ay} H${ax + 4} V${ay - 40} H${ax + 40} V${ay - 26}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />,
       <path key="cl" d={`M${ax + 40} ${ay + 40} V${destG} M${ax + 140} ${ay + 40} V${destG}`} className="r-legs" />,
       <text key="ct" x={ax + 90} y={ay + 58} textAnchor="middle" className="r-note">Cuve</text>,
@@ -724,8 +724,8 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     destEls.push(
       <path key="pl" d={`M${ax} ${ay} V${destG + 30} H${ax + 12}`} stroke="#8a96a3" strokeWidth={10} className="r-pipe" />,
       <rect key="pb" x={ax + 10} y={destG} width={190} height={74} className="r-pitin" />,
-      <rect key="pw" x={ax + 12} y={py0} width={186} height={64} className="r-water" />,
-      <rect key="pws" x={ax + 12} y={py0} width={186} height={3} className="r-surface" />,
+      <g key="pw"><rect x={ax + 12} y={py0} width={186} height={64} className="r-water" /><LiquidFx x={ax + 12} y={py0} w={186} h={64} /></g>,
+      <LiqSurface key="pws" x={ax + 12} y={py0} w={186} />,
       <text key="pt" x={ax + 105} y={destG + 92} textAnchor="middle" className="r-label">Bassin · buse de refoulement</text>,
     );
     if (flow) destEls.push(
@@ -1122,4 +1122,16 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       </g>
     </svg>
   );
+}
+
+
+/** Surface d'un liquide : petites vagues claires et reflet juste dessous (les vagues ondulent doucement). */
+function LiqSurface({ x, y, w }: { x: number; y: number; w: number }) {
+  let d = `M${x} ${y + 2}`;
+  for (let k = 0; k + 14 <= w; k += 14) d += ' q3.5 -2.2 7 0 t7 0';
+  return <g className="r-surf"><rect x={x} y={y} width={w} height={9} className="r-surf-band" /><path d={d} className="r-surface" /></g>;
+}
+/** Profondeur d'un liquide vu en coupe : bords plus sombres (volume) et reflets de lumière. */
+function LiquidFx({ x, y, w, h }: { x: number; y: number; w: number; h: number }) {
+  return <><rect x={x} y={y} width={w} height={h} className="r-liq-light" /><rect x={x} y={y} width={w} height={h} className="r-liq-shade" /></>;
 }
