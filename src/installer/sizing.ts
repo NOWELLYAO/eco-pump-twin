@@ -6,7 +6,7 @@ import { aquiferOf } from './aquifer';
 import type { Installation, PumpMatId } from './types';
 import { BORE_SIZES, outletFor, sizeFor } from './borepump';
 
-const MOTORS = [0.37, 0.55, 0.75, 1.1, 1.5, 2.2, 3, 4, 5.5, 7.5, 9.2, 11, 15, 18.5, 22, 26, 30, 37, 45, 55, 75, 93, 110, 132, 150, 160, 185, 200, 250, 300];
+export const MOTORS = [0.37, 0.55, 0.75, 1.1, 1.5, 2.2, 3, 4, 5.5, 7.5, 9.2, 11, 15, 18.5, 22, 26, 30, 37, 45, 55, 75, 93, 110, 132, 150, 160, 185, 200, 250, 300];
 
 function pumpMaterial(d: Installation): PumpMatId {
   const f = d.fluid.type;

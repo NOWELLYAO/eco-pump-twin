@@ -6,7 +6,7 @@ import { ACC, ACCESSORIES, APPS, FLUIDS, PARTS, PIPE_MATS, PUMP_MATS, PUMP_TYPES
 import { isForage, losses, nRun, patm, pressureHead, pumpHead, pumpNpshr, solve, speedFor, staticHead, suctionZ, vaporPressure, type Hydro } from './hydraulics';
 import { effectiveStart, electrical, ensureElec, vessel as vesselCalc, vfdSet, type ElecResult } from './electrical';
 import { defaultsLeft } from './defaults';
-import { fitBore, proposePump } from './sizing';
+import { MOTORS, fitBore, proposePump } from './sizing';
 import { sizeFor, sizeLabel, sizeOf } from './borepump';
 import { backupApplies, backupCalc, backupMode, backupOf, backupProposal, floatKind, floatLow } from './backup';
 import type { Category, Fix, Installation, Issue, Need, Sev } from './types';
@@ -397,12 +397,25 @@ export function evaluate(input: Installation): Evaluation {
     }
     { // Gamme de la pompe de forage (3" mono … 12" tri) : débit et moteur dans les limites de la taille choisie
       const z = sizeOf(i);
-      if (i.pump.qn > z.qMax * 1.05 || i.pump.motorKw > z.kwMax) {
+      // Moteur saisi bien plus gros que ce que la pompe absorbe : c'est le moteur qu'il faut revoir, pas la taille de pompe
+      const kwNeed = MOTORS.find((m) => m >= Math.max(h.pShaft * 1.15, h.pShaftMax || 0)) ?? i.pump.motorKw;
+      if (h.ok && i.pump.qn <= z.qMax * 1.05 && i.pump.motorKw > z.kwMax && kwNeed <= z.kwMax) {
+        add({ id: 'motor_big', sev: 'warning', cat: 'electricite', title: `Moteur de ${f1(i.pump.motorKw)} kW bien trop gros pour cette pompe`,
+          detail: `La pompe n'absorbe que ${f1(h.pShaft, 2)} kW à son point de fonctionnement (${f1(h.pShaftMax || h.pShaft, 2)} kW au plus en bout de courbe) : un moteur de ${f1(kwNeed)} kW suffit, et il existe en ${z.inch}". Avec ${f1(i.pump.motorKw)} kW, il faudrait une pompe plus grosse, plus chère, et le moteur tournerait à faible charge (mauvais rendement, mauvais cos φ).`,
+          consequences: ['Pompe et coffret surdimensionnés et plus chers', 'Moteur à faible charge : rendement et cos φ dégradés', 'Câble et protections plus gros que nécessaire'], parts: ['moteur', 'coffret'],
+          solutions: [`Moteur de ${f1(kwNeed)} kW (pompe ${z.inch}")`, 'Vérifier la puissance sur la plaque ou la fiche de la pompe'],
+          fix: { label: `Moteur ${f1(kwNeed)} kW`, apply: (x) => ({ ...x, pump: { ...x.pump, motorKw: kwNeed } }) } });
+      } else if (i.pump.qn > z.qMax * 1.05 || i.pump.motorKw > z.kwMax) {
         const up = sizeFor(i.pump.qn, i.pump.motorKw, 9999);
-        add({ id: 'bore_range', sev: 'critical', cat: 'hydraulique', title: `Pas de pompe ${z.inch}" pour ce débit`,
-          detail: `Les pompes ${z.inch}" vont jusqu'à ${z.qMax} m³/h et ${z.kwMax} kW ; il faut ${f1(i.pump.qn)} m³/h et ${f1(i.pump.motorKw)} kW, soit une pompe ${up.inch}" (Ø${up.mm} mm, forage Ø${up.mm + 10} mm minimum).`,
-          consequences: ['Pompe introuvable chez les fabricants', 'Ou moteur hors gamme'], parts: ['moteur'],
-          solutions: [`Pompe ${sizeLabel(up)}`, 'Ou réduire le débit demandé'], fix: { label: `Pompe ${up.inch}"`, apply: (x) => fitBore({ ...x, pump: { ...x.pump, boreIn: up.inch } }) } });
+        const qOver = i.pump.qn > z.qMax * 1.05, kwOver = i.pump.motorKw > z.kwMax;
+        add({ id: 'bore_range', sev: 'critical', cat: 'hydraulique',
+          title: qOver && kwOver ? `Pas de pompe ${z.inch}" pour ce débit et cette puissance` : kwOver ? `Pas de moteur ${z.inch}" assez puissant` : `Pas de pompe ${z.inch}" pour ce débit`,
+          detail: kwOver && !qOver
+            ? `Le débit (${f1(i.pump.qn)} m³/h) tient dans une pompe ${z.inch}", mais pas la puissance : monter ${f1(i.pump.qn)} m³/h à ${f0(i.pump.hn)} m demande un moteur de ${f1(i.pump.motorKw)} kW, et les moteurs ${z.inch}" s'arrêtent à ${f1(z.kwMax)} kW. Il faut une pompe ${up.inch}" (Ø${up.mm} mm, forage Ø${up.mm + 10} mm minimum).`
+            : `Les pompes ${z.inch}" vont jusqu'à ${f0(z.qMax)} m³/h et ${f1(z.kwMax)} kW ; il faut ${f1(i.pump.qn)} m³/h${kwOver ? ` et ${f1(i.pump.motorKw)} kW` : ''}, soit une pompe ${up.inch}" (Ø${up.mm} mm, forage Ø${up.mm + 10} mm minimum).`,
+          consequences: kwOver && !qOver ? ['Moteur introuvable dans cette taille', 'Ou moteur sous-dimensionné qui chauffe et déclenche'] : ['Pompe introuvable chez les fabricants', 'Ou moteur hors gamme'], parts: ['moteur'],
+          solutions: [`Pompe ${sizeLabel(up)}`, ...(kwOver && !qOver ? ['Ou réduire la hauteur à fournir (pression demandée plus basse, conduite plus grosse)'] : []), 'Ou réduire le débit demandé'],
+          fix: { label: `Pompe ${up.inch}"`, apply: (x) => fitBore({ ...x, pump: { ...x.pump, boreIn: up.inch } }) } });
       }
       if (z.phase === 'mono' && i.elec.supply === 'tri') add({ id: 'bore_mono', sev: 'info', cat: 'electricite', title: 'Pompe 3" : moteur monophasé',
         detail: 'Les pompes 3" sont en 230 V monophasé (avec coffret de démarrage à condensateur).', consequences: [], parts: [], solutions: ['Alimentation 230 V'] });

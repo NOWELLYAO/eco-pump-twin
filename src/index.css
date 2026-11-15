@@ -1881,3 +1881,8 @@ html, body { overflow-x: clip; }
 .r-dirty ~ .r-liq-light, .r-oil ~ .r-liq-light { opacity: .5; }
 @media (prefers-reduced-motion: no-preference) { .r-surf .r-surface { animation: wave 3.2s ease-in-out infinite; } }
 @keyframes wave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-4px); } }
+/* Six onglets sur téléphone : ils tiennent toujours dans la largeur, même avec une grande taille de texte */
+@media (max-width: 760px) {
+  .pagenav button { min-width: 0; overflow: hidden; font-size: .64rem; padding-left: 1px; padding-right: 1px; }
+  .pagenav button span { max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
+}
