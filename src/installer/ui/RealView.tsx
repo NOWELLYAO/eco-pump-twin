@@ -130,7 +130,7 @@ function FloatSw({ px, py, waterY, L = 24, stuck, title }: { px: number; py: num
   );
 }
 
-export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[] }) {
+export function RealView({ i: i0, h, highlight = [], onPick, live, term, missingTags = true }: { i: Installation; h: Hydro; highlight?: string[]; onPick?: (t: string) => void; live?: Live; term?: TermLine[]; missingTags?: boolean }) {
   // Forage : niveau dynamique au débit réel de la pompe (si elle ne débite pas — panne —, on garde celui de l'essai)
   const i = h.q > 0.05 ? withAquifer(i0) : i0.geo.dynTest != null ? { ...i0, geo: { ...i0.geo, dynamicLevel: i0.geo.dynTest } } : i0;
   const svgRef = useRef<SVGSVGElement>(null);
@@ -1032,7 +1032,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term }: { i: 
     if (t === 'asp' && asp) hl.push(<path key="h-asp" d={path(asp)} className="hl-path" />);
     else if (t === 'ref') hl.push(<path key="h-ref" d={path(ref)} className="hl-path" />);
     else if (anchors[t]) { const a = anchors[t]; hl.push(<circle key={`h-${t}`} cx={a.x} cy={a.y} r={a.r ?? 34} className="hl-ring" />); }
-    else if (t.startsWith('acc:')) {
+    else if (t.startsWith('acc:') && missingTags) {
       const a = ACC[t.slice(4)];
       const base = a?.side === 'asp' && asp ? along(asp, polyLen(asp) / 2) : a?.side === 'ref' ? along(ref, polyLen(ref) * 0.55) : anchors.cable ?? anchors.pump;
       hl.push(<g key={`h-${t}`}><circle cx={base.x} cy={base.y} r={34} className="hl-ring ghost" /><text x={base.x} y={base.y - 42} textAnchor="middle" className="hl-txt">Manque : {a?.label ?? t}</text></g>);

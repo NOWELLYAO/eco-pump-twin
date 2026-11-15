@@ -12,7 +12,7 @@ import { DUTY0, PUMPS0 } from './ui/Wizard';
 
 export type SrcId = 'bache_charge' | 'bache_asp' | 'forage' | 'fosse' | 'riviere' | 'cuve_carb' | 'bassin';
 export type DestId = 'chateau' | 'batiment' | 'irrigation' | 'incendie' | 'egout' | 'cuve' | 'piscine';
-export type Zone = 'src' | 'asp' | 'pump' | 'ref' | 'dest' | 'ctrl' | 'energy';
+export type Zone = 'src' | 'asp' | 'pump' | 'ref' | 'dest' | 'ctrl' | 'energy' | 'scene';
 
 export const SOURCES: Record<SrcId, { label: string; desc: string; mode: ModeId; fluid: FluidId }> = {
   bache_charge: { label: 'Bâche au-dessus de la pompe', desc: 'Réservoir ou citerne dont l\'eau arrive seule dans la pompe (en charge).', mode: 'charge', fluid: 'eau_claire' },

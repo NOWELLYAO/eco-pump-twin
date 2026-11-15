@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type ReactNode } from 'react';
-import { AlertTriangle, ArrowDown, ArrowRight, Building2, CheckCircle2, Droplets, Factory, Flame, Fuel, Info, ListOrdered, Plus, PlugZap, Play, RotateCcw, Sparkles, Sprout, Sun, Trash2, Upload, Waves, Wrench, X, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, Play, Plus, RotateCcw, Sparkles, Trash2, Upload, Wrench, X } from 'lucide-react';
 import { ACC, ACCESSORIES, APPS, DN_LIST, FLUIDS, PIPE_MATS, PUMP_TYPES } from '../catalog';
 import { evaluate } from '../evaluate';
 import { vel } from '../hydraulics';
 import {
-  ASP_ORDER, DESTS, EMPTY_BUILD, ENERGIES, NEED_LABEL, REF_ORDER, SOURCES, autoPlace, derive, fromInstallation, inferApp, missing, needOf,
-  orderTips, pumpFitsSource, sortZone, whyNot, zoneOf, type Build, type BuildParams, type DestId, type SrcId, type Zone,
+  DESTS, EMPTY_BUILD, ENERGIES, NEED_LABEL, SOURCES, autoPlace, derive, fromInstallation, inferApp, missing, needOf,
+  pumpFitsSource, whyNot, zoneOf, type Build, type BuildParams, type DestId, type SrcId, type Zone,
 } from '../build';
 import type { AccState, FluidId, Installation, Need, PipeMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, SelField, Toggle } from './Fields';
-import { RealGlyph } from './Glyphs';
+import { RealView } from './RealView';
+import { AccArt, DestArt, EnergyArt, PumpArt, SrcArt, pumpShort } from './BuildArt';
 import { fmt } from '../../ui/util';
 
 type Item = { kind: 'src'; id: SrcId } | { kind: 'pump'; id: PumpTypeId } | { kind: 'dest'; id: DestId } | { kind: 'energy'; id: SupplyId } | { kind: 'acc'; id: string; from?: 'asp' | 'ref' | 'ctrl' };
@@ -18,9 +19,6 @@ type Msg = { text: string; lvl: 'ok' | 'warn' | 'bad' | 'info' } | null;
 const KEY = 'ecopump-chantier-v1';
 const load = (): Build => { try { const x = JSON.parse(localStorage.getItem(KEY) ?? 'null'); return x && Array.isArray(x.asp) ? { ...EMPTY_BUILD, ...x } : EMPTY_BUILD; } catch { return EMPTY_BUILD; } };
 
-const SRC_ICON: Record<SrcId, typeof Droplets> = { bache_charge: Droplets, bache_asp: Droplets, forage: ArrowDown, fosse: Waves, riviere: Waves, cuve_carb: Fuel, bassin: Waves };
-const DEST_ICON: Record<DestId, typeof Droplets> = { chateau: Factory, batiment: Building2, irrigation: Sprout, incendie: Flame, egout: ArrowDown, cuve: Fuel, piscine: Waves };
-const EN_ICON: Record<SupplyId, typeof Zap> = { mono: PlugZap, tri: Zap, groupe: Fuel, solaire: Sun };
 const short = (id: string) => ({
   clapet_pied: 'Clapet de pied', crepine: 'Crépine', vanne_asp: 'Vanne asp.', filtre_asp: 'Filtre en Y', prefiltre: 'Préfiltre', manchon_asp: 'Manchon', vacuometre: 'Vacuomètre', cone_exc: 'Cône exc.',
   cone_ref: 'Cône', manometre: 'Manomètre', manchon_ref: 'Manchon', clapet_ar: 'Clapet AR', clapet_boule: 'Clapet boule', vanne_ref: 'Vanne', debitmetre: 'Débitmètre', capteur_p: 'Capteur P',
@@ -30,19 +28,6 @@ const short = (id: string) => ({
   anti_vortex: 'Anti-vortex', essai: 'Circuit d\'essai', soupape_circ: 'Soupape circ.', diesel: 'Motopompe diesel', atex: 'ATEX',
 } as Record<string, string>)[id] ?? ACC[id]?.label ?? id;
 
-function AccIcon({ id, size = 34 }: { id: string; size?: number }) {
-  const g = ACC[id]?.glyph;
-  return <svg viewBox="-32 -50 64 84" width={size} height={size} aria-hidden className="bd-glyph">{g && <RealGlyph kind={g} />}</svg>;
-}
-function PumpIcon({ pt, size = 34 }: { pt: PumpTypeId; size?: number }) {
-  const imm = PUMP_TYPES[pt].modes.includes('immergee');
-  return (
-    <svg viewBox="0 0 40 40" width={size} height={size} aria-hidden className="bd-glyph">
-      {imm ? <><rect x="13" y="3" width="14" height="20" rx="3" className="g-motor" /><rect x="12" y="22" width="16" height="13" rx="3" className="g-blue" /><circle cx="20" cy="29" r="3" className="g-dark" /></>
-        : <><rect x="3" y="12" width="17" height="14" rx="3" className="g-motor" /><circle cx="28" cy="20" r="9" className="g-blue" /><circle cx="28" cy="20" r="3" className="g-dark" /><rect x="5" y="27" width="31" height="4" rx="1" className="g-dark" /></>}
-    </svg>
-  );
-}
 const NeedTag = ({ n }: { n: Need }) => <span className={`bd-need n-${n}`}>{NEED_LABEL[n]}</span>;
 
 export function BuildPage({ current, onCreate }: { current: Installation; onCreate: (i: Installation) => void }) {
@@ -122,7 +107,6 @@ export function BuildPage({ current, onCreate }: { current: Installation; onCrea
     for (let k = 0; k < 2; k++) { const ii = derive(nb); for (const a of ACCESSORIES) { const n = needOf(ii, a.id, nb); if ((n === 'required' || n === 'recommended') && !(a.id === 'variateur' && ii.elec.supply === 'solaire') && !(a.side === 'asp' && ii.mode === 'immergee')) nb = autoPlace(nb, a.id); } }
     setB(nb); say('Chantier complété : tous les accessoires obligatoires et conseillés sont posés, dans l\'ordre de montage.', 'ok');
   };
-  const tidy = () => { setB((x) => ({ ...x, asp: sortZone(x.asp, ASP_ORDER), ref: sortZone(x.ref, REF_ORDER) })); say('Accessoires rangés dans l\'ordre de montage conseillé.', 'ok'); };
 
   // ---------------- Glisser-déposer (souris et doigt) ----------------
   const [drag, setDrag] = useState<{ it: Item; x: number; y: number; over: { zone: Zone; index?: number } | null; label: string } | null>(null);
@@ -193,75 +177,82 @@ export function BuildPage({ current, onCreate }: { current: Installation; onCrea
     role: 'button' as const, tabIndex: 0,
   });
 
-  // ---------------- Palette ----------------
-  const accState = (id: string): { n: Need; on: boolean } => ({ n: needOf(i, id, b), on: placed.has(id) });
-  const pal = (title: string, children: ReactNode, open = false) => <details className="bd-pg" open={open}><summary>{title}</summary><div className="bd-pitems">{children}</div></details>;
-  // Les accessoires utiles ici d'abord (obligatoires, conseillés…), ceux qui ne servent pas à la fin
+  // ---------------- Palette : le catalogue du matériel ----------------
   const RANK: Record<Need, number> = { required: 0, recommended: 1, optional: 2, avoid: 3, na: 4 };
-  const accItems = (side: 'asp' | 'ref' | 'ctrl') => ACCESSORIES.filter((a) => a.side === side).sort((x, y) => RANK[side === 'asp' && imm ? 'na' : needOf(i, x.id, b)] - RANK[side === 'asp' && imm ? 'na' : needOf(i, y.id, b)]).map((a) => {
-    const s = accState(a.id); const off = s.n === 'na' || (side === 'asp' && imm);
-    return (
-      <div key={a.id} className={`bd-pi${off ? ' off' : ''}${s.on ? ' on' : ''}`} title={off ? whyNot(i, a.id, b) : a.desc} {...dragProps({ kind: 'acc', id: a.id }, short(a.id))}>
-        <AccIcon id={a.id} size={30} /><span><b>{short(a.id)}</b>{s.on ? <span className="bd-need n-on">posé</span> : <NeedTag n={off ? 'na' : s.n} />}</span>
-      </div>
-    );
-  });
+  const needHere = (id: string, side: string): Need => (side === 'asp' && imm ? 'na' : needOf(i, id, b));
+  const pal = (title: string, children: ReactNode, open = false) => <details className="bd-pg" open={open}><summary>{title}</summary><div className="bd-pitems">{children}</div></details>;
+  const card = (key: string, it: Item, label: string, art: ReactNode, opts: { on?: boolean; off?: boolean; tag?: ReactNode; title?: string } = {}) => (
+    <div key={key} className={`bd-pi${opts.off ? ' off' : ''}${opts.on ? ' on' : ''}`} title={opts.title} {...dragProps(it, label)}>
+      <div className="bd-pi-img">{art}</div>
+      <div className="bd-pi-t"><b>{label}</b>{opts.tag}</div>
+    </div>
+  );
+  const accItems = (side: 'asp' | 'ref' | 'ctrl') => ACCESSORIES.filter((a) => a.side === side)
+    .sort((x, y) => RANK[needHere(x.id, side)] - RANK[needHere(y.id, side)])
+    .map((a) => {
+      const n = needHere(a.id, side), on = placed.has(a.id), off = n === 'na';
+      return card(a.id, { kind: 'acc', id: a.id }, short(a.id), <AccArt id={a.id} />, { on, off, title: off ? whyNot(i, a.id, b) : a.desc, tag: on ? <span className="bd-need n-on">posé</span> : <NeedTag n={n} /> });
+    });
 
-  // ---------------- Chantier ----------------
-  const ins = (zone: 'asp' | 'ref' | 'ctrl', k: number) => drag?.over?.zone === zone && drag.over.index === k && drag.it.kind === 'acc' ? <span key={`ins${k}`} className="bd-ins" aria-hidden /> : null;
-  const chip = (id: string, zone: 'asp' | 'ref' | 'ctrl') => {
-    const n = needOf(i, id, b), bad = n === 'na' || (zone === 'asp' && imm), tip = orderTips(b).some((t) => t.ids.includes(id));
-    return (
-      <div key={id} data-chip className={`bd-chip${sel === `acc:${id}` ? ' sel' : ''}${bad ? ' bad' : n === 'avoid' ? ' warn' : tip ? ' tip' : ''}`} {...dragProps({ kind: 'acc', id, from: zone }, short(id), true)} title={bad ? whyNot(i, id, b) : ACC[id]?.label}>
-        <AccIcon id={id} /><span>{short(id)}</span>
-        {(bad || n === 'avoid') && <AlertTriangle size={13} className="bd-chip-w" aria-hidden />}
-        <button type="button" className="bd-x" aria-label={`Retirer ${ACC[id]?.label}`} onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); remove(id); }}><X size={12} /></button>
-      </div>
-    );
-  };
-  const zoneBox = (zone: 'asp' | 'ref' | 'ctrl', list: string[], empty: string) => (
-    <div className={`bd-zone z-${zone}${drag?.over?.zone === zone ? ' over' : ''}`} data-zone={zone}>
-      {list.length === 0 && !(drag?.over?.zone === zone) && <span className="bd-hint">{empty}</span>}
-      {list.map((id, k) => [ins(zone, k), chip(id, zone)])}
-      {ins(zone, list.length)}
-    </div>
-  );
-  const slot = (zone: 'src' | 'pump' | 'dest' | 'energy', filled: ReactNode | null, hint: string) => (
-    <div className={`bd-slot s-${zone}${filled ? ' full' : ''}${drag?.over?.zone === zone ? ' over' : ''}${sel === zone ? ' sel' : ''}`} data-zone={zone} onClick={() => filled && setSel(zone)} role={filled ? 'button' : undefined} tabIndex={filled ? 0 : undefined}>
-      {filled ?? <span className="bd-hint">{hint}</span>}
-    </div>
-  );
-  const SrcI = b.src ? SRC_ICON[b.src] : null, DestI = b.dest ? DEST_ICON[b.dest] : null, EnI = b.energy ? EN_ICON[b.energy] : null;
-  const pipe = (side: 'asp' | 'ref') => {
-    const r = i[side], v = vel(i.duty.qReq, r.dn);
-    return (
-      <button type="button" className={`bd-pipe${sel === `pipe:${side}` ? ' sel' : ''}${v > (side === 'asp' ? 1.5 : 2.5) ? ' warn' : ''}`} onClick={() => setSel(`pipe:${side}`)}>
-        {side === 'asp' ? 'Aspiration' : 'Refoulement'} · DN{r.dn} · {fmt(r.length, 0)} m <small>{fmt(v, 1)} m/s</small>
-      </button>
-    );
-  };
-  const tips = orderTips(b);
-  const miss = b.src && b.pump && b.dest ? missing(i, b) : [];
+  // ---------------- Le chantier : la vraie installation ----------------
   const ready = !!(b.src && b.pump && b.dest);
+  const pickT = (t: string) => {
+    if (t === 'source') setSel('src'); else if (t === 'pump') setSel('pump'); else if (t === 'dest') setSel('dest');
+    else if (t === 'asp') setSel('pipe:asp'); else if (t === 'ref') setSel('pipe:ref');
+    else if (t === 'cable' || t === 'grid' || t === 'gen' || t === 'pv') setSel(b.energy ? 'energy' : null);
+    else if (t.startsWith('acc:')) setSel(t as Sel);
+  };
+  const ELEC = ['coffret', 'variateur', 'marche_sec', 'coffret_inc', 'alim_inc', 'alarme_inc', 'atex'];
+  const selT = sel === 'src' ? 'source' : sel === 'pipe:asp' ? 'asp' : sel === 'pipe:ref' ? 'ref' : sel === 'energy' ? 'cable' : sel?.startsWith('acc:') && ELEC.includes(sel.slice(4)) ? 'cable' : sel;
+  const over = drag?.over?.zone;
+  // Avant que la source, la pompe et la destination soient posées : le terrain, avec leurs emplacements
+  const spot = (zone: 'src' | 'pump' | 'dest' | 'energy', x: number, y: number, w: number, h: number, art: ReactNode | null, hint: string) => (
+    <g data-zone={zone} className={`bd-spot${art ? ' full' : ''}${over === zone ? ' over' : ''}`} onClick={() => art && setSel(zone)}>
+      <rect x={x} y={y} width={w} height={h} rx="14" className="bd-spot-bg" />
+      {art ? <svg x={x + 6} y={y + 6} width={w - 12} height={h - 30} viewBox="0 0 120 80" preserveAspectRatio="xMidYMid meet">{art}</svg>
+        : <text x={x + w / 2} y={y + h / 2} textAnchor="middle" className="bd-spot-t">{hint}</text>}
+      {art && <text x={x + w / 2} y={y + h - 10} textAnchor="middle" className="bd-spot-l">{zone === 'src' ? SOURCES[b.src!].label : zone === 'pump' ? pumpShort(b.pump!) : zone === 'dest' ? DESTS[b.dest!].label : ENERGIES[b.energy!].label}</text>}
+    </g>
+  );
+  const unwrap = (n: ReactNode) => n; // les illustrations sont déjà des <svg>
+  const terrain = (
+    <svg viewBox="0 0 900 340" className="bd-terrain" role="img" aria-label="Terrain du chantier">
+      <rect x="0" y="0" width="900" height="210" className="r-sky" /><rect x="0" y="210" width="900" height="130" className="r-soil" />
+      <path d="M270 250 H360 M540 250 H620" className={`bd-tube${b.src && b.pump ? ' on' : ''}`} />
+      {spot('src', 30, 120, 240, 200, b.src ? unwrap(<SrcArt id={b.src} />) : null, 'Déposez la source d\'eau')}
+      {spot('pump', 360, 150, 180, 170, b.pump ? unwrap(<PumpArt pt={b.pump} />) : null, 'Déposez la pompe')}
+      {spot('dest', 620, 80, 250, 240, b.dest ? unwrap(<DestArt id={b.dest} />) : null, 'Déposez la destination')}
+      {spot('energy', 360, 14, 180, 120, b.energy ? unwrap(<EnergyArt id={b.energy} />) : null, 'Énergie')}
+    </svg>
+  );
+  const miss = ready ? missing(i, b) : [];
   const issues = ev.issues.filter((x) => x.sev !== 'info').slice(0, 4);
+  const posed = (zone: 'asp' | 'ref' | 'ctrl', title: string) => b[zone].length > 0 && (
+    <div className="bd-posed"><small>{title}</small><div>{b[zone].map((id) => {
+      const n = needOf(i, id, b), bad = n === 'na' || (zone === 'asp' && imm);
+      return (
+        <button key={id} type="button" className={`bd-tag${sel === `acc:${id}` ? ' sel' : ''}${bad ? ' bad' : n === 'avoid' ? ' warn' : ''}`} onClick={() => setSel(`acc:${id}`)} title={bad ? whyNot(i, id, b) : ACC[id]?.label}>
+          {short(id)}<span className="bd-x" role="button" aria-label={`Retirer ${ACC[id]?.label}`} onClick={(e) => { e.stopPropagation(); remove(id); }}><X size={11} /></span>
+        </button>
+      );
+    })}</div></div>
+  );
 
   return (
     <div className={`page-build${drag ? ' dragging' : ''}`}>
-      <p className="bd-intro">Glissez les éléments sur le chantier (ou touchez-les : ils se posent tout seuls à la bonne place). Touchez un élément posé pour le régler.</p>
+      <p className="bd-intro">Prenez le matériel dans le catalogue et faites-le glisser sur le chantier (ou touchez-le : il se monte tout seul à sa place). Touchez un équipement sur le dessin pour le régler.</p>
       <div className="bd-grid">
-        {/* Boîte à outils */}
-        <aside className="card bd-pal" aria-label="Boîte à outils">
-          <h3><Wrench size={16} aria-hidden /> Boîte à outils</h3>
-          {pal('1 · Source d\'eau', (Object.keys(SOURCES) as SrcId[]).map((id) => { const I = SRC_ICON[id]; return <div key={id} className={`bd-pi${b.src === id ? ' on' : ''}`} title={SOURCES[id].desc} {...dragProps({ kind: 'src', id }, SOURCES[id].label)}><I size={24} aria-hidden /><span><b>{SOURCES[id].label}</b></span></div>; }), !b.src)}
-          {pal('2 · Pompe', (Object.keys(PUMP_TYPES) as PumpTypeId[]).map((id) => { const ok = !b.src || pumpFitsSource(id, b.src); return <div key={id} className={`bd-pi${ok ? '' : ' off'}${b.pump === id ? ' on' : ''}`} title={ok ? PUMP_TYPES[id].desc : `Ne convient pas pour : ${SOURCES[b.src!].label.toLowerCase()}`} {...dragProps({ kind: 'pump', id }, PUMP_TYPES[id].label)}><PumpIcon pt={id} size={28} /><span><b>{PUMP_TYPES[id].label}</b></span></div>; }), !!b.src && !b.pump)}
-          {pal('3 · Destination', (Object.keys(DESTS) as DestId[]).map((id) => { const I = DEST_ICON[id]; return <div key={id} className={`bd-pi${b.dest === id ? ' on' : ''}`} title={DESTS[id].desc} {...dragProps({ kind: 'dest', id }, DESTS[id].label)}><I size={24} aria-hidden /><span><b>{DESTS[id].label}</b></span></div>; }), !!b.pump && !b.dest)}
-          {pal('4 · Accessoires d\'aspiration', accItems('asp'))}
-          {pal('5 · Accessoires de refoulement', accItems('ref'), ready)}
-          {pal('6 · Commande et sécurité', accItems('ctrl'))}
-          {pal('7 · Énergie', (Object.keys(ENERGIES) as SupplyId[]).map((id) => { const I = EN_ICON[id]; return <div key={id} className={`bd-pi${b.energy === id ? ' on' : ''}`} title={ENERGIES[id].desc} {...dragProps({ kind: 'energy', id }, ENERGIES[id].label)}><I size={24} aria-hidden /><span><b>{ENERGIES[id].label}</b></span></div>; }))}
+        <aside className="card bd-pal" aria-label="Catalogue du matériel">
+          <h3><Wrench size={16} aria-hidden /> Catalogue du matériel</h3>
+          {pal('Source d\'eau', (Object.keys(SOURCES) as SrcId[]).map((id) => card(id, { kind: 'src', id }, SOURCES[id].label, <SrcArt id={id} />, { on: b.src === id, title: SOURCES[id].desc })), !b.src)}
+          {pal('Pompes', (Object.keys(PUMP_TYPES) as PumpTypeId[]).map((id) => { const ok = !b.src || pumpFitsSource(id, b.src); return card(id, { kind: 'pump', id }, pumpShort(id), <PumpArt pt={id} />, { on: b.pump === id, off: !ok, title: ok ? PUMP_TYPES[id].desc : `Ne convient pas pour : ${SOURCES[b.src!].label.toLowerCase()}` }); }), !!b.src && !b.pump)}
+          {pal('Destination', (Object.keys(DESTS) as DestId[]).map((id) => card(id, { kind: 'dest', id }, DESTS[id].label, <DestArt id={id} />, { on: b.dest === id, title: DESTS[id].desc })), !!b.pump && !b.dest)}
+          {pal('Énergie', (Object.keys(ENERGIES) as SupplyId[]).map((id) => card(id, { kind: 'energy', id }, ENERGIES[id].label, <EnergyArt id={id} />, { on: b.energy === id, title: ENERGIES[id].desc })), ready && !b.energy)}
+          {!imm && pal('Aspiration', accItems('asp'))}
+          {pal('Refoulement', accItems('ref'), ready && !!b.energy)}
+          {pal('Commande et sécurité', accItems('ctrl'))}
         </aside>
 
-        {/* Le chantier */}
         <section className="card bd-site" aria-label="Chantier">
           <div className="bd-site-h">
             <h3>Mon chantier {ready && <small>· {APPS[app].label}</small>}</h3>
@@ -271,25 +262,18 @@ export function BuildPage({ current, onCreate }: { current: Installation; onCrea
             </span>
           </div>
           {msg && <div className={`bd-msg ${msg.lvl}`} role="status">{msg.lvl === 'bad' ? <X size={15} aria-hidden /> : msg.lvl === 'warn' ? <AlertTriangle size={15} aria-hidden /> : msg.lvl === 'ok' ? <CheckCircle2 size={15} aria-hidden /> : <Info size={15} aria-hidden />}<span>{msg.text}</span><button type="button" className="bd-x" onClick={() => setMsg(null)} aria-label="Fermer"><X size={12} /></button></div>}
-          <div className="bd-chain">
-            {slot('src', b.src && SrcI ? <><SrcI size={30} aria-hidden /><b>{SOURCES[b.src].label}</b><small>{FLUIDS[i.fluid.type].label}</small></> : null, 'Déposez une source d\'eau')}
-            <div className={`bd-seg${imm ? ' noasp' : ''}`}>
-              {imm ? <span className="bd-noasp">Pompe immergée : pas d'aspiration</span> : <>{pipe('asp')}{zoneBox('asp', b.asp, 'Accessoires d\'aspiration')}</>}
+          {ready ? (
+            <div className={`bd-scene${over === 'scene' ? ' over' : ''}`} data-zone="scene">
+              <RealView i={i} h={ev.hydro} highlight={selT ? [selT] : []} onPick={pickT} missingTags={false} />
+              {over === 'scene' && <div className="bd-drophint">Lâchez : l'équipement se monte à sa place</div>}
             </div>
-            <ArrowRight className="bd-arrow" size={18} aria-hidden />
-            {slot('pump', b.pump ? <><PumpIcon pt={b.pump} size={40} /><b>{PUMP_TYPES[b.pump].label}</b><small>{ready ? `${(i.pump.count ?? 1) > 1 ? `${i.pump.count} × ` : ''}${fmt(i.pump.qn, 1)} m³/h · ${fmt(i.pump.hn, 0)} m · ${fmt(i.pump.motorKw, i.pump.motorKw < 10 ? 2 : 1)} kW` : 'à dimensionner'}</small></> : null, 'Déposez la pompe')}
-            <div className="bd-seg">{pipe('ref')}{zoneBox('ref', b.ref, 'Accessoires de refoulement')}</div>
-            <ArrowRight className="bd-arrow" size={18} aria-hidden />
-            {slot('dest', b.dest && DestI ? <><DestI size={30} aria-hidden /><b>{DESTS[b.dest].label}</b><small>{fmt(i.duty.qReq, 1)} m³/h{i.duty.pRes > 0 ? ` · ${fmt(i.duty.pRes, 1)} bar` : ''}</small></> : null, 'Déposez la destination')}
-          </div>
-          <div className="bd-lower">
-            <div className="bd-lz"><h4>Commande et sécurité</h4>{zoneBox('ctrl', b.ctrl, 'Coffret, flotteurs, variateur…')}</div>
-            <div className="bd-lz e"><h4>Énergie</h4>{slot('energy', b.energy && EnI ? <><EnI size={24} aria-hidden /><b>{ENERGIES[b.energy].label}</b></> : null, 'Déposez la source d\'énergie')}</div>
-          </div>
-          {drag?.it.kind === 'acc' && drag.it.from && <p className="bd-trash"><Trash2 size={14} aria-hidden /> Lâchez hors du chantier pour retirer</p>}
+          ) : <div className="bd-scene">{terrain}</div>}
+          {ready && (b.asp.length + b.ref.length + b.ctrl.length > 0) && (
+            <div className="bd-posedall">{posed('asp', 'Aspiration')}{posed('ref', 'Refoulement')}{posed('ctrl', 'Commande et sécurité')}</div>
+          )}
+          {drag && ready && <p className="bd-trash"><Info size={14} aria-hidden /> Déposez n'importe où sur le dessin : l'application monte l'équipement au bon endroit.</p>}
         </section>
 
-        {/* Réglages et bilan */}
         <aside className="bd-side">
           {sel && <section className="card bd-cfg"><Config sel={sel} b={b} i={i} ev={ev} setP={setP} setAcc={setAcc} setB={setB} remove={remove} onClose={() => setSel(null)} /></section>}
           <section className="card bd-sum">
@@ -297,8 +281,8 @@ export function BuildPage({ current, onCreate }: { current: Installation; onCrea
             {!ready ? <ul className="bd-todo">{!b.src && <li>Posez une <b>source d'eau</b></li>}{!b.pump && <li>Posez une <b>pompe</b></li>}{!b.dest && <li>Posez une <b>destination</b></li>}</ul> : (
               <>
                 <div className={`bd-score lv-${ev.score >= 80 ? 'ok' : ev.score >= 55 ? 'warn' : 'bad'}`}><b>{ev.score}<small>/100</small></b><span>{ev.verdict.label}<small>{ev.hydro.ok ? `Point de fonctionnement : ${fmt(ev.hydro.q, 1)} m³/h à ${fmt(ev.hydro.h, 1)} m` : 'La pompe ne peut pas débiter'}</small></span></div>
+                {!b.energy && <p className="bd-warn small">Posez la source d'énergie (réseau, groupe ou solaire).</p>}
                 {miss.length > 0 && <div className="bd-block"><h5>Il manque</h5><div className="bd-adds">{miss.map((id) => <button key={id} type="button" className="btn sm" onClick={() => drop({ kind: 'acc', id })}><Plus size={13} aria-hidden /> {short(id)}</button>)}</div></div>}
-                {tips.length > 0 && <div className="bd-block"><h5><ListOrdered size={14} aria-hidden /> Ordre de montage</h5><ul className="bd-tips">{tips.map((t) => <li key={t.msg}>{t.msg}</li>)}</ul><button type="button" className="btn sm" onClick={tidy}><ListOrdered size={13} aria-hidden /> Ranger dans l'ordre conseillé</button></div>}
                 {issues.length > 0 && <div className="bd-block"><h5>À revoir</h5><ul className="bd-iss">{issues.map((x) => <li key={x.id} className={x.sev}>{x.title}</li>)}</ul></div>}
                 <div className="bd-acts">
                   <button type="button" className="btn" onClick={fill}><Sparkles size={15} aria-hidden /> Compléter automatiquement</button>
