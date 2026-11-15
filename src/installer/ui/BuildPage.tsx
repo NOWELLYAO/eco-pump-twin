@@ -10,6 +10,7 @@ import {
 import type { AccState, FluidId, Installation, Need, PipeMatId, PumpTypeId, StartId, SupplyId } from '../types';
 import { NumField, SelField, Toggle } from './Fields';
 import { RealView } from './RealView';
+import { RealDefs } from './RealDefs';
 import { AccArt, DestArt, EnergyArt, PumpArt, SrcArt, pumpShort } from './BuildArt';
 import { fmt } from '../../ui/util';
 
@@ -216,7 +217,7 @@ export function BuildPage({ current, onCreate }: { current: Installation; onCrea
   );
   const unwrap = (n: ReactNode) => n; // les illustrations sont déjà des <svg>
   const terrain = (
-    <svg viewBox="0 0 900 340" className="bd-terrain" role="img" aria-label="Terrain du chantier">
+    <svg viewBox="0 0 900 340" className="bd-terrain" role="img" aria-label="Terrain du chantier"><RealDefs />
       <rect x="0" y="0" width="900" height="210" className="r-sky" /><rect x="0" y="210" width="900" height="130" className="r-soil" />
       <path d="M270 250 H360 M540 250 H620" className={`bd-tube${b.src && b.pump ? ' on' : ''}`} />
       {spot('src', 30, 120, 240, 200, b.src ? unwrap(<SrcArt id={b.src} />) : null, 'Déposez la source d\'eau')}

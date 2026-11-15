@@ -11,6 +11,7 @@ import { REF_ORDER, aspGroups } from '../positions';
 import type { TermLine } from '../terminal';
 import type { Installation } from '../types';
 import { RealGlyph } from './Glyphs';
+import { RealDefs } from './RealDefs';
 
 type Pt = [number, number];
 const H = 560;
@@ -193,8 +194,18 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     // Niveau réel : dynamique (+ rabattement) en pompage, remonte vers le statique à l'arrêt
     // En marche : niveau dynamique ; à l'arrêt : remonte vers le statique, sauf si la nappe est rabattue (source qui se tarit)
     const yNow = live ? Math.min(bottomY - 6, live.lvl != null ? G + live.lvl * k : (live.on && !live.hum) || (live.dd ?? 0) > 0.05 ? yD + (live.dd ?? 0) * k : yS) : yD;
+    // Coupe géologique : terre végétale, latérite, argiles et sables secs, puis la nappe (sables / graviers ou socle fracturé)
+    const yAt = (m: number) => Math.min(H, G + m * k);
+    const sc = i.geo.screen, socle = sc?.formation === 'socle';
+    const mTop = Math.min(1.5, i.geo.staticLevel * 0.2), mLat = Math.max(mTop + 1, Math.min(i.geo.staticLevel * 0.55, 18));
+    const mAq = Math.max(mLat + 1, i.geo.staticLevel), mRock = socle ? mAq : Math.max(mAq + 2, i.geo.boreDepth * 0.88);
+    const layers: [number, number, string][] = [[0, mTop, 'r-l-top'], [mTop, mLat, 'r-l-lat'], [mLat, (mLat + mAq) / 2, 'r-l-clay'], [(mLat + mAq) / 2, mAq, 'r-l-sand'], ...(socle ? [] : [[mAq, mRock, 'r-l-aq'] as [number, number, string]]), [mRock, Math.max(mRock, i.geo.boreDepth * 2), 'r-l-rock']];
     scene.push(
-      <rect key="soil" x={0} y={G} width={W} height={H - G} className="r-soil" />,
+      <g key="strata">
+        {layers.filter(([a, c]) => yAt(c) > yAt(a)).map(([a, c, cls]) => <rect key={cls} x={0} y={yAt(a)} width={W} height={(c >= i.geo.boreDepth * 2 ? H : yAt(c)) - yAt(a)} className={cls} />)}
+        {layers.slice(1).map(([a]) => <path key={`e${a}`} d={`M0 ${yAt(a)} H${W}`} className="r-l-edge" />)}
+        <rect x={0} y={yAt(i.geo.staticLevel)} width={W} height={H - yAt(i.geo.staticLevel)} className="r-l-wet" />
+      </g>,
       <rect key="bore" x={150} y={G} width={90} height={bottomY - G} className="r-bore" />,
       <clipPath key="bc" id={`bore${uid}`}><rect x={152} y={G} width={86} height={bottomY - G} /></clipPath>,
       <g key="w" clipPath={`url(#bore${uid})`}>
@@ -351,6 +362,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       const ddPx = Math.min(G - wl - 10, (live?.dd ?? 0) * 40);
       scene.push(
         <rect key="tank" x={40} y={tankTop} width={190} height={G - tankTop} rx={6} className="r-tank" />,
+        <path key="tw" d={`M40 ${tankTop + (G - tankTop) / 3} H230 M40 ${tankTop + (2 * (G - tankTop)) / 3} H230 M103 ${tankTop} V${G} M167 ${tankTop} V${G}`} className="r-weld" />,
+        <rect key="tlid" x={34} y={tankTop - 6} width={202} height={8} rx={2} className="r-lid" />,
+        <rect key="tman" x={70} y={tankTop - 14} width={34} height={9} rx={2} className="r-lid" />,
         <clipPath key="tc" id={`bache${uid}`}><rect x={46} y={tankTop + 6} width={178} height={G - tankTop - 12} rx={3} /></clipPath>,
         <g key="liq" clipPath={`url(#bache${uid})`}>
           <g className="r-anim-level" style={{ transform: `translateY(${wl + ddPx - tankTop}px)` }}>
@@ -544,6 +558,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         <rect x={tx + tw / 2 - 4} y={ty - 12} width={8} height={6} rx={1} className="r-roof" />
       </g>,
       <rect key="t" x={tx} y={ty} width={tw} height={th} rx={8} className="r-tank" />,
+      <path key="tws" d={`M${tx} ${ty + th / 2} H${tx + tw} M${tx + tw / 3} ${ty} V${ty + th} M${tx + (2 * tw) / 3} ${ty} V${ty + th}`} className="r-weld" />,
       <clipPath key="dc" id={`dest${uid}`}><rect x={tx + 6} y={ty + 6} width={tw - 12} height={th - 12} rx={6} /></clipPath>,
     );
     const fill = live && live.kind === 'tank' ? Math.min(1.04, live.x) : 0.7;
@@ -695,7 +710,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
   } else if (dest === 'cuve') {
     const fill = live && live.kind === 'tank' ? Math.min(1, live.x) : 0.55;
     destEls.push(
-      <rect key="cv" x={ax + 10} y={ay - 30} width={160} height={70} rx={35} className="r-tank" />,
+      <rect key="cv" x={ax + 10} y={ay - 30} width={160} height={70} rx={35} className="r-tank-h" />,
+      <path key="cvweld" d={`M${ax + 62} ${ay - 30} V${ay + 40} M${ax + 118} ${ay - 30} V${ay + 40}`} className="r-weld" />,
+      <rect key="cvm" x={ax + 78} y={ay - 40} width={24} height={11} rx={2} className="r-lid" />,
       <clipPath key="cc" id={`cuve${uid}`}><rect x={ax + 16} y={ay - 24} width={148} height={58} rx={29} /></clipPath>,
       <g key="cvw" clipPath={`url(#cuve${uid})`}><g className="r-anim-level" style={{ transform: `translateY(${58 * (1 - fill)}px)` }}><rect x={ax + 16} y={ay - 24} width={148} height={60} className={liquidCls} /><rect x={ax + 16} y={ay - 24} width={148} height={3} className="r-surface" /></g>{flow && stream('cvs', ax + 40, ay - 26, ay + 30, 4)}</g>,
       <path key="cvi" d={`M${ax} ${ay} H${ax + 4} V${ay - 40} H${ax + 40} V${ay - 26}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />,
@@ -1086,6 +1103,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
 
   return (
     <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W * 0.68, ['--flow-t' as string]: `${flowT}s` }} className={`realview${live?.faults?.includes('ensablement') ? ' sandy' : ''}`} role="img" aria-label={`Vue réaliste de l'installation : ${APPS[i.app].label}`}>
+      <RealDefs />
       <rect x={0} y={0} width={W} height={G} className="r-sky" />
       <g {...pick('source')}>{scene}</g>
       <g {...pick('dest')}>{destEls}</g>

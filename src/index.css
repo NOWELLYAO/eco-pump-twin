@@ -371,33 +371,34 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .instcurve { min-width: 300px; padding: 4px 6px; }
 
 /* Vue réelle */
-.r-sky { fill: #eaf4fb; }
-.r-soil { fill: #d9c6a5; }
-.r-pitin { fill: #b9a586; }
-.r-bore { fill: #c4b08f; }
-.r-concrete { fill: #a7adb3; }
-.r-water { fill: #7cc0e8; opacity: .9; }
-.r-dirty { fill: #8d8a5e; opacity: .9; }
-.r-oil { fill: #c9a043; opacity: .9; }
+.r-sky { fill: url(#ep-sky) #eaf4fb; }
+.r-soil { fill: url(#ep-soil) #d9c6a5; }
+.r-pitin { fill: url(#ep-pitin) #b9a586; }
+.r-bore { fill: url(#ep-bore) #c4b08f; }
+.r-concrete { fill: url(#ep-concrete) #a7adb3; }
+.r-water { fill: url(#ep-water) #7cc0e8; opacity: .92; }
+.r-dirty { fill: url(#ep-dirty) #8d8a5e; opacity: .92; }
+.r-oil { fill: url(#ep-oil) #c9a043; opacity: .92; }
 .r-level { stroke: #1f6fa3; stroke-width: 1.5; }
 .r-level.dashed { stroke-dasharray: 5 4; }
 .r-casing { stroke: #5b6670; stroke-width: 4; }
-.r-tank { fill: #dfe6ec; stroke: #7b8791; stroke-width: 2; }
+.r-tank { fill: url(#ep-tank) #dfe6ec; stroke: #6f7c87; stroke-width: 2; }
+.r-tank-h { fill: url(#ep-tank-h) #dfe6ec; stroke: #6f7c87; stroke-width: 2; }
 .r-legs { stroke: #7b8791; stroke-width: 4; fill: none; }
-.r-building { fill: #e8dfd0; stroke: #a99a84; stroke-width: 2; }
+.r-building { fill: url(#ep-wall) #e8dfd0; stroke: #a99a84; stroke-width: 2; }
 .r-window { fill: #9cc7e4; }
 .r-ria { fill: #d03b3b; }
-.r-plinth { fill: #9aa3ab; }
+.r-plinth { fill: url(#ep-concrete) #9aa3ab; }
 .r-pipe { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .r-pipe-hl { fill: none; stroke: rgba(255,255,255,.35); stroke-linecap: round; stroke-linejoin: round; }
 .r-flow { fill: none; stroke: rgba(160, 220, 255, .85); stroke-dasharray: 6 12; animation: flow var(--flow-t, 1s) linear infinite; stroke-linecap: round; }
-.r-pumpbody { fill: #1689c6; stroke: #0d6699; stroke-width: 2; }
+.r-pumpbody { fill: url(#ep-pump) #1689c6; stroke: #0d6699; stroke-width: 2; }
 .r-hub { fill: #0d6699; }
-.r-motor { fill: #5d6b78; stroke: #3e4a55; stroke-width: 2; }
+.r-motor { fill: url(#ep-motor) #5d6b78; stroke: #3e4a55; stroke-width: 2; }
 .r-fin { fill: #4a5763; }
 .r-lantern { fill: #7b8791; }
-.r-stack { fill: #c9d1d8; stroke: #8995a0; stroke-width: 2; }
-.r-stainless { fill: #c9d1d8; stroke: #7f8b96; stroke-width: 1.5; }
+.r-stack { fill: url(#ep-steel) #c9d1d8; stroke: #8995a0; stroke-width: 2; }
+.r-stainless { fill: url(#ep-steel) #c9d1d8; stroke: #7f8b96; stroke-width: 1.5; }
 .r-seam { stroke: #8995a0; stroke-width: 1.2; }
 .r-jacket { fill: rgba(22,137,198,.15); stroke: #1689c6; stroke-width: 2; stroke-dasharray: 4 3; }
 .r-rails { stroke: #7b8791; stroke-width: 3; }
@@ -435,7 +436,7 @@ figcaption span { color: var(--muted); font-weight: 500; }
 .g-txt { font-size: 10px; font-weight: 800; fill: #fff; }
 .g-txt.dark { fill: #17242e; }
 @media (prefers-color-scheme: dark) {
-  .r-sky { fill: #182632; } .r-soil { fill: #4a3f30; } .r-pitin { fill: #3b3227; } .r-bore { fill: #3f3529; }
+  .r-sky { fill: url(#ep-sky-d) #182632; } .r-soil { fill: url(#ep-soil-d) #4a3f30; } .r-pitin { fill: #3b3227; } .r-bore { fill: #3f3529; }
   .r-dim path { stroke: #c4d1db; } .r-dim text, .r-note, .r-note text, .r-legend text { fill: #c4d1db; } .r-legend .r-title { fill: #e7eef3; }
   .r-label { fill: #e7eef3; stroke: rgba(16,23,29,.85); }
   .r-building { fill: #3a3a36; stroke: #6c6658; } .r-tank { fill: #2c3a46; stroke: #6f7f8c; }
@@ -1861,3 +1862,13 @@ html, body { overflow-x: clip; }
 @media (prefers-color-scheme: dark) { .bd-pi-img { background: linear-gradient(#1d2a35, #16212a); } .bd-spot-t, .bd-spot-l { fill: #c4d1db; } }
 @media (max-width: 1180px) { .bd-grid { grid-template-columns: 280px minmax(0, 1fr); } }
 @media (max-width: 760px) { .bd-grid { grid-template-columns: 1fr; } .bd-pitems { grid-template-columns: 1fr 1fr; } .bd-posed > small { min-width: 0; flex-basis: 100%; } }
+
+/* Couches du terrain autour du forage */
+.r-l-top { fill: url(#ep-topsoil) #8a6a46; } .r-l-lat { fill: url(#ep-laterite) #c47a4c; } .r-l-clay { fill: url(#ep-clay) #b9a585; }
+.r-l-sand { fill: url(#ep-sand) #e2cf9e; } .r-l-aq { fill: url(#ep-aquifer) #c9cdb4; } .r-l-rock { fill: url(#ep-rock) #8d8f8f; }
+.r-l-wet { fill: rgba(70, 150, 210, .16); }
+.r-l-edge { stroke: rgba(60, 45, 30, .35); stroke-width: 1; }
+.r-pack { fill: url(#ep-gravel) #b9b2a2; }
+.r-lid { fill: url(#ep-steel) #c9d1d8; stroke: #6f7c87; stroke-width: 1.5; }
+.r-weld { stroke: rgba(80, 92, 104, .35); stroke-width: 1; fill: none; }
+@media (prefers-color-scheme: dark) { .r-l-top, .r-l-lat, .r-l-clay, .r-l-sand, .r-l-aq, .r-l-rock { opacity: .7; } }
