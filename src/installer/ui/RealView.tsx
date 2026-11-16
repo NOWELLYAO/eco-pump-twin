@@ -984,7 +984,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     const px = forage ? boxX + 46 : pit ? boxX + 78 : boxX + 72, py = G - 112; // poteau planté à côté du coffret
     const v = live?.grid?.v;
     const off = live ? (v ?? 0) <= 0 : false;
-    anchors.grid = { x: px + 34, y: py + 36, r: 60 };
+    anchors.grid = { x: px + 22, y: py + 44, r: 60 };
     items.push(
       <g key="grid" {...pick('grid')}>
         <path d={`M${px - 22} ${py + 4} Q ${(px - 22 + boxX + 8) / 2} ${Math.max(py + 4, boxY - 30) + 14}, ${boxX + 8} ${boxY - 30}`} className={`r-acline${off ? ' off' : ''}`} />
@@ -995,7 +995,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
           <rect x={px + 5} y={py + 16} width={18} height={22} rx={3} className="r-transfo" />
         </g>
         {off && <g className="r-tbadge crit"><rect x={px + 34} y={py + 44} width={80} height={18} rx={9} /><text x={px + 74} y={py + 57} textAnchor="middle">COUPURE</text></g>}
-        <text x={px + 30} y={py - 4} className="r-label">{`Réseau ${i.elec.supply === 'tri' ? '400 V tri' : '230 V mono'}`}</text>
+        <text x={px + 22} y={py + 16} className="r-label">{`Réseau ${i.elec.supply === 'tri' ? '400 V tri' : '230 V mono'}`}</text>
       </g>,
     );
   }
