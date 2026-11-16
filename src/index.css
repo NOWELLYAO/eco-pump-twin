@@ -1887,3 +1887,28 @@ html, body { overflow-x: clip; }
   .pagenav button span { max-width: 100%; overflow-wrap: anywhere; hyphens: auto; }
 }
 .r-tie { fill: #1f2a33; }
+/* Équipements rendus en volume */
+.r-motor-b { fill: url(#ep-motor-b) #1f6fb8; stroke: #0f3f73; stroke-width: 1.5; }
+.r-rib { stroke: rgba(10, 40, 75, .45); stroke-width: 1.6; stroke-linecap: round; }
+.r-motor-flange { fill: #1a5d9c; }
+.r-fancover { fill: url(#ep-steel-v) #b9c3cc; stroke: #6c7884; stroke-width: 1.2; }
+.r-grille { stroke: #4a5763; stroke-width: 1.4; stroke-linecap: round; }
+.r-tbox { fill: url(#ep-motor-b) #1f6fb8; stroke: #0f3f73; stroke-width: 1.2; }
+.r-tbox-lid { fill: rgba(255,255,255,.25); }
+.r-gland { fill: #2b2f33; }
+.r-plate { fill: #e8edf1; stroke: #8995a0; stroke-width: .8; }
+.r-shaft { fill: #c9d1d8; }
+.r-frame { fill: url(#ep-steel-v) #7b8791; stroke: #4a5763; stroke-width: 1; }
+.r-bolt { fill: #d7dde2; stroke: #4a5763; stroke-width: .8; }
+.r-pumpfoot { fill: #0d6699; }
+.r-motorfoot { fill: #0f3f73; }
+.r-pflange { fill: #0c5f8f; stroke: #083f60; stroke-width: 1; }
+.r-volute-in { fill: rgba(255,255,255,.12); stroke: rgba(8,63,96,.5); stroke-width: 1.2; }
+.r-tierod { stroke: #9aa5af; stroke-width: 2; }
+.r-lantern { fill: url(#ep-steel-v) #7b8791; stroke: #4a5763; stroke-width: 1; }
+.g-brass { fill: url(#ep-brass) #d4a64a; stroke: #7a5a18; stroke-width: 1.1; }
+.g-brass-d { fill: #b98a2e; stroke: #6d4f12; stroke-width: 1; }
+.g-wheel { fill: #d63a2f; stroke: #8a1d16; stroke-width: 1.2; }
+.g-spoke { stroke: #8a1d16; stroke-width: 1.4; }
+.g-shine { stroke: rgba(255,255,255,.55); stroke-width: 1.4; stroke-linecap: round; }
+.g-boltc { fill: #d7dde2; }

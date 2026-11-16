@@ -44,6 +44,9 @@ export function RealDefs() {
       <linearGradient id="ep-steel" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stopColor="#8a96a1" /><stop offset=".35" stopColor="#eef2f5" /><stop offset=".7" stopColor="#b9c3cc" /><stop offset="1" stopColor="#7a8692" /></linearGradient>
       <linearGradient id="ep-motor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#7d8a96" /><stop offset=".35" stopColor="#5d6b78" /><stop offset="1" stopColor="#36414b" /></linearGradient>
       <linearGradient id="ep-pump" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#4fb3e6" /><stop offset=".5" stopColor="#1689c6" /><stop offset="1" stopColor="#0c5f8f" /></linearGradient>
+      <linearGradient id="ep-motor-b" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#3d8fd6" /><stop offset=".22" stopColor="#7cc0f0" /><stop offset=".45" stopColor="#2a7cc6" /><stop offset="1" stopColor="#0f3f73" /></linearGradient>
+      <linearGradient id="ep-steel-v" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#eef2f5" /><stop offset=".4" stopColor="#b9c3cc" /><stop offset="1" stopColor="#6c7884" /></linearGradient>
+      <linearGradient id="ep-brass" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#f3d27c" /><stop offset=".35" stopColor="#d9ab4c" /><stop offset="1" stopColor="#8f6820" /></linearGradient>
       <linearGradient id="ep-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#cfe7f7" /><stop offset="1" stopColor="#f2f8fc" /></linearGradient>
       <linearGradient id="ep-sky-d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#0f1a23" /><stop offset="1" stopColor="#1b2a36" /></linearGradient>
       {/* Bâtiment : enduit et joints de briques */}

@@ -41,13 +41,67 @@ function along(p: Pt[], d: number) {
 }
 const path = (p: Pt[]) => p.map((q, k) => `${k ? 'L' : 'M'}${q[0]} ${q[1]}`).join(' ');
 
+/** Assombrit (f < 0) ou éclaircit (f > 0) une couleur #rrggbb. */
+function shade(hex: string, f: number) {
+  const n = parseInt(hex.replace('#', '').padEnd(6, '0').slice(0, 6), 16);
+  const ch = (v: number) => Math.round(f < 0 ? v * (1 + f) : v + (255 - v) * f);
+  return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
+}
+/** Polyligne aux coudes arrondis (rayon r, limité par la longueur des tronçons). */
+function roundD(p: Pt[], r: number) {
+  if (p.length < 3) return path(p);
+  let d = `M${p[0][0]} ${p[0][1]}`;
+  for (let k = 1; k < p.length - 1; k++) {
+    const [a, b, c] = [p[k - 1], p[k], p[k + 1]];
+    const rr = Math.min(r, seglen(a, b) / 2, seglen(b, c) / 2);
+    const u = (q: Pt, t: number): Pt => { const l = seglen(b, q) || 1; return [b[0] + ((q[0] - b[0]) / l) * t, b[1] + ((q[1] - b[1]) / l) * t]; };
+    const [p1, p2] = [u(a, rr), u(c, rr)];
+    d += ` L${p1[0]} ${p1[1]} Q${b[0]} ${b[1]} ${p2[0]} ${p2[1]}`;
+  }
+  const z = p[p.length - 1];
+  return `${d} L${z[0]} ${z[1]}`;
+}
+/** Tube rendu en volume : bord sombre, corps, reflet clair et liseré brillant au centre. */
+export function Tube({ d, color, w }: { d: string; color: string; w: number }) {
+  return (
+    <g className="r-tube">
+      <path d={d} stroke={shade(color, -0.5)} strokeWidth={w + 2} className="r-pipe" />
+      <path d={d} stroke={color} strokeWidth={w} className="r-pipe" />
+      <path d={d} stroke={shade(color, 0.22)} strokeWidth={w * 0.55} className="r-pipe" />
+      <path d={d} stroke="rgba(255,255,255,.55)" strokeWidth={Math.max(1.2, w * 0.14)} className="r-pipe" />
+    </g>
+  );
+}
+/** Bride (ou manchon de raccord) posée perpendiculairement au tube, en (x, y), tube orienté selon l'angle a. */
+function Flange({ x, y, a, w, color }: { x: number; y: number; a: number; w: number; color: string }) {
+  return (
+    <g transform={`translate(${x},${y}) rotate(${a})`}>
+      <rect x={-2.5} y={-w / 2 - 3} width={5} height={w + 6} rx={1.2} fill={shade(color, -0.15)} stroke={shade(color, -0.55)} strokeWidth={1} />
+      <rect x={-1} y={-w / 2 - 2} width={1.2} height={w + 4} fill="rgba(255,255,255,.35)" />
+    </g>
+  );
+}
+
 function Pipe({ pts, mat, dn, flow }: { pts: Pt[]; mat: keyof typeof PIPE_MATS; dn: number; flow: boolean }) {
   const w = Math.max(8, Math.min(18, 6 + dn / 12));
+  const color = PIPE_MATS[mat].color;
+  const r = w * 1.6;
+  // Brides de part et d'autre de chaque coude (coude rapporté), et aux deux extrémités
+  const fl: { x: number; y: number; a: number }[] = [];
+  for (let k = 1; k < pts.length - 1; k++) {
+    const [a, b, c] = [pts[k - 1], pts[k], pts[k + 1]];
+    const rr = Math.min(r, seglen(a, b) / 2, seglen(b, c) / 2);
+    if (rr < 6) continue;
+    for (const q of [a, c]) {
+      const l = seglen(b, q) || 1, t = rr + 3;
+      fl.push({ x: b[0] + ((q[0] - b[0]) / l) * t, y: b[1] + ((q[1] - b[1]) / l) * t, a: (Math.atan2(q[1] - b[1], q[0] - b[0]) * 180) / Math.PI });
+    }
+  }
   return (
     <g>
-      <path d={path(pts)} stroke={PIPE_MATS[mat].color} strokeWidth={w} className="r-pipe" />
-      <path d={path(pts)} strokeWidth={Math.max(2, w / 4)} className="r-pipe-hl" transform={`translate(0,${-w / 5})`} />
-      {flow && <path d={path(pts)} strokeWidth={Math.max(2, w / 3)} className="r-flow" />}
+      <Tube d={roundD(pts, r)} color={color} w={w} />
+      {fl.map((f, k) => <Flange key={k} {...f} w={w} color={color} />)}
+      {flow && <path d={roundD(pts, r)} strokeWidth={Math.max(2, w / 3)} className="r-flow" />}
     </g>
   );
 }
@@ -67,29 +121,66 @@ function Dim({ x, y1, y2, label, side = 1, at = 0.5 }: { x: number; y1: number; 
 const fm = (v: number) => `${v.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m`;
 
 function SurfacePump({ x, y, atex }: { x: number; y: number; atex: boolean }) {
+  // Pompe centrifuge monobloc sur châssis : volute bleue (aspiration axiale à gauche, refoulement en haut),
+  // lanterne, moteur à ailettes avec boîte à bornes et capot de ventilateur
   return (
-    <g>
-      <rect x={x - 44} y={y + 26} width={180} height={14} rx={2} className="r-plinth" />
-      <rect x={x + 26} y={y - 20} width={98} height={40} rx={8} className="r-motor" />
-      {[0, 1, 2, 3, 4].map((k) => <rect key={k} x={x + 40 + k * 15} y={y - 20} width={6} height={40} className="r-fin" />)}
-      <rect x={x + 18} y={y - 13} width={14} height={26} className="r-lantern" />
-      <circle cx={x} cy={y} r={28} className="r-pumpbody" />
+    <g className="r-spump">
+      {/* Châssis acier sur massif béton, boulons d'ancrage */}
+      <rect x={x - 50} y={y + 34} width={194} height={10} rx={2} className="r-plinth" />
+      <rect x={x - 44} y={y + 26} width={182} height={9} rx={1.5} className="r-frame" />
+      {[x - 36, x + 22, x + 72, x + 128].map((bx) => <circle key={bx} cx={bx} cy={y + 30.5} r={2.2} className="r-bolt" />)}
+      {/* Pattes */}
+      <path d={`M${x - 16} ${y + 26} L${x - 10} ${y + 16} H${x + 10} L${x + 16} ${y + 26} Z`} className="r-pumpfoot" />
+      <path d={`M${x + 40} ${y + 26} V${y + 17} H${x + 56} V${y + 26} Z M${x + 92} ${y + 26} V${y + 17} H${x + 108} V${y + 26} Z`} className="r-motorfoot" />
+      {/* Moteur : carcasse à ailettes longitudinales */}
+      <rect x={x + 30} y={y - 22} width={92} height={44} rx={9} className="r-motor-b" />
+      {[-15, -9, -3, 3, 9, 15].map((dy) => <path key={dy} d={`M${x + 36} ${y + dy} H${x + 116}`} className="r-rib" />)}
+      <rect x={x + 30} y={y - 22} width={8} height={44} rx={3} className="r-motor-flange" />
+      {/* Capot de ventilateur (tôle ajourée) */}
+      <path d={`M${x + 121} ${y - 20} H${x + 132} Q${x + 140} ${y - 20}, ${x + 140} ${y - 10} V${y + 10} Q${x + 140} ${y + 20}, ${x + 132} ${y + 20} H${x + 121} Z`} className="r-fancover" />
+      {[-12, -6, 0, 6, 12].map((dy) => <path key={dy} d={`M${x + 125} ${y + dy} H${x + 136}`} className="r-grille" />)}
+      {/* Boîte à bornes et presse-étoupe */}
+      <rect x={x + 58} y={y - 34} width={30} height={13} rx={2} className="r-tbox" />
+      <rect x={x + 62} y={y - 31} width={22} height={4} rx={1} className="r-tbox-lid" />
+      <rect x={x + 88} y={y - 30} width={6} height={5} rx={1} className="r-gland" />
+      {/* Plaque signalétique */}
+      <rect x={x + 92} y={y - 9} width={16} height={10} rx={1} className="r-plate" />
+      {/* Lanterne / accouplement */}
+      <path d={`M${x + 18} ${y - 15} L${x + 31} ${y - 19} V${y + 19} L${x + 18} ${y + 15} Z`} className="r-lantern" />
+      <rect x={x + 22} y={y - 4} width={8} height={8} className="r-shaft" />
+      {/* Volute : corps en colimaçon, bride d'aspiration axiale, bride de refoulement */}
+      <path d={`M${x} ${y - 30} A30 30 0 1 1 ${x - 29} ${y + 8} L${x - 31} ${y - 6} Q${x - 28} ${y - 26}, ${x} ${y - 30} Z`} className="r-pumpbody" />
+      <path d={`M${x - 12} ${y - 26} V${y - 36} H${x + 12} V${y - 22} Q${x + 6} ${y - 30}, ${x - 12} ${y - 26} Z`} className="r-pumpbody" />
+      <rect x={x - 15} y={y - 41} width={30} height={6} rx={1.5} className="r-pflange" />
+      <circle cx={x} cy={y} r={17} className="r-volute-in" />
       <circle cx={x} cy={y} r={9} className="r-hub" />
-      <rect x={x - 12} y={y - 38} width={24} height={14} className="r-pumpbody" />
-      {atex && <g transform={`translate(${x + 75},${y - 34})`}><RealGlyph kind="atex" /></g>}
+      <rect x={x - 37} y={y - 13} width={6} height={26} rx={1.5} className="r-pflange" />
+      <circle cx={x + 22} cy={y - 18} r={2} className="r-bolt" />
+      {atex && <g transform={`translate(${x + 75},${y - 48})`}><RealGlyph kind="atex" /></g>}
     </g>
   );
 }
 
 function VerticalPump({ x, y, atex }: { x: number; y: number; atex: boolean }) {
+  // Pompe multicellulaire verticale : pied en ligne (aspiration et refoulement opposés), chemise inox,
+  // tirants, lanterne, moteur à ailettes et capot de ventilateur en haut
   return (
-    <g>
-      <rect x={x - 46} y={y + 14} width={92} height={12} rx={2} className="r-plinth" />
-      <rect x={x - 30} y={y - 14} width={60} height={28} rx={4} className="r-pumpbody" />
+    <g className="r-vpump">
+      <rect x={x - 50} y={y + 22} width={100} height={10} rx={2} className="r-plinth" />
+      <rect x={x - 32} y={y - 14} width={64} height={36} rx={5} className="r-pumpbody" />
+      <rect x={x - 38} y={y - 10} width={6} height={20} rx={1.5} className="r-pflange" />
+      <rect x={x + 32} y={y - 10} width={6} height={20} rx={1.5} className="r-pflange" />
+      {[x - 22, x + 22].map((bx) => <circle key={bx} cx={bx} cy={y + 16} r={2} className="r-bolt" />)}
       <rect x={x - 17} y={y - 110} width={34} height={96} rx={6} className="r-stack" />
       {[0, 1, 2, 3, 4].map((k) => <path key={k} d={`M${x - 17} ${y - 100 + k * 18} H${x + 17}`} className="r-seam" />)}
-      <rect x={x - 22} y={y - 180} width={44} height={70} rx={8} className="r-motor" />
-      {atex && <g transform={`translate(${x},${y - 145})`}><RealGlyph kind="atex" /></g>}
+      <path d={`M${x - 24} ${y - 112} V${y - 14} M${x + 24} ${y - 112} V${y - 14}`} className="r-tierod" />
+      <path d={`M${x - 26} ${y - 124} H${x + 26} L${x + 20} ${y - 110} H${x - 20} Z`} className="r-lantern" />
+      <rect x={x - 24} y={y - 182} width={48} height={60} rx={8} className="r-motor-b" />
+      {[-15, -8, -1, 6, 13].map((dx) => <path key={dx} d={`M${x + dx + 1} ${y - 176} V${y - 128}`} className="r-rib" />)}
+      <rect x={x + 24} y={y - 166} width={12} height={22} rx={2} className="r-tbox" />
+      <path d={`M${x - 20} ${y - 182} V${y - 192} Q${x - 20} ${y - 198}, ${x - 12} ${y - 198} H${x + 12} Q${x + 20} ${y - 198}, ${x + 20} ${y - 192} V${y - 182} Z`} className="r-fancover" />
+      {[-12, -6, 0, 6, 12].map((dx) => <path key={dx} d={`M${x + dx} ${y - 195} V${y - 184}`} className="r-grille" />)}
+      {atex && <g transform={`translate(${x},${y - 152})`}><RealGlyph kind="atex" /></g>}
     </g>
   );
 }
@@ -289,7 +380,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
           <ellipse cx={382} cy={G + 2} rx={26} ry={4} className="r-puddle" />
         </g>,
       ] : []),
-      <path key="inlet" d={`M0 ${G + 40} H114`} stroke="#8a96a3" strokeWidth={14} className="r-pipe" />,
+      <Tube key="inlet" d={`M0 ${G + 40} H114`} color="#8a96a3" w={14} />,
       ...(live?.kind === 'pit' && (live.inflow ?? 0) > 0.02 ? [
         <path key="inf" d={`M0 ${G + 40} H114`} className="r-flow slow" strokeWidth={4} />,
         <g key="infs" clipPath={`url(#pit${uid})`}><path d={`M118 ${G + 46} V${Math.max(G + 50, yWater)}`} className="r-stream-body" strokeWidth={5} /><path d={`M118 ${G + 46} V${Math.max(G + 50, yWater)}`} className="r-stream" strokeWidth={2.5} /></g>,
@@ -388,7 +479,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       if (on('amorcage') && i.mode === 'aspiration' && !vertical) {
         const tx = px - 78, ty = axisY - 118;
         els.push(
-          <path key="am-p" d={`M${tx + 15} ${ty + 44} V${axisY - 46} H${px - 4} V${axisY - 30}`} stroke="#8a96a3" strokeWidth={4} fill="none" className="r-pipe" />,
+          <Tube key="am-p" d={`M${tx + 15} ${ty + 44} V${axisY - 46} H${px - 4} V${axisY - 30}`} color="#8a96a3" w={4} />,
           <rect key="am-t" x={tx} y={ty} width={30} height={44} rx={4} className="r-tank r-obst" />,
           <rect key="am-w" x={tx + 3} y={ty + 10} width={24} height={31} rx={2} className={liquidCls} />,
           <text key="am-l" x={tx + 15} y={ty - 6} textAnchor="middle" className="r-label small">Réservoir d'amorçage</text>,
@@ -407,7 +498,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         // tout le retour qui traverserait le schéma)
         const xT = REF_END - 58;
         els.push(
-          <path key="te-p" d={`M${xT} 150 V238 H${xT - 26}`} stroke="#8a96a3" strokeWidth={4} fill="none" className="r-pipe" />,
+          <Tube key="te-p" d={`M${xT} 150 V238 H${xT - 26}`} color="#8a96a3" w={4} />,
           <path key="te-a" d={`M${xT - 26} 238 h-12 m6 -5 l-6 5 l6 5`} stroke="#5b6772" strokeWidth={2} fill="none" />,
           <g key="te-f" className="r-obst" transform={`translate(${xT},${190}) rotate(90)`}><RealGlyph kind="flowmeter" /></g>,
           <text key="te-l" x={xT - 44} y={242} textAnchor="end" className="r-label small">Essai → réserve</text>,
@@ -416,7 +507,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       if (on('jockey')) {
         const jx = REF_END - 235, jy = 204;
         els.push(
-          <path key="jk-p" d={`M${jx} ${jy - 10} V150`} stroke="#8a96a3" strokeWidth={3} className="r-pipe" />,
+          <Tube key="jk-p" d={`M${jx} ${jy - 10} V150`} color="#8a96a3" w={3} />,
           live?.jk ? <path key="jk-f" d={`M${jx} ${jy - 10} V150`} className="r-flow" strokeWidth={1.8} /> : null,
           <g key="jk" className={`r-obst${live?.jk ? ' r-jk-on' : ''}`}><circle cx={jx} cy={jy} r={9} className="r-pump-small" /><rect x={jx + 8} y={jy - 6} width={18} height={12} rx={2} className="r-motor" /></g>,
           <text key="jk-l" x={jx + 8} y={jy + 24} textAnchor="middle" className="r-label small">{live?.jk ? 'Pompe jockey · en marche' : 'Pompe jockey'}</text>,
@@ -471,10 +562,10 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
         <g key="bk" className="r-bk">
           <path d={`M${tx + 12} ${ty + th} L${tx + 4} ${destG} M${tx + tw - 12} ${ty + th} L${tx + tw - 4} ${destG} M${tx + 8} ${ty + th + 46} H${tx + tw - 8} M${tx + 10} ${ty + th + 4} L${tx + tw - 6} ${ty + th + 46} M${tx + tw - 10} ${ty + th + 4} L${tx + 6} ${ty + th + 46}`} className="r-legs" />
           {/* montée (remplissage) depuis un té sur la conduite de la maison */}
-          <path d={`M${teeIn} ${ay} V${ty + 12} H${tx + 8}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />
+          <Tube d={`M${teeIn} ${ay} V${ty + 12} H${tx + 8}`} color="#8a96a3" w={6} />
           {filling && <path d={`M${teeIn} ${ay} V${ty + 12} H${tx + 8}`} className="r-flow" strokeWidth={2.5} />}
           {/* descente (secours) avec clapet vers la maison */}
-          <path d={`M${teeOut} ${ty + th} V${ay}`} stroke="#8a96a3" strokeWidth={7} className="r-pipe" />
+          <Tube d={`M${teeOut} ${ty + th} V${ay}`} color="#8a96a3" w={7} />
           {feeding && <path d={`M${teeOut} ${ty + th} V${ay}`} className="r-flow" strokeWidth={3} />}
           <circle cx={teeIn} cy={ay} r={4} className="e-dot" /><circle cx={teeOut} cy={ay} r={4} className="e-dot" />
           <rect x={tx} y={ty} width={tw} height={th} rx={8} className="r-tank" />
@@ -490,7 +581,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
           <path d={`M${tx + 10} ${ty + 12} L${tx + 34} ${Math.max(ty + 12, yWb - 3)}`} className="r-arm" />
           <circle cx={tx + 36} cy={Math.max(ty + 12, yWb - 3)} r={5} className="g-float" />
           {/* trop-plein : descend le long du support ; coule si le robinet à flotteur ne ferme plus */}
-          <path d={`M${tx + tw} ${ty + 12} h8 V${destG - 2}`} stroke="#8a96a3" strokeWidth={3.5} fill="none" className="r-pipe" />
+          <Tube d={`M${tx + tw} ${ty + 12} h8 V${destG - 2}`} color="#8a96a3" w={3.5} />
           {live?.overflow && <path d={`M${tx + tw} ${ty + 12} h8 V${destG - 2}`} className="r-flow" strokeWidth={2} />}
           {live?.overflow && <ellipse cx={tx + tw + 8} cy={destG} rx={22} ry={4} className="r-puddle" />}
           {/* électrovanne normalement ouverte (tenue fermée par le coffret) puis clapet */}
@@ -519,7 +610,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       );
     }
     destEls.push(
-      <path key="hp" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} stroke="#8a96a3" strokeWidth={8} className="r-pipe" />,
+      <Tube key="hp" d={`M${ax} ${ay} H${hx + 30} V${hy + 40}`} color="#8a96a3" w={8} />,
       netFlow && (use > 0.05 || (flow && !bkSerie)) ? <path key="hpf" d={`M${bkSerie || (live?.bkFeed && !flow) ? ax + 142 : ax} ${ay} H${hx + 30} V${hy + 40}`} className="r-flow" strokeWidth={3} /> : null,
       <path key="roof" d={`M${hx - 10} ${hy} L${hx + 70} ${hy - 50} L${hx + 150} ${hy} Z`} className="r-roof" />,
       <rect key="house" x={hx} y={hy} width={140} height={90} className="r-building" />,
@@ -578,7 +669,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     // conduite d'arrivée qui monte et se déverse par le haut
     const inX = tx + 34;
     destEls.push(
-      <path key="inl" d={`M${ax} ${ay} H${tx - 6} V${ty - 14} H${inX} V${ty + 8}`} stroke="#8a96a3" strokeWidth={7} className="r-pipe" />,
+      <Tube key="inl" d={`M${ax} ${ay} H${tx - 6} V${ty - 14} H${inX} V${ty + 8}`} color="#8a96a3" w={7} />,
       flow ? <path key="inlf" d={`M${ax} ${ay} H${tx - 6} V${ty - 14} H${inX} V${ty + 8}`} className="r-flow" strokeWidth={3} /> : null,
       <g key="tw" clipPath={`url(#dest${uid})`}>
         <g className="r-anim-level" style={{ transform: `translateY(${yW - ty}px)` }}>
@@ -594,7 +685,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     // Départ par le fond du réservoir, descend jusque sous le sol puis part vers le village (à gauche, sous terre)
     const oX = tx + tw - 30;
     const outD = `M${oX} ${ty + th} V${destG + 16} H${tx - 40}`;
-    destEls.push(<path key="out" d={outD} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />);
+    destEls.push(<Tube key="out" d={outD} color="#8a96a3" w={6} />);
     if (usingOut) destEls.push(<path key="outf" d={outD} className="r-flow slow" strokeWidth={2.5} />);
     destEls.push(<text key="outl" x={tx - 46} y={destG + 20} textAnchor="end" className="r-label">{usingOut && live ? `vers le réseau · ${(Math.max(0, use) * i.duty.qReq * 0.55).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} m³/h` : 'vers le réseau'}</text>);
     if (on('flotteur_res')) {
@@ -623,7 +714,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     // colonne montante le long de la façade
     const rx = bx + 18;
     destEls.push(
-      <path key="col" d={`M${ax} ${ay} H${rx} V${top + 18}`} stroke="#a9b4bd" strokeWidth={7} className="r-pipe" />,
+      <Tube key="col" d={`M${ax} ${ay} H${rx} V${top + 18}`} color="#a9b4bd" w={7} />,
       netFlow && (use > 0.05 || flow) ? <path key="colf" d={`M${ax} ${ay} H${rx} V${top + 18}`} className="r-flow" strokeWidth={3} /> : null,
     );
     if (dest === 'batiment') {
@@ -644,7 +735,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       const rx2 = ax + 8, ry = destG - 52;
       const fireOn = live ? use > 0.02 : false;
       destEls.push(
-        <path key="riap" d={`M${ax} ${ay} V${ry + 12}`} stroke="#d03b3b" strokeWidth={6} className="r-pipe" />,
+        <Tube key="riap" d={`M${ax} ${ay} V${ry + 12}`} color="#d03b3b" w={6} />,
         <rect key="ria" x={rx2 - 4} y={ry - 8} width={40} height={42} rx={4} className="r-ria" />,
         <circle key="reel" cx={rx2 + 16} cy={ry + 13} r={13} className="r-reel" />,
         <text key="rl" x={rx2 + 16} y={ry - 14} textAnchor="middle" className="r-label">RIA</text>,
@@ -677,7 +768,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       destEls.push(<text key="bl" x={W - 6} y={top - 8} textAnchor="end" className="r-label">{live ? (use > 0.02 ? `Lance ouverte · ${Math.round(use * 100)} % du débit incendie` : 'Réseau en veille (sous pression)') : 'Réseau incendie'}</text>);
     }
   } else if (dest === 'irrigation') {
-    destEls.push(<path key="lat" d={`M${ax} ${ay} V${destG - 8} H${ax + 220}`} stroke="#2b2f33" strokeWidth={8} className="r-pipe" />);
+    destEls.push(<Tube key="lat" d={`M${ax} ${ay} V${destG - 8} H${ax + 220}`} color="#2b2f33" w={8} />);
     if (flow) destEls.push(<path key="latf" d={`M${ax} ${ay} V${destG - 8} H${ax + 220}`} className="r-flow" strokeWidth={3} />);
     for (let c = 0; c < 10; c++) destEls.push(<path key={`c${c}`} d={`M${ax + 10 + c * 22} ${destG} q4 -14 8 0 q4 -10 8 0`} className="r-crop" />);
     for (let k = 0; k < 3; k++) {
@@ -703,7 +794,7 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       <rect key="rgi" x={ax + 10} y={destG} width={50} height={ay - destG + 54} className="r-pitin" />,
       <rect key="rgw" x={ax + 10} y={ay + 38} width={50} height={16} className={liquidCls} />,
       <rect key="rgl" x={ax - 4} y={destG - 10} width={78} height={8} rx={2} className="r-plinth" />,
-      <path key="rgo" d={`M${ax + 60} ${ay + 46} H${W}`} stroke="#8a96a3" strokeWidth={10} className="r-pipe" />,
+      <Tube key="rgo" d={`M${ax + 60} ${ay + 46} H${W}`} color="#8a96a3" w={10} />,
     );
     if (flow) destEls.push(stream('rgs', ax + 14, ay, ay + 40, 5 + 4 * Math.min(1, qr)), <path key="rgof" d={`M${ax + 60} ${ay + 46} H${W}`} className="r-flow" strokeWidth={4} />);
     destEls.push(<text key="rgt" x={ax + 80} y={ay + 34} className="r-label">vers le réseau d'assainissement</text>);
@@ -715,14 +806,14 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
       <rect key="cvm" x={ax + 78} y={ay - 40} width={24} height={11} rx={2} className="r-lid" />,
       <clipPath key="cc" id={`cuve${uid}`}><rect x={ax + 16} y={ay - 24} width={148} height={58} rx={29} /></clipPath>,
       <g key="cvw" clipPath={`url(#cuve${uid})`}><g className="r-anim-level" style={{ transform: `translateY(${58 * (1 - fill)}px)` }}><rect x={ax + 16} y={ay - 24} width={148} height={60} className={liquidCls} /><LiqSurface x={ax + 16} y={ay - 24} w={148} /></g>{flow && stream('cvs', ax + 40, ay - 26, ay + 30, 4)}</g>,
-      <path key="cvi" d={`M${ax} ${ay} H${ax + 4} V${ay - 40} H${ax + 40} V${ay - 26}`} stroke="#8a96a3" strokeWidth={6} className="r-pipe" />,
+      <Tube key="cvi" d={`M${ax} ${ay} H${ax + 4} V${ay - 40} H${ax + 40} V${ay - 26}`} color="#8a96a3" w={6} />,
       <path key="cl" d={`M${ax + 40} ${ay + 40} V${destG} M${ax + 140} ${ay + 40} V${destG}`} className="r-legs" />,
       <text key="ct" x={ax + 90} y={ay + 58} textAnchor="middle" className="r-note">Cuve</text>,
     );
   } else if (dest === 'bassin') {
     const py0 = destG + 8;
     destEls.push(
-      <path key="pl" d={`M${ax} ${ay} V${destG + 30} H${ax + 12}`} stroke="#8a96a3" strokeWidth={10} className="r-pipe" />,
+      <Tube key="pl" d={`M${ax} ${ay} V${destG + 30} H${ax + 12}`} color="#8a96a3" w={10} />,
       <rect key="pb" x={ax + 10} y={destG} width={190} height={74} className="r-pitin" />,
       <g key="pw"><rect x={ax + 12} y={py0} width={186} height={64} className="r-water" /><LiquidFx x={ax + 12} y={py0} w={186} h={64} /></g>,
       <LiqSurface key="pws" x={ax + 12} y={py0} w={186} />,
@@ -817,7 +908,9 @@ export function RealView({ i: i0, h, highlight = [], onPick, live, term, missing
     const cableD = forage
       ? `M${boxX} ${boxY + 28} V${G - 19} H${186} V${forageTop - 6} Q 178 ${forageTop}, 178 ${forageTop + 10} V${forageMotor} H${183}`
       : pit ? `M${boxX} ${boxY + 28} V${G - 3} H220` // posé sur la dalle jusqu'au regard, puis descend le long des barres
-      : `M${boxX} ${boxY + 28} V${G - 3} H${pxp + 70} V${pyp}`; // posé au sol, remonte au bornier de la pompe
+      : vertical0 // posé au sol, contourne la pompe et rejoint la boîte à bornes du moteur
+        ? `M${boxX} ${boxY + 28} V${G - 3} H${pxp + 44} V${pyp - 155} H${pxp + 36}`
+        : `M${boxX} ${boxY + 28} V${G - 3} H${pxp + 150} V${pyp - 27} H${pxp + 94}`;
     items.push(<g key="cof" {...pick('cable')}><path d={cableD} className="r-cablepath" />{Array.from({ length: tieN }).map((_, k) => <rect key={`tie${k}`} x={184} y={G + 14 + k * 34} width={14} height={3} rx={1} className="r-tie" />)}{boxY + 28 < G - 4 && <path d={`M${boxX - 12} ${boxY + 28} V${G} M${boxX + 12} ${boxY + 28} V${G}`} className="r-pole" />}<g className="r-obst" transform={`translate(${boxX},${boxY})`}><RealGlyph kind="panel" /></g><text x={boxX} y={boxY - 36} textAnchor="middle" className="r-label">Coffret</text></g>);
   }
   const isSolar = i.elec?.supply === 'solaire';

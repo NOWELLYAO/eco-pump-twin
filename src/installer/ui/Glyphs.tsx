@@ -4,11 +4,11 @@ import type { Glyph } from '../catalog';
 export function RealGlyph({ kind }: { kind: Glyph }) {
   switch (kind) {
     case 'gate':
-      return (<g><path d="M-14 -11 L0 0 L-14 11 Z M14 -11 L0 0 L14 11 Z" className="g-metal" /><rect x="-2" y="-26" width="4" height="16" className="g-dark" /><ellipse cx="0" cy="-27" rx="11" ry="3.5" className="g-red" /></g>);
+      return (<g><rect x="-17" y="-12" width="4" height="24" rx="1" className="g-brass-d" /><rect x="13" y="-12" width="4" height="24" rx="1" className="g-brass-d" /><path d="M-13 -8 H13 V8 H-13 Z" className="g-brass" /><path d="M-7 -8 L-5 -16 H5 L7 -8 Z" className="g-brass" /><rect x="-1.5" y="-26" width="3" height="11" className="g-dark" /><ellipse cx="0" cy="-27" rx="12" ry="4" className="g-wheel" /><path d="M-12 -27 H12 M0 -31 V-23" className="g-spoke" /><circle cx="0" cy="-27" r="1.8" className="g-dark" /><path d="M-11 -4 H11" className="g-shine" /></g>);
     case 'check':
-      return (<g><rect x="-15" y="-11" width="30" height="22" rx="5" className="g-metal" /><path d="M-6 -5 L6 0 L-6 5 Z" className="g-arrow" /><rect x="-17" y="-13" width="4" height="26" rx="1" className="g-dark" /><rect x="13" y="-13" width="4" height="26" rx="1" className="g-dark" /></g>);
+      return (<g><rect x="-17" y="-14" width="5" height="28" rx="1.2" className="g-dark" /><rect x="12" y="-14" width="5" height="28" rx="1.2" className="g-dark" /><rect x="-12" y="-11" width="24" height="22" rx="5" className="g-metal" /><path d="M-8 -16 H8 V-11 H-8 Z" className="g-metal" /><path d="M-6 -4 L6 0 L-6 4 Z" className="g-arrow" /><circle cx="-14.5" cy="-10" r="1.2" className="g-boltc" /><circle cx="-14.5" cy="10" r="1.2" className="g-boltc" /><circle cx="14.5" cy="-10" r="1.2" className="g-boltc" /><circle cx="14.5" cy="10" r="1.2" className="g-boltc" /><path d="M-10 -6 H10" className="g-shine" /></g>);
     case 'ball':
-      return (<g><rect x="-15" y="-10" width="30" height="20" rx="4" className="g-metal" /><circle cx="2" cy="-5" r="9" className="g-metal" /><circle cx="2" cy="-5" r="4" className="g-dark" /></g>);
+      return (<g><rect x="-15" y="-8" width="6" height="16" rx="1.5" className="g-brass-d" /><rect x="9" y="-8" width="6" height="16" rx="1.5" className="g-brass-d" /><rect x="-10" y="-11" width="20" height="22" rx="6" className="g-brass" /><rect x="-1.5" y="-19" width="3" height="8" className="g-dark" /><path d="M-1 -19 L-15 -23 V-18 L-1 -16 Z" className="g-wheel" /><path d="M-8 -5 H8" className="g-shine" /></g>);
     case 'foot':
       return (<g><rect x="-11" y="-18" width="22" height="30" rx="3" className="g-metal" /><path d="M-11 -8 H11 M-11 -1 H11 M-11 6 H11 M-5 -18 V12 M2 -18 V12" className="g-mesh" /><rect x="-13" y="-22" width="26" height="6" rx="2" className="g-dark" /></g>);
     case 'strainer':
